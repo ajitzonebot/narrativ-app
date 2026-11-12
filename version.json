@@ -1,10 +1,60 @@
 {
- "versionCode": 10,
- "versionName": "1.1.0",
+ "versionCode": 11,
+ "versionName": "2.0.0",
  "date": "2026-11-12",
- "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v1.1.0-b10/narrativ-v1.1.0-b10.apk",
- "sizeMb": 10.6,
+ "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.0.0-b11/narrativ-v2.0.0-b11.apk",
+ "sizeMb": 10.7,
  "changelog": [
+  {
+   "version": "2.0.0",
+   "date": "2026-11-12",
+   "changes": [
+    {
+     "type": "new",
+     "text": "New 7-level funnel: Company survivability, Business quality, Business valuation, Management evaluation, Momentum analysis, Discovery stage, Future outlook. Every level has 5 colour-coded tiers and a rubric of checks"
+    },
+    {
+     "type": "new",
+     "text": "Rule-built verdict for every stock (Prime candidate, Early story, Undervalued quality, Momentum play, Quality priced in, Value watch, Watchlist) with a one-paragraph statement made from the checks, no AI text"
+    },
+    {
+     "type": "new",
+     "text": "Stock screen: Summary plus one swipeable tab per level. Summary has the chart, funnel ratings, analyst target (only when one exists), 8 key ratios, standouts and the trade setup"
+    },
+    {
+     "type": "new",
+     "text": "Valuation by business type: banks and NBFCs on P/B vs ROE, cyclicals on mid-cycle EBITDA, loss-makers on EV/sales, others on P/E or EV/EBITDA, against own history, peers and the growth the price implies"
+    },
+    {
+     "type": "new",
+     "text": "Entry setups: Breakout, Pullback or Base, with stop, add-above level, size for 1% risk and reward/risk to the analyst target. Flags when the entry is above the target"
+    },
+    {
+     "type": "new",
+     "text": "Home: wave funnel from Listed to Outlook with counts, then verdict sections with 7-level colour bars on each card"
+    },
+    {
+     "type": "new",
+     "text": "Money movement: market mood index (0-100, fear to greed) from India VIX, Nifty vs 200-day, breadth, 52-week highs/lows and advance/decline, plus the rotation map, money flowing in and out, and top picks in rising industries"
+    },
+    {
+     "type": "new",
+     "text": "Screener: filter by minimum tier on any level, discovery stage, setup, market cap, industry; show removed stocks with the level and reason; save filters"
+    },
+    {
+     "type": "imp",
+     "text": "Scan button shows its state: Request deep scan, Request full scan, Refresh scan, Scan queued, or scanned recently"
+    },
+    {
+     "type": "imp",
+     "text": "Settings: what's new, updates, checkpoint calendar with verdict changes, everything you sent from this phone, data sources"
+    },
+    {
+     "type": "fix",
+     "text": "Old exclusion rules (thin margin, penny, illiquid, already ran, broken trend) no longer remove stocks; only the funnel levels do, and missing data never removes"
+    }
+   ]
+  },
   {
    "version": "1.1.0",
    "date": "2026-11-12",
