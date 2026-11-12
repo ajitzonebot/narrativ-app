@@ -1,8 +1,8 @@
 {
- "versionCode": 14,
+ "versionCode": 15,
  "versionName": "2.0.0",
  "date": "2026-11-12",
- "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.0.0-b14/narrativ-v2.0.0-b14.apk",
+ "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.0.0-b15/narrativ-v2.0.0-b15.apk",
  "sizeMb": 10.7,
  "changelog": [
   {
@@ -56,6 +56,10 @@
     {
      "type": "fix",
      "text": "Old exclusion rules (thin margin, penny, illiquid, already ran, broken trend) no longer remove stocks; only the funnel levels do, and missing data never removes"
+    },
+    {
+     "type": "fix",
+     "text": "App crashed on launch (a colour helper called itself in a loop)"
     }
    ]
   },
