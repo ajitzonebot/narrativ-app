@@ -1,0 +1,87 @@
+{
+ "versionCode": 9,
+ "versionName": "1.1.0",
+ "date": "2026-11-12",
+ "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v1.1.0-b9/narrativ-v1.1.0-b9.apk",
+ "sizeMb": 10.6,
+ "changelog": [
+  {
+   "version": "1.1.0",
+   "date": "2026-11-12",
+   "changes": [
+    {
+     "type": "new",
+     "text": "Home has two modes: Top-down (sector and industry rotation map, best value stock in each rising industry) and Bottom-up"
+    },
+    {
+     "type": "new",
+     "text": "Bottom-up short term: trend turning up plus analyst consensus 20%+ above price, with broker count and freshness"
+    },
+    {
+     "type": "new",
+     "text": "Long-term sections: Undiscovered value, Beaten-up value, GARP, Multibagger potential, Hidden value"
+    },
+    {
+     "type": "new",
+     "text": "Stock Summary tab: scorecard, hidden-value metrics, analyst consensus (only when it exists), Bull/Base/Bear for scanned stocks"
+    },
+    {
+     "type": "imp",
+     "text": "Every financial number is computed from company filings on NSE; tap any value to see its formula, inputs and the filing. A dash means it could not be computed"
+    },
+    {
+     "type": "imp",
+     "text": "Feedback and deep-scan requests are sent from inside the app"
+    },
+    {
+     "type": "imp",
+     "text": "No market-cap upper limit; trade bands no longer show a computed target"
+    }
+   ]
+  },
+  {
+   "version": "1.0.1",
+   "date": "2026-11-11",
+   "changes": [
+    {
+     "type": "imp",
+     "text": "Undervalued lens ranks by overall score and skips P/E below 5 (one-offs and distressed stocks)"
+    },
+    {
+     "type": "fix",
+     "text": "Timeline dates show as month and year (e.g. May '26)"
+    },
+    {
+     "type": "fix",
+     "text": "Results checkpoints show the announced board-meeting source instead of the SEBI deadline"
+    },
+    {
+     "type": "imp",
+     "text": "Update popup lists only changes since your installed version"
+    }
+   ]
+  },
+  {
+   "version": "1.0.0",
+   "date": "2026-11-11",
+   "changes": [
+    {
+     "type": "new",
+     "text": "First release: Home lenses, Discover, stock page with entry and exit bands"
+    },
+    {
+     "type": "new",
+     "text": "Promises vs actuals timeline with verified source quotes"
+    },
+    {
+     "type": "new",
+     "text": "Upcoming checkpoints, memory of dropped stocks, excluded lookup"
+    },
+    {
+     "type": "new",
+     "text": "Feedback button on every screen and in-app update check"
+    }
+   ]
+  }
+ ]
+}
