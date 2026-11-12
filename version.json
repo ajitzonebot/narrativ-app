@@ -1,8 +1,8 @@
 {
- "versionCode": 11,
+ "versionCode": 14,
  "versionName": "2.0.0",
  "date": "2026-11-12",
- "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.0.0-b11/narrativ-v2.0.0-b11.apk",
+ "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.0.0-b14/narrativ-v2.0.0-b14.apk",
  "sizeMb": 10.7,
  "changelog": [
   {
@@ -24,6 +24,10 @@
     {
      "type": "new",
      "text": "Valuation by business type: banks and NBFCs on P/B vs ROE, cyclicals on mid-cycle EBITDA, loss-makers on EV/sales, others on P/E or EV/EBITDA, against own history, peers and the growth the price implies"
+    },
+    {
+     "type": "new",
+     "text": "Event watch on researched stocks: every exchange announcement is stored and typed (red: default, insolvency, auditor exit, raid, regulatory action, fraud, downgrade, pledge invoked, CFO/CEO/MD exit; green: orders, capacity, approvals, upgrades, corporate actions). New red or green filings, due must-go-right / kill-switch dates and price shocks send the stock back to Claude for a re-check. Shown under Outlook > Announcements; red filings in the last 45 days also show on Summary"
     },
     {
      "type": "new",
