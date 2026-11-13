@@ -1,10 +1,28 @@
 {
- "versionCode": 16,
- "versionName": "2.0.0",
- "date": "2026-11-12",
- "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.0.0-b16/narrativ-v2.0.0-b16.apk",
+ "versionCode": 17,
+ "versionName": "2.1.0",
+ "date": "2026-11-13",
+ "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.1.0-b17/narrativ-v2.1.0-b17.apk",
  "sizeMb": 10.7,
  "changelog": [
+  {
+   "version": "2.1.0",
+   "date": "2026-11-13",
+   "changes": [
+    {
+     "type": "new",
+     "text": "8 red-flag checks now filled for every NSE company from 24 months of exchange announcements: loan default, insolvency, rating downgrade or withdrawal, regulator order or penalty, search or fraud, statutory auditor resignation, CFO + CEO exits, leadership changes"
+    },
+    {
+     "type": "new",
+     "text": "A flagged check shows the filing date and subject with an 'Open filing' link. Flags come from the subject line only, so they are marked watch, never an automatic removal"
+    },
+    {
+     "type": "improved",
+     "text": "Filed financials now cover 1,919 of 2,532 companies (was 549); the daily update runs in about half the time"
+    }
+   ]
+  },
   {
    "version": "2.0.0",
    "date": "2026-11-12",
