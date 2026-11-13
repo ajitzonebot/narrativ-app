@@ -1,10 +1,32 @@
 {
- "versionCode": 18,
- "versionName": "2.2.0",
+ "versionCode": 19,
+ "versionName": "2.3.0",
  "date": "2026-11-13",
- "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.2.0-b18/narrativ-v2.2.0-b18.apk",
+ "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.3.0-b19/narrativ-v2.3.0-b19.apk",
  "sizeMb": 10.7,
  "changelog": [
+  {
+   "version": "2.3.0",
+   "date": "2026-11-13",
+   "changes": [
+    {
+     "type": "new",
+     "text": "Decision view: Strong Buy, Buy, Hold, Sell, Strong Sell (or Not rated until research finds a forward driver). Rule-built from filed numbers and quote-checked research, every reason listed on the stock page"
+    },
+    {
+     "type": "new",
+     "text": "Decision counts on Home (tap to list) and a decision filter in the screener; decision chip on cards and lists"
+    },
+    {
+     "type": "improved",
+     "text": "Level 1 renamed Stability (tiers: Rock solid, Strong, Steady, Fragile, Distressed)"
+    },
+    {
+     "type": "improved",
+     "text": "Claude research now works from GitHub-prepared packs: forward drivers, guidance, promises, kill switches and red-flag reviews"
+    }
+   ]
+  },
   {
    "version": "2.2.0",
    "date": "2026-11-13",
