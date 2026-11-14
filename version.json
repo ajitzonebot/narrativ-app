@@ -1,10 +1,20 @@
 {
- "versionCode": 22,
- "versionName": "2.5.0",
+ "versionCode": 23,
+ "versionName": "2.5.1",
  "date": "2026-11-14",
- "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.5.0-b22/narrativ-v2.5.0-b22.apk",
+ "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.5.1-b23/narrativ-v2.5.1-b23.apk",
  "sizeMb": 10.7,
  "changelog": [
+  {
+   "version": "2.5.1",
+   "date": "2026-11-14",
+   "changes": [
+    {
+     "type": "fix",
+     "text": "Formula sheets: inputs show full names with units (e.g. Market capitalisation \u20b94,186.24 cr) instead of data keys; Formula / Inputs / Source headings in normal case"
+    }
+   ]
+  },
   {
    "version": "2.5.0",
    "date": "2026-11-14",
