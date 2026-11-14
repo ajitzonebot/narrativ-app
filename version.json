@@ -1,10 +1,36 @@
 {
- "versionCode": 20,
- "versionName": "2.3.1",
+ "versionCode": 21,
+ "versionName": "2.4.0",
  "date": "2026-11-14",
- "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.3.1-b20/narrativ-v2.3.1-b20.apk",
+ "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.4.0-b21/narrativ-v2.4.0-b21.apk",
  "sizeMb": 10.7,
  "changelog": [
+  {
+   "version": "2.4.0",
+   "date": "2026-11-14",
+   "changes": [
+    {
+     "type": "new",
+     "text": "In-app update: the APK downloads inside the app with a progress bar, is checked for completeness, then opens the installer (no browser)"
+    },
+    {
+     "type": "fix",
+     "text": "Stock pages and charts open instantly from the phone copy, then refresh to today's data"
+    },
+    {
+     "type": "fix",
+     "text": "Icons instead of text symbols for warnings, risks and growth triggers"
+    },
+    {
+     "type": "fix",
+     "text": "Bigger tap areas for stock tabs and screener chips"
+    },
+    {
+     "type": "new",
+     "text": "Data: delivery %, surveillance, index membership, shareholding (institutions, mutual funds, retail holders, pledge), dividends, preferential issues, promoter-side loans and promoter trades now feed the checks"
+    }
+   ]
+  },
   {
    "version": "2.3.1",
    "date": "2026-11-14",
