@@ -1,10 +1,32 @@
 {
- "versionCode": 23,
- "versionName": "2.5.1",
+ "versionCode": 26,
+ "versionName": "2.6.0",
  "date": "2026-11-14",
- "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.5.1-b23/narrativ-v2.5.1-b23.apk",
+ "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.6.0-b26/narrativ-v2.6.0-b26.apk",
  "sizeMb": 10.7,
  "changelog": [
+  {
+   "version": "2.6.0",
+   "date": "2026-11-14",
+   "changes": [
+    {
+     "type": "new",
+     "text": "Ocean blue theme (#42)"
+    },
+    {
+     "type": "new",
+     "text": "Home: Top 10 stocks for today (Buy-rated, ranked by 6 setup conditions), Recent IPOs; Watchlist and Not enough data removed; Beaten-up quality after Undervalued quality; Quality, priced in last; equal decision boxes without Not rated (#34, #35, #36, #37)"
+    },
+    {
+     "type": "new",
+     "text": "Money: industries in Money flowing in open their stocks; top picks = Buy-rated stocks in leading industries (#38, #39)"
+    },
+    {
+     "type": "new",
+     "text": "Settings: same-size cards that open their own screens; new Data pipeline screen with stage times, problems, source sizes and check coverage (#40, #41)"
+    }
+   ]
+  },
   {
    "version": "2.5.1",
    "date": "2026-11-14",
