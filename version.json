@@ -1,10 +1,36 @@
 {
- "versionCode": 21,
- "versionName": "2.4.0",
+ "versionCode": 22,
+ "versionName": "2.5.0",
  "date": "2026-11-14",
- "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.4.0-b21/narrativ-v2.4.0-b21.apk",
+ "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.5.0-b22/narrativ-v2.5.0-b22.apk",
  "sizeMb": 10.7,
  "changelog": [
+  {
+   "version": "2.5.0",
+   "date": "2026-11-14",
+   "changes": [
+    {
+     "type": "fix",
+     "text": "Home: removed the Screener link, bar colour legend, Claude line and the checkpoints list (#23, #24)"
+    },
+    {
+     "type": "new",
+     "text": "Dock: quick sliding highlight when switching tabs (#25)"
+    },
+    {
+     "type": "new",
+     "text": "Money: four tappable quadrant boxes with counts replace the map; money-flowing-out section removed; top picks in rising industries open the full list (#26, #27, #28)"
+    },
+    {
+     "type": "new",
+     "text": "Settings: feedback shows open and closed counts; Send feedback row removed (it is on every screen) (#29, #33)"
+    },
+    {
+     "type": "fix",
+     "text": "Research queue text matches the current schedule; Screener and Settings use the app background (#30, #31, #32)"
+    }
+   ]
+  },
   {
    "version": "2.4.0",
    "date": "2026-11-14",
