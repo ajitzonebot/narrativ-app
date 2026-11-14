@@ -1,10 +1,40 @@
 {
- "versionCode": 26,
- "versionName": "2.6.0",
+ "versionCode": 28,
+ "versionName": "2.7.0",
  "date": "2026-11-14",
- "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.6.0-b26/narrativ-v2.6.0-b26.apk",
- "sizeMb": 10.7,
+ "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.7.0-b28/narrativ-v2.7.0-b28.apk",
+ "sizeMb": 10.8,
  "changelog": [
+  {
+   "version": "2.7.0",
+   "date": "2026-11-14",
+   "changes": [
+    {
+     "type": "new",
+     "text": "App logo in headers; decision view as wide one-line boxes; Top 10 opens its full list; empty sections hidden; equal-size stock cards without the 52-week line (#43-#47)"
+    },
+    {
+     "type": "fix",
+     "text": "Charts green when up, red when down, on cards and stock pages (#48)"
+    },
+    {
+     "type": "fix",
+     "text": "Money: no subtitle, mood score shown on the needle, extra text removed (#49, #50)"
+    },
+    {
+     "type": "new",
+     "text": "Feedback: tap Open or Closed, filter by type (#51)"
+    },
+    {
+     "type": "new",
+     "text": "Data pipeline: schedule of automatic jobs; Refresh data shows the last 30 pipeline runs; Alerts explains what you are notified about; Data sources in a detailed, standard layout (#52, #56, #57, #58)"
+    },
+    {
+     "type": "fix",
+     "text": "Calendar uses the app background; research queue without the explainer, reasons in sentence case (#53, #54, #55)"
+    }
+   ]
+  },
   {
    "version": "2.6.0",
    "date": "2026-11-14",
