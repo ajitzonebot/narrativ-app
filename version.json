@@ -1,10 +1,32 @@
 {
- "versionCode": 29,
- "versionName": "2.7.0",
+ "versionCode": 30,
+ "versionName": "2.8.0",
  "date": "2026-11-15",
- "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.7.0-b29/narrativ-v2.7.0-b29.apk",
+ "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.8.0-b30/narrativ-v2.8.0-b30.apk",
  "sizeMb": 10.8,
  "changelog": [
+  {
+   "version": "2.8.0",
+   "date": "2026-11-15",
+   "changes": [
+    {
+     "type": "new",
+     "text": "Verification gate: every Buy / Strong Buy is independently audited by Claude against the filing before it is shown as buyable; Verified badge, 'verification pending' otherwise; audit caution or fail turns it into Hold"
+    },
+    {
+     "type": "new",
+     "text": "Top 10 stocks for today shows only verified Buys"
+    },
+    {
+     "type": "new",
+     "text": "Automatic consistency checks on each stock page (finance cost vs debt, ROCE vs ROE, too-cheap valuation, one-quarter profit jumps, missing leases)"
+    },
+    {
+     "type": "fix",
+     "text": "Debt now includes lease liabilities (ROCE, EV/EBITDA, net debt); Good or Excellent quality needs 3 years of full-year results"
+    }
+   ]
+  },
   {
    "version": "2.7.0",
    "date": "2026-11-14",
