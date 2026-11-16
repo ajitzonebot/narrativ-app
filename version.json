@@ -1,10 +1,20 @@
 {
- "versionCode": 30,
- "versionName": "2.8.0",
- "date": "2026-11-15",
- "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.8.0-b30/narrativ-v2.8.0-b30.apk",
+ "versionCode": 31,
+ "versionName": "2.8.1",
+ "date": "2026-11-16",
+ "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.8.1-b31/narrativ-v2.8.1-b31.apk",
  "sizeMb": 10.8,
  "changelog": [
+  {
+   "version": "2.8.1",
+   "date": "2026-11-16",
+   "changes": [
+    {
+     "type": "new",
+     "text": "Data pipeline: Data issues section. Wrong numbers found by Claude's audits, marked systemic or stock-specific, open or fixed"
+    }
+   ]
+  },
   {
    "version": "2.8.0",
    "date": "2026-11-15",
