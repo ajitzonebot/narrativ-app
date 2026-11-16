@@ -1,10 +1,40 @@
 {
- "versionCode": 36,
- "versionName": "2.9.1",
+ "versionCode": 37,
+ "versionName": "2.10.0",
  "date": "2026-11-16",
- "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.9.1-b36/narrativ-v2.9.1-b36.apk",
- "sizeMb": 10.8,
+ "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.10.0-b37/narrativ-v2.10.0-b37.apk",
+ "sizeMb": 11.1,
  "changelog": [
+  {
+   "version": "2.10.0",
+   "date": "2026-11-16",
+   "changes": [
+    {
+     "type": "new",
+     "text": "Home: Open IPOs shown as cards in the same size and layout as stock cards (GMP, QIB/NII/Retail subscription, rating, action); IPOs opening later are greyed. Tap a card for its own window with all details and sources"
+    },
+    {
+     "type": "new",
+     "text": "Top 10 for today includes open IPOs rated SAFE with an APPLY call and at least 2\u00d7 overall subscription, shown first"
+    },
+    {
+     "type": "new",
+     "text": "IPO alerts on this phone: 09:15 and 15:00 IST on an IPO's last day when the call is APPLY, or when the 14:10 NSE subscription update changes the call. Settings: IPO alerts On/Off"
+    },
+    {
+     "type": "fix",
+     "text": "Refresh data: shows the data date and finish time in IST, the next update time, and says 'Already latest' when nothing new was published"
+    },
+    {
+     "type": "new",
+     "text": "Data pipeline: schedule of every job with its IST time"
+    },
+    {
+     "type": "change",
+     "text": "Recent IPOs section removed"
+    }
+   ]
+  },
   {
    "version": "2.9.1",
    "date": "2026-11-16",
