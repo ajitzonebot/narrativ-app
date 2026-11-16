@@ -1,10 +1,24 @@
 {
- "versionCode": 32,
- "versionName": "2.9.0",
+ "versionCode": 33,
+ "versionName": "2.9.1",
  "date": "2026-11-16",
- "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.9.0-b32/narrativ-v2.9.0-b32.apk",
+ "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.9.1-b33/narrativ-v2.9.1-b33.apk",
  "sizeMb": 10.8,
  "changelog": [
+  {
+   "version": "2.9.1",
+   "date": "2026-11-16",
+   "changes": [
+    {
+     "type": "fix",
+     "text": "Home: Decision view shows all 5 boxes without scrolling, equal size, count on top and decision below (feedback #59)"
+    },
+    {
+     "type": "fix",
+     "text": "Calendar: checkpoint card now in Ocean blue (feedback #60)"
+    }
+   ]
+  },
   {
    "version": "2.9.0",
    "date": "2026-11-16",
