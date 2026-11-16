@@ -1,10 +1,20 @@
 {
- "versionCode": 31,
- "versionName": "2.8.1",
+ "versionCode": 32,
+ "versionName": "2.9.0",
  "date": "2026-11-16",
- "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.8.1-b31/narrativ-v2.8.1-b31.apk",
+ "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.9.0-b32/narrativ-v2.9.0-b32.apk",
  "sizeMb": 10.8,
  "changelog": [
+  {
+   "version": "2.9.0",
+   "date": "2026-11-16",
+   "changes": [
+    {
+     "type": "new",
+     "text": "Home: Open IPOs \u00b7 08:30 check. Only IPOs open for subscription at the check, with last date to apply, FINAL DAY flag, same-day GMP (range when sources differ), implied listing and GMP %, category subscription, key risk, rating and action; later-today and later-this-week IPOs listed unranked"
+    }
+   ]
+  },
   {
    "version": "2.8.1",
    "date": "2026-11-16",
