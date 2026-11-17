@@ -1,10 +1,40 @@
 {
- "versionCode": 45,
- "versionName": "2.12.1",
+ "versionCode": 46,
+ "versionName": "2.13.0",
  "date": "2026-11-17",
- "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.12.1-b45/narrativ-v2.12.1-b45.apk",
+ "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.13.0-b46/narrativ-v2.13.0-b46.apk",
  "sizeMb": 11.1,
  "changelog": [
+  {
+   "version": "2.13.0",
+   "date": "2026-11-17",
+   "changes": [
+    {
+     "type": "new",
+     "text": "Settings \u203a Buy tracking: every verified Buy from the day it was rated, return now (or at exit) and vs Nifty, average, % beating Nifty, and the outcome mix vs the goal (2 multibaggers, 3 beat Nifty, 3 near, 2 losers per 10)"
+    },
+    {
+     "type": "change",
+     "text": "Settings \u203a Version: installed version, update status and button, and release notes in one place (What's new and Check for updates merged)"
+    },
+    {
+     "type": "change",
+     "text": "IPO alerts is a switch; the Alerts page is removed (its push alerts were never set up)"
+    },
+    {
+     "type": "new",
+     "text": "Top 10 built as a portfolio: readiness order, at most 2 per industry, 3 per sector, 6 small caps; stays short rather than adding weaker stocks"
+    },
+    {
+     "type": "new",
+     "text": "Multibagger potential marked with a rocket on cards and the stock card"
+    },
+    {
+     "type": "new",
+     "text": "New Outlook triggers: results beat, analyst estimates upgraded, buyback or promoter buying, mutual funds entering; nearness to the 52-week high in the ranking"
+    }
+   ]
+  },
   {
    "version": "2.12.1",
    "date": "2026-11-17",
