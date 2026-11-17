@@ -1,10 +1,48 @@
 {
- "versionCode": 40,
- "versionName": "2.11.0",
+ "versionCode": 42,
+ "versionName": "2.12.0",
  "date": "2026-11-17",
- "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.11.0-b40/narrativ-v2.11.0-b40.apk",
+ "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.12.0-b42/narrativ-v2.12.0-b42.apk",
  "sizeMb": 11.1,
  "changelog": [
+  {
+   "version": "2.12.0",
+   "date": "2026-11-17",
+   "changes": [
+    {
+     "type": "change",
+     "text": "Stock view: price chart first, with the 52-week low and high and where today's price sits"
+    },
+    {
+     "type": "new",
+     "text": "One small card for decision, Claude's review and score, with sector (Nifty index) and industry rotation: leading, improving, weakening or lagging. Tap it for every reason, Claude's review and the score"
+    },
+    {
+     "type": "change",
+     "text": "Trade setup in plain words: Breaking out, Dip in uptrend, Bottoming out, Wait or Avoid, drawn as a price line (buy zone, buy rest, exit, now, analyst target) with numbered steps. Position size and trailing exit removed"
+    },
+    {
+     "type": "new",
+     "text": "Claude's research: history of every scan and review, queue position and estimated run for a requested scan. Screener.in button removed"
+    },
+    {
+     "type": "new",
+     "text": "Announcements tab (last): every filing without a score, duplicates removed, filters for red flags, orders and growth, results"
+    },
+    {
+     "type": "fix",
+     "text": "Tab names follow the swipe, so the open tab is always visible (feedback #62)"
+    },
+    {
+     "type": "change",
+     "text": "Rating tabs: no description line or legend; 'how the score works' under the scale; \u203a only on lines that open a formula or filing"
+    },
+    {
+     "type": "new",
+     "text": "Home: Good outlook section (outlook score 55+ from verified research, not rated Sell, no failed review); stock cards sized to their content"
+    }
+   ]
+  },
   {
    "version": "2.11.0",
    "date": "2026-11-17",
