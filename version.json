@@ -1,10 +1,44 @@
 {
- "versionCode": 37,
- "versionName": "2.10.0",
- "date": "2026-11-16",
- "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.10.0-b37/narrativ-v2.10.0-b37.apk",
+ "versionCode": 40,
+ "versionName": "2.11.0",
+ "date": "2026-11-17",
+ "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.11.0-b40/narrativ-v2.11.0-b40.apk",
  "sizeMb": 11.1,
  "changelog": [
+  {
+   "version": "2.11.0",
+   "date": "2026-11-17",
+   "changes": [
+    {
+     "type": "new",
+     "text": "Data updates automatically: the app checks for newly published data each time you return to it (every 15 minutes at most); no Refresh tap needed"
+    },
+    {
+     "type": "new",
+     "text": "Claude's review on every stock's Summary: verdict (pass / caution / fail), summary, checks verified, or its place in the review queue with an estimated run, or 'Not studied by Claude' (feedback #65)"
+    },
+    {
+     "type": "new",
+     "text": "Review markers beside the rating on cards and lists: tick = reviewed (coloured by verdict), hourglass = in Claude's queue, circle = rules only"
+    },
+    {
+     "type": "change",
+     "text": "Settings: Data pipeline, Data sources and Refresh data merged into one Data screen with today's jobs, sources (tap for coverage) and the last 30 runs (feedback #67)"
+    },
+    {
+     "type": "change",
+     "text": "Data sources updated: prices from NSE and BSE end-of-day files, BSE results and announcements, auditor's opinion, use of raised funds, named broker targets"
+    },
+    {
+     "type": "fix",
+     "text": "Rating pills: text centred (feedback #61)"
+    },
+    {
+     "type": "fix",
+     "text": "Quality and other level tabs: passed checks shown with a green tick, not blue (feedback #66)"
+    }
+   ]
+  },
   {
    "version": "2.10.0",
    "date": "2026-11-16",
