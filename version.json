@@ -1,10 +1,32 @@
 {
- "versionCode": 48,
- "versionName": "2.13.2",
+ "versionCode": 50,
+ "versionName": "2.14.0",
  "date": "2026-11-18",
- "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.13.2-b48/narrativ-v2.13.2-b48.apk",
- "sizeMb": 11.1,
+ "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.14.0-b50/narrativ-v2.14.0-b50.apk",
+ "sizeMb": 11.2,
  "changelog": [
+  {
+   "version": "2.14.0",
+   "date": "2026-11-18",
+   "changes": [
+    {
+     "type": "change",
+     "text": "Home: Top 10 is first, as one ranked list (rank, industry and setup in words, price line, price and today's move); decision counts and a one-line funnel follow"
+    },
+    {
+     "type": "change",
+     "text": "Stock: the decision is the biggest thing on the page, with Claude's review, the reason in plain words, score and Top 10 rank; full company name; grouped by spacing"
+    },
+    {
+     "type": "change",
+     "text": "Digits line up everywhere (tabular numbers); small grey text is easier to read on the blue header; colour is kept for meaning (gains, losses, ratings) and blue for things you tap"
+    },
+    {
+     "type": "new",
+     "text": "Loading placeholders instead of a spinner, and a short 'Updated HH:MM' after each refresh"
+    }
+   ]
+  },
   {
    "version": "2.13.2",
    "date": "2026-11-18",
