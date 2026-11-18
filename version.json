@@ -1,10 +1,40 @@
 {
- "versionCode": 46,
- "versionName": "2.13.0",
- "date": "2026-11-17",
- "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.13.0-b46/narrativ-v2.13.0-b46.apk",
+ "versionCode": 47,
+ "versionName": "2.13.1",
+ "date": "2026-11-18",
+ "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.13.1-b47/narrativ-v2.13.1-b47.apk",
  "sizeMb": 11.1,
  "changelog": [
+  {
+   "version": "2.13.1",
+   "date": "2026-11-18",
+   "changes": [
+    {
+     "type": "fix",
+     "text": "Buy tracking shows returns: each Buy is dated by the close it was entered at and measured from its entry price; calls opened and closed by same-day re-runs are removed"
+    },
+    {
+     "type": "fix",
+     "text": "Tapping a sector in a rotation quadrant opens the stocks in its industries"
+    },
+    {
+     "type": "fix",
+     "text": "Quality always uses the spectrum colours; turnaround is named, not shown in blue"
+    },
+    {
+     "type": "fix",
+     "text": "Stocks with Claude's notes but no full review say 'Notes only' instead of 'Not studied'"
+    },
+    {
+     "type": "change",
+     "text": "Research queue: plain task names with one legend at the top, no rule text under every stock"
+    },
+    {
+     "type": "fix",
+     "text": "Debt: lease liabilities filed under 'other liabilities' are now read; lease payments with no lease line raise a 'check leases' flag"
+    }
+   ]
+  },
   {
    "version": "2.13.0",
    "date": "2026-11-17",
