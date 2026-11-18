@@ -1,10 +1,24 @@
 {
- "versionCode": 47,
- "versionName": "2.13.1",
+ "versionCode": 48,
+ "versionName": "2.13.2",
  "date": "2026-11-18",
- "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.13.1-b47/narrativ-v2.13.1-b47.apk",
+ "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.13.2-b48/narrativ-v2.13.2-b48.apk",
  "sizeMb": 11.1,
  "changelog": [
+  {
+   "version": "2.13.2",
+   "date": "2026-11-18",
+   "changes": [
+    {
+     "type": "change",
+     "text": "Request a full review: a request from a stock's Research section now queues Claude's full review (every number checked against the filing, debt with leases, related-party share, verdict), not a quick scan; one request a week per stock"
+    },
+    {
+     "type": "change",
+     "text": "Data screen: research runs take your requests and rule-Buys first; schedule lists the Sunday rules review"
+    }
+   ]
+  },
   {
    "version": "2.13.1",
    "date": "2026-11-18",
