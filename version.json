@@ -1,10 +1,20 @@
 {
- "versionCode": 51,
- "versionName": "2.15.0",
+ "versionCode": 52,
+ "versionName": "2.16.0",
  "date": "2026-11-20",
- "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.15.0-b51/narrativ-v2.15.0-b51.apk",
+ "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.16.0-b52/narrativ-v2.16.0-b52.apk",
  "sizeMb": 11.2,
  "changelog": [
+  {
+   "version": "2.16.0",
+   "date": "2026-11-20",
+   "changes": [
+    {
+     "type": "new",
+     "text": "Home: \"How past Top 10s did\" above the Top 10. Replay of the rules since Jan 2025: share that beat the Nifty over 6 and 12 months and the average lead, next to the live Buys. Tap \"How we know\" for the full table, what helps and the limits"
+    }
+   ]
+  },
   {
    "version": "2.15.0",
    "date": "2026-11-20",
