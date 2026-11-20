@@ -1,10 +1,107 @@
 {
- "versionCode": 53,
- "versionName": "2.17.0",
+ "versionCode": 64,
+ "versionName": "2.18.0",
  "date": "2026-11-20",
- "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.17.0-b53/narrativ-v2.17.0-b53.apk",
- "sizeMb": 11.2,
+ "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.18.0-b64/narrativ-v2.18.0-b64.apk",
+ "sizeMb": 11.6,
+ "sha256": "94bd6a45b8103f0a8f6148568d276e8fd9387e83b2d428bc36ab65db6c0845ab",
  "changelog": [
+  {
+   "version": "2.18.0",
+   "date": "2026-11-20",
+   "changes": [
+    {
+     "type": "new",
+     "text": "New look across the app: charts and bars instead of paragraphs, with the detail one tap away"
+    },
+    {
+     "type": "new",
+     "text": "The bottom bar now has labels: Home, Stocks, Portfolio, Settings. Portfolio moved out of Settings into its own tab"
+    },
+    {
+     "type": "new",
+     "text": "Market screen: the mood gauge, sector and industry rotation, opened from the Market line on Home"
+    },
+    {
+     "type": "change",
+     "text": "Home is decluttered: market mood is one line, the rest is what you act on today"
+    },
+    {
+     "type": "new",
+     "text": "Stock pages have tabs with charts and the key checks first; all checks and formulas are one tap away"
+    },
+    {
+     "type": "new",
+     "text": "A Verified only filter in Stocks, and a conviction meter on every verified Buy"
+    },
+    {
+     "type": "new",
+     "text": "Portfolio: decision split bar, Needs attention first, today's move beside each holding, ETFs collapsed"
+    },
+    {
+     "type": "change",
+     "text": "Settings is short again. Data, research queue, checkpoint calendar and release notes moved under Advanced, each with a small chart of its state"
+    },
+    {
+     "type": "new",
+     "text": "Track record: average vs Nifty, outcome mix against the goal, and every Buy as a bar ahead of or behind Nifty"
+    },
+    {
+     "type": "change",
+     "text": "Data and pipeline shows run times and source coverage as bars; the full detail is under Details"
+    }
+   ]
+  },
+  {
+   "version": "2.17.1",
+   "date": "2026-11-20",
+   "changes": [
+    {
+     "type": "fix",
+     "text": "Stocks with & in the name (M&M, M&M Finance, J&K Bank and 6 more) now open with their chart and history"
+    },
+    {
+     "type": "fix",
+     "text": "\"Updated\" now shows only when the data really came from the server. Without internet Home says Offline and the date of the data on the phone"
+    },
+    {
+     "type": "fix",
+     "text": "Smoother start and refresh: the big data file is read in the background"
+    },
+    {
+     "type": "fix",
+     "text": "The in-app update checks the download against its checksum when one is published"
+    },
+    {
+     "type": "fix",
+     "text": "Your holdings are no longer included in Android backups or phone-to-phone transfer, as the Portfolio page says"
+    },
+    {
+     "type": "fix",
+     "text": "Portfolio vs Nifty: money you add or take out when you re-import is no longer shown as a gain or loss"
+    },
+    {
+     "type": "fix",
+     "text": "Delayed prices stop refreshing when the app is in the background"
+    },
+    {
+     "type": "fix",
+     "text": "IPO alerts: no \"2 hours left\" after bidding has closed; the 09:15 check tries again if the day's report is not out yet"
+    },
+    {
+     "type": "fix",
+     "text": "Portfolio: CSV files with a byte-order mark import; holdings listed only on BSE are no longer labelled ETF; import no longer freezes the screen"
+    },
+    {
+     "type": "fix",
+     "text": "Rotating the phone keeps you on the same screen; switching IPO alerts on asks for the notification permission; charts refresh with the data"
+    },
+    {
+     "type": "fix",
+     "text": "Growth and ROCE averages no longer say \"3 years\" when only 2 full years are filed; the formula sheet names the span"
+    }
+   ]
+  },
   {
    "version": "2.17.0",
    "date": "2026-11-20",
