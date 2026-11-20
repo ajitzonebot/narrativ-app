@@ -1,10 +1,20 @@
 {
- "versionCode": 50,
- "versionName": "2.14.0",
- "date": "2026-11-18",
- "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.14.0-b50/narrativ-v2.14.0-b50.apk",
+ "versionCode": 51,
+ "versionName": "2.15.0",
+ "date": "2026-11-20",
+ "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.15.0-b51/narrativ-v2.15.0-b51.apk",
  "sizeMb": 11.2,
  "changelog": [
+  {
+   "version": "2.15.0",
+   "date": "2026-11-20",
+   "changes": [
+    {
+     "type": "new",
+     "text": "Buy tracking: \"As one portfolio\" card. All verified Buys held in equal weight vs the Nifty: growth of \u20b9100 chart (green while ahead, red while behind), points ahead, share of days ahead, worst fall from a peak, and Sharpe after 20 trading days"
+    }
+   ]
+  },
   {
    "version": "2.14.0",
    "date": "2026-11-18",
