@@ -1,10 +1,24 @@
 {
- "versionCode": 52,
- "versionName": "2.16.0",
+ "versionCode": 53,
+ "versionName": "2.17.0",
  "date": "2026-11-20",
- "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.16.0-b52/narrativ-v2.16.0-b52.apk",
+ "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.17.0-b53/narrativ-v2.17.0-b53.apk",
  "sizeMb": 11.2,
  "changelog": [
+  {
+   "version": "2.17.0",
+   "date": "2026-11-20",
+   "changes": [
+    {
+     "type": "new",
+     "text": "Settings \u203a Portfolio: import your Zerodha holdings CSV; value, P&L and today's move; Narrativ's decision on each holding, those needing attention first; ETFs priced from the NSE close; one point a day since import vs the Nifty. Holdings stay only on this phone"
+    },
+    {
+     "type": "new",
+     "text": "Delayed prices during market hours on the Top 10 and your Portfolio, refreshed every minute (unofficial quote source, labelled)"
+    }
+   ]
+  },
   {
    "version": "2.16.0",
    "date": "2026-11-20",
