@@ -1,11 +1,29 @@
 {
- "versionCode": 66,
- "versionName": "2.19.0",
+ "versionCode": 68,
+ "versionName": "2.20.0",
  "date": "2026-11-23",
- "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.19.0-b66/narrativ-v2.19.0-b66.apk",
+ "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.20.0-b68/narrativ-v2.20.0-b68.apk",
  "sizeMb": 11.6,
- "sha256": "c945a1fa2f664abf3ced06caaa21bf16e5cf60abc48f04bf608be7bd83bb6df1",
+ "sha256": "377f2837874e83be656c469e6bc103b2f23ee152d872c2bb1bac07e76ddfe037",
  "changelog": [
+  {
+   "version": "2.20.0",
+   "date": "2026-11-24",
+   "changes": [
+    {
+     "type": "new",
+     "text": "IPOs: one call, Apply, Wait or Avoid, from five fixed rules on GMP and subscription. The final-day call is made at 15:30"
+    },
+    {
+     "type": "new",
+     "text": "IPO screen: price band to expected listing, issue and listing days, GMP path with its peak, subscription by day, the rules with their numbers, lot and issue facts"
+    },
+    {
+     "type": "change",
+     "text": "IPO alerts at 09:15 for every Apply, and at 15:45 for last-day Applys and any call that changed"
+    }
+   ]
+  },
   {
    "version": "2.19.0",
    "date": "2026-11-23",
