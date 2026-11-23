@@ -5,6 +5,8 @@ workers_dev = true
 
 [vars]
 REPO = "ajitzonebot/Narrativ"
+# The scheduled runs start in the public repo (free Actions minutes); they read and write REPO.
+RUN_REPO = "ajitzonebot/narrativ-app"
 
 # Weekdays. Cloudflare numbers day-of-week 1 = SUNDAY (not Monday), so "1-5" ran Sun-Thu and skipped Friday: use MON-FRI names.
 # worker.js compares event.cron with the second string below (IPO_CRON); keep them identical.

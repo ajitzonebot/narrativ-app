@@ -42,7 +42,7 @@ def load(known: set[str]) -> list[dict]:
                 s = _norm(line.split()[0], known)
                 if s:
                     out.append({"symbol": s, "via": "file"})
-    repo, tok = os.environ.get("GITHUB_REPOSITORY"), os.environ.get("GITHUB_TOKEN")
+    repo, tok = (os.environ.get("NARRATIV_REPO") or os.environ.get("GITHUB_REPOSITORY")), os.environ.get("GITHUB_TOKEN")
     if repo and tok:
         try:
             r = requests.get(f"https://api.github.com/repos/{repo}/issues",
@@ -90,7 +90,7 @@ def close_done(requests_: list[dict], theses: dict, repo: str | None = None, tok
     """Comment on and close the GitHub issue of every request Claude has worked on since it was made. Returns the closed issue
     numbers. Needs a token with `issues: write` (daily.yml grants it since 20 Nov 2026; without it the comment fails with 403,
     which is printed and the issue stays open)."""
-    repo, tok = repo or os.environ.get("GITHUB_REPOSITORY"), tok or os.environ.get("GITHUB_TOKEN")
+    repo, tok = repo or (os.environ.get("NARRATIV_REPO") or os.environ.get("GITHUB_REPOSITORY")), tok or os.environ.get("GITHUB_TOKEN")
     if not (repo and tok):
         return []
     hdr = {"Authorization": f"Bearer {tok}", "Accept": "application/vnd.github+json"}

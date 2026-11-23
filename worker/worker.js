@@ -6,7 +6,7 @@
  *  GET  /quotes?s=A,B -> delayed quotes (Yahoo chart endpoint, unofficial), 60 s edge cache, max 40 symbols
  *  GET  /health
  *  cron (wrangler.toml [triggers]) -> starts the GitHub daily run on time (GitHub's own schedule often starts hours late)
- * Secrets (wrangler secret): GH_TOKEN (fine-grained: Narrativ contents read, issues write, actions write).
+ * Secrets (wrangler secret): GH_TOKEN (fine-grained narrativ-runner: Narrativ contents + issues, narrativ-app actions).
  * Vars: REPO, APP_KEY (sent by the app in X-App-Key; keeps casual traffic out, not a security boundary).
  * Abuse limits on POST /feedback and /scan (no KV / D1 binding exists, so nothing here is a hard guarantee):
  *  - body capped at MAX_BODY bytes, text fields truncated, non-string fields rejected;
@@ -30,8 +30,8 @@ function bad(status, msg) {
   return new Response(JSON.stringify({ ok: false, error: msg }), { status, headers: JSON_HDR });
 }
 
-async function gh(env, path, init = {}) {
-  return fetch(`https://api.github.com/repos/${env.REPO}${path}`, {
+async function gh(env, path, init = {}, repo = env.REPO) {
+  return fetch(`https://api.github.com/repos/${repo}${path}`, {
     ...init,
     headers: {
       authorization: `Bearer ${env.GH_TOKEN}`,
@@ -144,11 +144,12 @@ export default {
     let status = 0, detail = "";
     for (let i = 1; i <= 3; i++) {  // 204 = started; retry transient failures (5xx, network)
       try {
+        // The runs live in the public repo (RUN_REPO); the data stays in REPO.
         const r = await gh(env, `/actions/workflows/${wf}/dispatches`, {
           method: "POST",
           headers: { "content-type": "application/json", accept: "application/vnd.github+json" },
           body: JSON.stringify({ ref: "main" }),
-        });
+        }, env.RUN_REPO || env.REPO);
         status = r.status;
         if (status === 204) break;
         detail = (await r.text().catch(() => "")).slice(0, 200);
