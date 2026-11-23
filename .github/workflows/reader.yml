@@ -53,16 +53,15 @@ jobs:
         env:
           PYTHONUNBUFFERED: "1"
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: python -m narrativ.reader --daily
-      - name: Commit results
-        if: always()
+          READER_SAVE: "1"   # saves to main every 20 minutes and at the end (narrativ.reader.save: conflict-free)
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/reader docs/data/forward.json docs/data/packs
-          git diff --cached --quiet && exit 0
-          git commit -m "data: reader $(TZ=Asia/Kolkata date +%F)"
-          bash scripts/push_retry.sh -X theirs
+          python -m narrativ.reader --daily
+      - name: Save after a failure
+        # the run stopped early (crash, timeout): save what it read; a normal run has already saved
+        if: failure() || cancelled()
+        run: python -m narrativ.reader --save
       - name: Save the log in the private repo
         if: failure()
         shell: bash
