@@ -1,11 +1,25 @@
 {
- "versionCode": 64,
- "versionName": "2.18.0",
- "date": "2026-11-20",
- "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.18.0-b64/narrativ-v2.18.0-b64.apk",
+ "versionCode": 66,
+ "versionName": "2.19.0",
+ "date": "2026-11-23",
+ "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.19.0-b66/narrativ-v2.19.0-b66.apk",
  "sizeMb": 11.6,
- "sha256": "94bd6a45b8103f0a8f6148568d276e8fd9387e83b2d428bc36ab65db6c0845ab",
+ "sha256": "c945a1fa2f664abf3ced06caaa21bf16e5cf60abc48f04bf608be7bd83bb6df1",
  "changelog": [
+  {
+   "version": "2.19.0",
+   "date": "2026-11-23",
+   "changes": [
+    {
+     "type": "new",
+     "text": "Access key: Narrativ is private, so the app asks for your key once on each phone. Change it in Settings > Access key"
+    },
+    {
+     "type": "change",
+     "text": "The key is no longer built into the app, so a downloaded copy shows nothing without it"
+    }
+   ]
+  },
   {
    "version": "2.18.0",
    "date": "2026-11-20",
