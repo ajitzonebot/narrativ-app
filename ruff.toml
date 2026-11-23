@@ -1,0 +1,6 @@
+# Lint only what breaks at run time: pyflakes (undefined names, unused imports/variables). Style is not enforced.
+line-length = 140
+extend-exclude = ["android", "docs", "data", "worker", "scripts"]  # scripts/: one-off probes
+
+[lint]
+select = ["F"]

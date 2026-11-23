@@ -1,0 +1,31 @@
+name: db-check
+
+# Read-only: row counts per D1 table, latest run_log usage, R2 object list. Changes nothing.
+on: workflow_dispatch
+
+# No repo token needed: only the Cloudflare / Worker secrets are used.
+permissions: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: D1 counts and R2 objects
+        env:
+          CF: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ACC: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          ACC=$(printf %s "$ACC" | tr -d "[:space:]\"'")
+          API="https://api.cloudflare.com/client/v4/accounts/$ACC"
+          H=(-H "Authorization: Bearer $CF" -H "Content-Type: application/json")
+          DB=$(curl -s "${H[@]}" "$API/d1/database?name=narrativ" | jq -r '.result[] | select(.name=="narrativ") | .uuid')
+          curl -s "${H[@]}" "$API/d1/database?name=narrativ" | jq -c '.result[] | select(.name=="narrativ") | {num_tables, file_size_mb: (.file_size/1e6)}'
+          Q() { curl -s -X POST "${H[@]}" "$API/d1/database/$DB/query" -d "$(jq -nc --arg s "$1" '{sql:$s}')" | jq -c '.result[0].results'; }
+          for t in company quarter snapshot stock_detail event checkpoint verdict_log research forward_item document market_day run_log; do
+            echo "$t $(Q "SELECT COUNT(*) AS n FROM $t")"
+          done
+          echo "event range $(Q "SELECT MIN(date) AS oldest, MAX(date) AS newest, SUM(severity='red') AS red FROM event")"
+          echo "snapshot dates $(Q "SELECT date, COUNT(*) AS n FROM snapshot GROUP BY date ORDER BY date DESC LIMIT 3")"
+          echo "run_log $(Q "SELECT date, counts, usage FROM run_log ORDER BY date DESC LIMIT 1")"
+          echo "sample $(Q "SELECT c.symbol, s.verdict, s.price, s.mcap_cr FROM snapshot s JOIN company c USING(isin) WHERE c.symbol IN ('RELIANCE.NS','TCS.NS','BONDADA.NS') ORDER BY s.date DESC LIMIT 3")"
+          echo "r2 $(curl -s "${H[@]}" "$API/r2/buckets/narrativ-data/objects" | jq -c '[.result[]? | {key, mb: (.size/1e6)}]')"

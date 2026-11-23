@@ -1,0 +1,71 @@
+{
+ "note": "All times IST. The 14:10 and 17:10 jobs are started by the Cloudflare Worker (GitHub timer as backup). After each research run a GitHub job publishes Claude's verdicts.",
+ "jobs": [
+  {
+   "time": "04:05 09:05 14:05 18:05 23:05",
+   "days": "Daily",
+   "name": "Research: full reviews of your requests and rule-Buys first, published within minutes",
+   "by": "Claude"
+  },
+  {
+   "time": "08:30",
+   "days": "Mon–Fri",
+   "name": "Open IPOs check",
+   "by": "Claude"
+  },
+  {
+   "time": "09:15",
+   "days": "IPO last days",
+   "name": "IPO alert on this phone (APPLY only)",
+   "by": "App"
+  },
+  {
+   "time": "14:10",
+   "days": "Mon–Fri",
+   "name": "IPO subscription update (NSE)",
+   "by": "GitHub"
+  },
+  {
+   "time": "15:00",
+   "days": "IPO last days",
+   "name": "IPO alert: 2 hours left or call changed",
+   "by": "App"
+  },
+  {
+   "time": "17:10",
+   "days": "Mon–Fri",
+   "name": "Daily run: prices, filings, scores",
+   "by": "GitHub"
+  },
+  {
+   "time": "after 17:10",
+   "days": "Daily run days; Sat–Sun 14:45",
+   "name": "Free readers: Flash-Lite reads every stock's latest call, Flash reads Claude's next stocks",
+   "by": "GitHub"
+  },
+  {
+   "time": "after 17:10",
+   "days": "Daily run days",
+   "name": "Scanned PDFs read by OCR, presentation tables kept (docling)",
+   "by": "GitHub"
+  },
+  {
+   "time": "20:45",
+   "days": "Daily",
+   "name": "Results filings catch-up",
+   "by": "GitHub"
+  },
+  {
+   "time": "12:15",
+   "days": "Saturday",
+   "name": "Factor check: do the scores predict returns",
+   "by": "GitHub"
+  },
+  {
+   "time": "11:47",
+   "days": "Sunday",
+   "name": "Weekly review: data-fix and rule-change pull requests (you merge)",
+   "by": "Claude"
+  }
+ ]
+}

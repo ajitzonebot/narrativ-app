@@ -1,0 +1,14 @@
+name = "narrativ"
+main = "worker.js"
+compatibility_date = "2024-11-01"
+workers_dev = true
+
+[vars]
+REPO = "ajitzonebot/Narrativ"
+
+# Weekdays. Cloudflare numbers day-of-week 1 = SUNDAY (not Monday), so "1-5" ran Sun-Thu and skipped Friday: use MON-FRI names.
+# worker.js compares event.cron with the second string below (IPO_CRON); keep them identical.
+# 11:40 UTC = 17:10 IST (after NSE close): starts .github/workflows/daily.yml.
+# 08:40 UTC = 14:10 IST: starts .github/workflows/ipo-pm.yml (IPO subscription update before the app's 15:00 alert).
+[triggers]
+crons = ["40 11 * * MON-FRI", "40 8 * * MON-FRI"]

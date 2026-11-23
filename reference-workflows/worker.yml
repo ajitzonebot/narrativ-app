@@ -1,0 +1,81 @@
+name: worker-deploy
+
+on:
+  push:
+    paths: ["worker/**", ".github/workflows/worker.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check secrets
+        id: s
+        env:
+          CF: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          GHT: ${{ secrets.NARRATIV_GH_TOKEN }}
+          KEY: ${{ secrets.NARRATIV_APP_KEY }}
+        run: |
+          if [ -z "$CF" ] || [ -z "$GHT" ]; then echo "::warning::CLOUDFLARE_API_TOKEN / NARRATIV_GH_TOKEN not set yet; skipping deploy."; echo "ok=false" >> $GITHUB_OUTPUT; exit 0; fi
+          # No default key: a published fallback ("narrativ-app") would let anyone call the API. Fail instead of deploying with it.
+          if [ -z "$KEY" ]; then echo "::error::NARRATIV_APP_KEY secret is not set; refusing to deploy the Worker without an app key."; exit 1; fi
+          echo "ok=true" >> $GITHUB_OUTPUT
+      - name: Deploy
+        if: steps.s.outputs.ok == 'true'
+        id: d
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: worker
+          wranglerVersion: "4.20.0"
+          secrets: |
+            GH_TOKEN
+            APP_KEY
+          command: deploy
+        env:
+          GH_TOKEN: ${{ secrets.NARRATIV_GH_TOKEN }}
+          APP_KEY: ${{ secrets.NARRATIV_APP_KEY }}
+      # Hard gate: the Worker is up, accepts the app key and can read the repo with its GitHub token. None of this depends on Yahoo.
+      - name: Smoke test (health, app key, /data)
+        if: steps.s.outputs.ok == 'true'
+        env:
+          OUT: ${{ steps.d.outputs.command-output }}
+          KEY: ${{ secrets.NARRATIV_APP_KEY }}
+        run: |
+          URL=$(echo "$OUT" | grep -oE 'https://[a-z0-9.-]+\.workers\.dev' | head -1)
+          [ -z "$URL" ] && { echo "::error::could not read worker URL"; exit 1; }
+          sleep 5
+          curl -sS --fail --retry 3 --retry-delay 5 --max-time 30 "$URL/health"; echo
+          curl -sS --fail --retry 3 --retry-delay 5 --max-time 30 "$URL/data/data/picks.json" -H "X-App-Key: $KEY" -o /dev/null
+          echo "app key and /data OK"
+      # Soft check, by decision: /quotes depends on Yahoo's unofficial endpoint, so a Yahoo outage must not fail a deploy.
+      # curl --fail makes the failure real; it is reported as a warning annotation instead of a red run.
+      - name: Smoke test /quotes (soft)
+        if: steps.s.outputs.ok == 'true'
+        env:
+          OUT: ${{ steps.d.outputs.command-output }}
+          KEY: ${{ secrets.NARRATIV_APP_KEY }}
+        run: |
+          URL=$(echo "$OUT" | grep -oE 'https://[a-z0-9.-]+\.workers\.dev' | head -1)
+          if R=$(curl -sS --fail --max-time 30 "$URL/quotes?s=BLS,GOLDBEES" -H "X-App-Key: $KEY"); then printf '%s' "$R" | head -c 400; echo; else echo "::warning::/quotes smoke test failed (Yahoo outage or Worker bug); deploy kept"; fi
+      - name: Record API URL for the app build
+        if: always() && steps.s.outputs.ok == 'true' && steps.d.outcome == 'success'
+        env:
+          OUT: ${{ steps.d.outputs.command-output }}
+        run: |
+          URL=$(echo "$OUT" | grep -oE 'https://[a-z0-9.-]+\.workers\.dev' | head -1)
+          echo "Worker URL: $URL"
+          [ -z "$URL" ] && { echo "::error::could not read worker URL"; exit 1; }
+          echo "apiUrl=$URL" > android/api.properties
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add android/api.properties
+          git diff --cached --quiet && exit 0
+          git commit -m "app: api url"
+          bash scripts/push_retry.sh

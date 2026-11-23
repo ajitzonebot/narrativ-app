@@ -1,0 +1,24 @@
+interactions:
+- request:
+    body: null
+    headers: {}
+    method: POST
+    uri: https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent
+  response:
+    body:
+      string: '{"error": {"code": 503, "message": "The model is overloaded.", "status": "UNAVAILABLE"}}'
+    headers:
+      Content-Type: [application/json]
+    status: {code: 503, message: Service Unavailable}
+- request:
+    body: null
+    headers: {}
+    method: POST
+    uri: https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent
+  response:
+    body:
+      string: '{"candidates": [{"content": {"parts": [{"text": "{\"items\": [{\"kind\": \"capacity\", \"text\": \"New plant of 10,000 tonnes starts in March 2027.\", \"due\": \"2027-03-31\", \"quote\": \"Our new 10,000 tonne plant will start in March 2027.\"}]}"}]}, "finishReason": "STOP"}], "usageMetadata": {"totalTokenCount": 1200}}'
+    headers:
+      Content-Type: [application/json]
+    status: {code: 200, message: OK}
+version: 1

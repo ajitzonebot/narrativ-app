@@ -1,0 +1,54 @@
+name: reader
+
+# Reading pipeline stages 1 and 2 (narrativ/reader.py): free Gemini Flash-Lite reads every scored stock's latest transcript and
+# presentation; Gemini Flash reads the stocks Claude reviews next. Code verifies every quote; research packs get the rows for
+# Claude (stage 3). Runs after the daily run (one run per free-quota day: limits reset ~13:30 IST) and on weekends to work the
+# backlog until the whole universe is read.
+on:
+  workflow_run:
+    workflows: ["daily-funnel"]
+    types: [completed]
+  schedule:
+    - cron: "15 9 * * 0,6"   # 14:45 IST Sat/Sun: backlog
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: reader
+  cancel-in-progress: false
+
+jobs:
+  read:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 200
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - uses: actions/cache@v4
+        with:
+          path: data/source_cache
+          key: sources-reader-${{ github.run_id }}
+          restore-keys: sources-
+      - name: Read (Flash-Lite and Flash in parallel)
+        env:
+          PYTHONUNBUFFERED: "1"
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python -m narrativ.reader --daily
+      - name: Commit results
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/reader docs/data/forward.json docs/data/packs
+          git diff --cached --quiet && exit 0
+          git commit -m "data: reader $(TZ=Asia/Kolkata date +%F)"
+          bash scripts/push_retry.sh -X theirs

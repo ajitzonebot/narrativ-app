@@ -1,0 +1,55 @@
+name: Publish research
+
+# After each Claude research push: verify the stocks it changed and apply the Claude gate to their rating,
+# so a passed review shows as Buy within minutes instead of at the 17:10 run. No market data is downloaded.
+on:
+  push:
+    branches: [main]
+    paths: ["docs/data/theses.json"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: funnel
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2   # the pushed commit and its parent; the range start (github.event.before) is fetched below
+      - name: Fetch the commit this push started from
+        # narrativ.republish diffs docs/data/theses.json against github.event.before. If that commit is not in the shallow
+        # history (a push of several commits), fetch just it; without it every stock would look changed.
+        run: |
+          B="${{ github.event.before }}"
+          if [ -n "$B" ] && [ "${B//0/}" != "" ] && ! git cat-file -e "$B^{commit}" 2>/dev/null; then
+            git fetch --no-tags --depth=1 origin "$B" || git fetch --no-tags --deepen=100 origin main
+          fi
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - uses: actions/cache/restore@v4
+        with:
+          path: data/source_cache
+          key: sources-${{ github.run_id }}
+          restore-keys: sources-
+      - name: Verify and re-rate changed stocks
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: python -m narrativ.republish "${{ github.event.before }}"
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/data data/research_log.json
+          git diff --cached --quiet && exit 0
+          git commit -m "data: research published $(TZ=Asia/Kolkata date '+%F %H:%M') IST"
+          bash scripts/push_retry.sh

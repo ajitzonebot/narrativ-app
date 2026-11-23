@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 11 and older Auto Backup: only the app settings file. The holdings (narrativ_portfolio.xml) are never backed up. -->
+<full-backup-content>
+    <include domain="sharedpref" path="narrativ.xml" />
+</full-backup-content>

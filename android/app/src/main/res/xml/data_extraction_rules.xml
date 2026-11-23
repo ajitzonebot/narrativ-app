@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12+: cloud backup and device-to-device transfer carry only the app settings file.
+     The holdings (narrativ_portfolio.xml) stay on this phone, as the Portfolio screen says. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <include domain="sharedpref" path="narrativ.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <include domain="sharedpref" path="narrativ.xml" />
+    </device-transfer>
+</data-extraction-rules>

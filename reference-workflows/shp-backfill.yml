@@ -1,0 +1,49 @@
+name: shp-backfill
+# One-off / catch-up load: shp = NSE shareholding filings (Batch 2), corp = corporate filings (Batch 3). Saves to the shared source cache and R2; commits nothing.
+on:
+  workflow_dispatch:
+    inputs:
+      minutes: { description: "time budget", default: "55" }
+      what: { description: "shp or corp", default: "shp" }
+
+permissions:
+  contents: read
+
+jobs:
+  load:
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip }
+      - run: pip install -r requirements.txt
+      - uses: actions/cache@v4
+        with:
+          path: data/source_cache
+          key: sources-${{ github.run_id }}
+          restore-keys: sources-
+      - name: Load filings
+        env:
+          PYTHONUNBUFFERED: "1"
+          WHAT: ${{ inputs.what }}
+          MINUTES: ${{ inputs.minutes }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          python - <<'PY'
+          import gzip, json, os
+          from datetime import date
+          from pathlib import Path
+          from narrativ import shp, corpfil
+          from narrativ.store import Store
+          picks = json.load(open("docs/data/picks.json"))["picks"]
+          first = [p["s"] for p in sorted(picks, key=lambda p: -(p.get("pr") or 0))]
+          allsyms = list(json.load(open("data/universe_exchange.json"))["stocks"])
+          order = list(dict.fromkeys(first + allsyms))
+          what = os.environ["WHAT"]
+          mod, f = (corpfil, "corpfil") if what == "corp" else (shp, "shp")
+          mod.refresh(order, date.today(), max_minutes=float(os.environ["MINUTES"]))
+          ok = Store().put(f"nse/{f}.json.gz", gzip.compress(Path(f"data/source_cache/{f}.json").read_bytes()), "application/gzip")
+          print("r2 backup", ok)
+          PY

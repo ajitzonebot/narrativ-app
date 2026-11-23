@@ -1,0 +1,161 @@
+"""Rule-built conviction (narrativ/conviction.py): offline, synthetic inputs only."""
+from datetime import date
+
+from narrativ import conviction as CV
+
+TODAY = date(2026, 11, 20)
+T = "https://nsearchives.nseindia.com/corporate/X_transcript.pdf"
+P = "https://nsearchives.nseindia.com/corporate/X_presentation.pdf"
+
+
+def levels(d5=2, d6=1, triggers=(), extended=False):
+    return {"mom": {"t": 2, "extended": extended},
+            "disc": {"items": [{"id": "D5", "m": d5, "v": "12.0% · 1Q +0.8 pts"}, {"id": "D6", "m": d6, "v": "9 mutual fund holder(s)"}]},
+            "out": {"triggers": [{"id": t, "n": f"signal {t}"} for t in triggers]}}
+
+
+def thesis(**kw):
+    th = {"drivers": [{"kind": "capex", "due": "2027-03-31", "due_verified": True, "source": T, "text": "plant", "quote": "The new plant will start by March 2027 as planned"},
+                      {"kind": "order", "due": "2027-06-30", "due_verified": True, "source": P, "text": "order", "quote": "Order of Rs 500 crore to be executed by June 2027"}],
+          "audit": {"verdict": "pass", "date": "2026-11-16",
+                    "checks": [{"item": "Revenue", "ok": True}, {"item": "Borrowings and lease liabilities", "ok": True}, {"item": "Equity", "ok": True}],
+                    "issues": []},
+          "story": {"status": "intact", "date": "2026-11-14", "text": "plant on track"}}
+    th.update(kw)
+    return th
+
+
+MX = {"kind": "general", "quarters_available": 12, "rev_cagr_3y_pct": {"v": 18.0}, "pat_cagr_3y_pct": {"v": 22.0},
+      "cfo_to_ebitda_pct": {"v": 81.0}}
+BUY = {"d": "Buy", "verified": "pass"}
+READER = {"model": "gemini", "items": [{"due": "2027-03-31", "quote": "The new plant will start by March 2027 as planned"}]}
+
+
+def run(dec=BUY, L=None, setup=None, th=None, Mx=MX, **kw):
+    return CV.assess(dec, L or levels(), setup or {"type": "Breakout"}, th if th is not None else thesis(), Mx, TODAY,
+                     **({"reader": READER} | kw))
+
+
+def ok(res):
+    return {c["id"] for c in res["checks"] if c["ok"]}
+
+
+def test_never_for_a_non_buy_or_an_unverified_buy():
+    assert run(dec={"d": "Hold"}) is None
+    assert run(dec={"d": "Hold", "candidate": "Buy"}) is None
+    assert run(dec={"d": "Buy", "verified": "pending"}) is None
+
+
+def test_all_evidence_is_high_with_a_reason_per_check():
+    r = run()
+    assert r["level"] == "High" and r["met"] == 7 and r["of"] == 7
+    assert [c["id"] for c in r["checks"]] == [f"C{i}" for i in range(1, 8)]
+    assert all(c["v"] for c in r["checks"])
+
+
+def test_high_needs_the_replay_backed_checks():
+    r = run(setup={"type": "No setup"})  # 6 of 7, but no live entry setup (C3)
+    assert r["met"] == 6 and r["level"] == "Medium" and "entry setup live" in r["why"]
+    r = run(th=thesis(drivers=thesis()["drivers"][:1]))  # 6 of 7, one dated trigger only (C1)
+    assert r["met"] == 6 and r["level"] == "Medium"
+    assert run(reader=None)["level"] == "High"  # 6 of 7 with C1 and C3
+
+
+def test_three_or_fewer_is_low():
+    r = run(L=levels(d5=0), th=thesis(drivers=[], story={"status": "weakening"}), reader=None)
+    assert r["met"] == 3 and r["level"] == "Low"
+
+
+def test_dated_triggers_counted_once_per_document_and_within_18_months():
+    same_doc = [{"kind": "capex", "due": "2027-03-31", "source": T, "due_verified": True},
+                {"kind": "capacity", "due": "2027-05-31", "source": T.replace(".com", ".in"), "due_verified": True},  # same PDF, other host
+                {"kind": "demand", "due": "2030-03-31", "source": P, "due_verified": True},  # beyond 18 months
+                {"kind": "order", "due": "2026-10-31", "source": P, "due_verified": True}]  # already past
+    assert len(CV.dated_evidence({"drivers": same_doc}, levels(triggers=("T4",)), TODAY)) == 1  # T4 never counts (as R4)
+    assert len(CV.dated_evidence({"drivers": same_doc}, levels(triggers=("T11",)), TODAY)) == 2
+    assert "C1" not in ok(run(th=thesis(drivers=same_doc)))
+
+
+def test_unverified_promise_dates_do_not_count():
+    pr = [{"kind": "results", "due": "2027-03-31", "source": P, "status": "pending", "due_verified": False}]
+    assert CV.dated_evidence({"drivers": [], "promises": pr}, levels(), TODAY) == []
+    pr[0]["due_verified"] = True
+    assert len(CV.dated_evidence({"drivers": [], "promises": pr}, levels(), TODAY)) == 1
+
+
+def test_clean_review_needs_three_checks_debt_and_no_issues():
+    th = thesis()
+    th["audit"]["checks"] = th["audit"]["checks"][:1]
+    assert "C2" not in ok(run(th=th))
+    th = thesis()
+    th["audit"]["checks"] = [{"item": "Revenue", "ok": True}, {"item": "Equity", "ok": True}, {"item": "Gross NPA", "ok": True}]
+    assert "C2" not in ok(run(th=th))  # no debt / lease check
+    assert "C2" in ok(run(th=th, lender=True))  # lenders exempt from the debt check (as R1 / R2)
+    th = thesis()
+    th["audit"]["issues"] = [{"kind": "contingent", "text": "tax demand"}]
+    assert "C2" not in ok(run(th=th))
+
+
+def test_setup_live_and_not_extended():
+    assert "C3" not in ok(run(setup={"type": "No setup"}))
+    assert "C3" not in ok(run(L=levels(extended=True)))
+    assert "C3" in ok(run(setup={"type": "Base"}))
+
+
+def test_story_and_integrity():
+    assert "C4" not in ok(run(th=thesis(story=None)))
+    assert "C4" not in ok(run(dec={**BUY, "integrity": [{"id": "rf0", "status": "open"}]}))
+
+
+def test_institutional_flow():
+    assert "C5" not in ok(run(L=levels(d5=0)))  # holding falling
+    assert "C5" not in ok(run(L=levels(d5=1, d6=1)))  # flat
+    assert "C5" in ok(run(L=levels(d5=1, d6=1, triggers=("T15",))))  # mutual funds entering
+    assert "C5" not in ok(run(shp={"inst_down_q": 2}))  # selling run (R5)
+
+
+def test_complete_data():
+    assert "C6" not in ok(run(Mx={**MX, "rev_cagr_3y_pct": None}))
+    assert "C6" not in ok(run(open_issues=1))
+    assert "C6" in ok(run(Mx={k: v for k, v in MX.items() if k != "cfo_to_ebitda_pct"}, lender=True))
+
+
+def test_second_read():
+    assert "C7" not in ok(run(reader=None))
+    assert "C7" not in ok(run(reader={"items": [{"due": "2027-03-31", "quote": "Something else entirely was said here"}]}))
+    assert "C7" in ok(run())
+
+
+def test_calls_store_rule_conviction_and_keep_claudes_apart():
+    from narrativ.calls import set_conviction
+    calls = [{"symbol": "A.NS", "kind": "verified", "conviction": "medium"},  # open, Claude typed medium
+             {"symbol": "B.NS", "kind": "verified", "conviction": None, "ended": "2026-11-19"},  # ended before the rule
+             {"symbol": "C.NS", "kind": "candidate", "conviction": None}]
+    set_conviction(calls, {"A.NS": "High", "B.NS": "Low"}, TODAY)
+    a, b, c = calls
+    assert a["conviction"] == "high" and a["claude_conviction"] == "medium" and a["conviction_rule"] and a["conviction_date"] == "2026-11-20"
+    assert b["conviction"] is None and b["conviction_rule"] is False
+    assert c["conviction"] is None and c["conviction_rule"] is False
+    set_conviction(calls, {"A.NS": "Low"}, TODAY)  # set once, at entry: later levels never rewrite it
+    assert a["conviction"] == "high"
+
+
+def test_replay_conviction_split_compares_met_and_not_met():
+    from narrativ.replay import CV_CODE, conviction_split
+    gates = {g: True for g in ("eligible", "mos", "trend", "R1", "R2", "R4", "R6")}
+    res = [{"T": "2025-01-31", "rows": {"A": {**gates, "cv": {k: True for k in CV_CODE}}, "B": {**gates, "cv": {k: False for k in CV_CODE}}},
+            "fwd": {"A": {"3m": (10.0, 5.0)}, "B": {"3m": (-4.0, -6.0)}}}]
+    out = conviction_split(res, {"2025-01-31": ["A", "B"]})
+    first = out["top10"]["inputs"][CV_CODE[0]]
+    assert first["met"]["3m"]["win_pct"] == 100 and first["not met"]["3m"]["win_pct"] == 0
+    assert out["top10"]["code_checks_met"][str(len(CV_CODE))]["3m"]["n"] == 1
+    assert out["candidates"]["code_checks_met"]["0"]["3m"]["n"] == 1
+
+
+def test_unverified_driver_dates_do_not_count():
+    from datetime import date
+    from narrativ import conviction as CV
+    th = {"drivers": [{"kind": "capex", "due": "2027-03-31", "source": "https://a/x.pdf"}]}
+    assert CV.dated_evidence(th, {"out": {}}, date(2026, 11, 20)) == []
+    th["drivers"][0]["due_verified"] = True
+    assert len(CV.dated_evidence(th, {"out": {}}, date(2026, 11, 20))) == 1

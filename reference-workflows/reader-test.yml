@@ -1,0 +1,54 @@
+name: Free reader test
+
+# Gemini (free tier) reads the documents Claude cited for its full reviews; compares the reader's items with Claude's.
+# Results: data/reader_test/<model>.json and .summary.json (committed). Resumes where it stopped (daily limits).
+on:
+  workflow_dispatch:
+    inputs:
+      model: { description: "Model name, e.g. gemini-3.5-flash-lite or gemini-3.8-flash", default: "gemini-3.5-flash-lite" }
+      limit: { description: "Max documents this run (flash 20/day, flash-lite 500/day; langextract ~8 requests a document)", default: "60" }
+      engine: { description: "reader (our single call) or langextract (trial)", default: "reader" }
+
+permissions:
+  contents: write
+
+concurrency:
+  group: reader-test
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - uses: actions/cache/restore@v4
+        with:
+          path: data/source_cache
+          key: sources-${{ github.run_id }}
+          restore-keys: sources-
+      - name: Read and compare
+        env:
+          PYTHONUNBUFFERED: "1"
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          if [ "${{ inputs.engine }}" = "langextract" ]; then
+            pip install "langextract>=1.0"
+            python -m narrativ.lxtrial "${{ inputs.limit }}"
+          else
+            python -m narrativ.reader --test "${{ inputs.model }}" "${{ inputs.limit }}"
+          fi
+      - name: Commit results
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/reader_test
+          git diff --cached --quiet && exit 0
+          git commit -m "data: free reader test ${{ inputs.model }}"
+          bash scripts/push_retry.sh

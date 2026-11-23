@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Narrativ</title>
+<meta name="theme-color" content="#0f1115">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="stylesheet" href="style.css">
+<script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js" defer></script>
+<script src="app.js" defer></script>
+</head>
+<body>
+<header class="top">
+  <div class="brand" onclick="location.hash=''">Narrativ</div>
+  <div id="regime" class="chip"></div>
+</header>
+<main id="view"><p class="muted pad">Loading…</p></main>
+<footer class="muted small pad">Screening tool, not investment advice. Data: Yahoo Finance via yfinance. Research: Claude.</footer>
+</body>
+</html>

@@ -1,0 +1,36 @@
+name: factors
+
+# Factor check (narrativ/factors.py): do our scores predict next returns? Reads every daily picks.json snapshot in git
+# history. Saturday, before the Sunday weekly review reads docs/data/factors.json.
+on:
+  schedule:
+    - cron: "45 6 * * 6"   # 12:15 IST Saturday
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  factors:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          filter: blob:none   # history of commits and trees only; factors.py fetches just the picks.json blobs it reads
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python -m narrativ.factors
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/data/factors.json
+          git diff --cached --quiet && exit 0
+          git commit -m "data: factor check $(TZ=Asia/Kolkata date +%F)"
+          bash scripts/push_retry.sh

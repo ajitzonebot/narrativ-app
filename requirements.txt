@@ -1,0 +1,12 @@
+yfinance>=0.2.54
+pandas>=2.0
+numpy>=1.26
+requests>=2.31
+pypdf>=4.0
+nse>=5.1
+bse>=3.3
+nselib>=2.5
+cryptography>=42
+pyarrow>=15
+fonttools>=4.40
+quantstats>=0.0.64

@@ -1,0 +1,53 @@
+name: filings-backfill
+
+on:
+  schedule:
+    - cron: "15 15 * * *"  # once a day (20:45 IST, after most results); exits in ~1 min when nothing is due. Use filings-burst for big backlogs
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: funnel
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip }
+      - run: pip install -r requirements.txt
+      - name: Stop when everything is fresh
+        id: chk
+        run: |
+          python3 - <<'PY' >> $GITHUB_OUTPUT
+          import json, pathlib, datetime
+          from narrativ import filings
+          u = json.loads(pathlib.Path("data/universe_stage1.json").read_text()) if pathlib.Path("data/universe_stage1.json").exists() else []
+          import contextlib, sys
+          try:
+              with contextlib.redirect_stdout(sys.stderr):  # only "due=N" may reach $GITHUB_OUTPUT
+                  f = filings.recent_filers(filings.NSESession(), datetime.date.today())
+          except Exception:
+              f = {}
+          due = [s for s in u if s.endswith(".NS") and filings.needs_check(filings.load(s), datetime.date.today(), None, f.get(s))]
+          print(f"due={len(due)}")
+          PY
+      - name: Backfill company filings (NSE XBRL)
+        if: steps.chk.outputs.due != '0'
+        env:
+          FILINGS_MAX_MINUTES: "50"
+        run: python -m narrativ.filings --backfill 300
+      - name: Commit
+        if: steps.chk.outputs.due != '0'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A data/financials
+          git diff --cached --quiet && exit 0
+          git commit -m "data: filings backfill $(date -u +%FT%H%M)"
+          bash scripts/push_retry.sh

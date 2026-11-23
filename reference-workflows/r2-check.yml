@@ -1,0 +1,24 @@
+name: r2-check
+
+# Read-only: does the existing Cloudflare token allow R2? Prints only success flags and bucket names.
+on: workflow_dispatch
+
+# No repo token needed: only the Cloudflare / Worker secrets are used.
+permissions: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check token and R2 access
+        env:
+          CF: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ACC: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          [ -z "$CF" ] && { echo "token not set"; exit 0; }
+          echo "token verify:"; curl -s -H "Authorization: Bearer $CF" https://api.cloudflare.com/client/v4/user/tokens/verify | jq -c '{success, status: .result.status, errors}'
+          ACC=$(printf %s "$ACC" | tr -d "[:space:]\"'"); echo "account id length ${#ACC}"
+          for path in "r2/buckets" "workers/scripts"; do
+            code=$(curl -s -o out.json -w "%{http_code}" -H "Authorization: Bearer $CF" "https://api.cloudflare.com/client/v4/accounts/$ACC/$path") || code="curl-$?"
+            echo "$path http=$code $(jq -c '{success, errors, n: (.result|if type=="object" then (.buckets|length) else length end)}' out.json 2>/dev/null || head -c 200 out.json)"
+          done

@@ -1,0 +1,23 @@
+name: d1-check
+
+# Read-only: can the existing Cloudflare token use D1? Lists databases only; creates nothing.
+on: workflow_dispatch
+
+# No repo token needed: only the Cloudflare / Worker secrets are used.
+permissions: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check D1 access
+        env:
+          CF: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ACC: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          [ -z "$CF" ] && { echo "token not set"; exit 0; }
+          ACC=$(printf %s "$ACC" | tr -d "[:space:]\"'")
+          for path in "d1/database" "r2/buckets" "workers/scripts"; do
+            code=$(curl -s -o out.json -w "%{http_code}" -H "Authorization: Bearer $CF" "https://api.cloudflare.com/client/v4/accounts/$ACC/$path") || code="curl-$?"
+            echo "$path http=$code $(jq -c '{success, errors, n: (.result|if type=="array" then length elif type=="object" then (.buckets|length) else null end)}' out.json 2>/dev/null || head -c 200 out.json)"
+          done

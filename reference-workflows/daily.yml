@@ -1,0 +1,60 @@
+name: daily-funnel
+
+on:
+  schedule:
+    - cron: "40 11 * * 1-5"   # 17:10 IST; the Worker cron (once deployed) also starts it at 17:10 IST, and this run then skips if no newer prices exist than the data already built
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: funnel
+  cancel-in-progress: false
+
+jobs:
+  funnel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Skip if there are no new prices since the last build (backup schedule only)
+        id: skip
+        # picks.json "date" is the last PRICE (trading) date, not the IST calendar day. GitHub's backup schedule can start after
+        # midnight IST, so comparing with the IST date never matched and a full rerun stamped the previous prices with the next
+        # day. Compare with the newest published NSE end-of-day file instead. If that cannot be determined, run (fail open).
+        run: |
+          latest=$(python3 -m scripts.latest_trading_date 2>/dev/null || true)
+          have=$(python3 -c "import json;print(json.load(open('docs/data/picks.json')).get('date',''))" 2>/dev/null || true)
+          echo "latest exchange date=${latest:-unknown} data date=${have:-none}"
+          if [ "${{ github.event_name }}" = "schedule" ] && [ -n "$latest" ] && [ "$have" = "$latest" ]; then echo "already built for $latest"; echo "skip=true" >> $GITHUB_OUTPUT; fi
+      - uses: actions/cache@v4
+        if: steps.skip.outputs.skip != 'true'
+        with:
+          path: data/source_cache
+          key: sources-${{ github.run_id }}
+          restore-keys: sources-
+      - name: Run funnel
+        if: steps.skip.outputs.skip != 'true'
+        env:
+          PYTHONUNBUFFERED: "1"
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python run.py
+      - name: Commit results
+        if: steps.skip.outputs.skip != 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A docs/data data RULES.md
+          git diff --cached --quiet && exit 0
+          git commit -m "data: daily funnel $(date -u +%F)"
+          bash scripts/push_retry.sh

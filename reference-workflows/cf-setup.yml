@@ -1,0 +1,32 @@
+name: cf-setup
+
+# One-off, idempotent: create the D1 database "narrativ" and the R2 bucket "narrativ-data" (Standard class) if missing.
+on: workflow_dispatch
+
+# No repo token needed: only the Cloudflare / Worker secrets are used.
+permissions: {}
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create D1 database and R2 bucket
+        env:
+          CF: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ACC: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          ACC=$(printf %s "$ACC" | tr -d "[:space:]\"'")
+          API="https://api.cloudflare.com/client/v4/accounts/$ACC"
+          H=(-H "Authorization: Bearer $CF" -H "Content-Type: application/json")
+          if curl -s "${H[@]}" "$API/d1/database?name=narrativ" | jq -e '.result | map(select(.name=="narrativ")) | length > 0' >/dev/null; then
+            echo "D1 narrativ: already exists"
+          else
+            curl -s -X POST "${H[@]}" "$API/d1/database" -d '{"name":"narrativ"}' | jq -c '{success, errors, name: .result.name, created: .result.created_at}'
+          fi
+          curl -s "${H[@]}" "$API/d1/database?name=narrativ" | jq -c '[.result[] | {name, uuid_set: (.uuid != null), num_tables, file_size}]'
+          if curl -s "${H[@]}" "$API/r2/buckets" | jq -e '.result.buckets | map(select(.name=="narrativ-data")) | length > 0' >/dev/null; then
+            echo "R2 narrativ-data: already exists"
+          else
+            curl -s -X POST "${H[@]}" "$API/r2/buckets" -d '{"name":"narrativ-data","storageClass":"Standard"}' | jq -c '{success, errors, name: .result.name, class: .result.storage_class}'
+          fi
+          curl -s "${H[@]}" "$API/r2/buckets" | jq -c '[.result.buckets[] | {name, storage_class, creation_date}]'
