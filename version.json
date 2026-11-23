@@ -1,11 +1,29 @@
 {
- "versionCode": 68,
- "versionName": "2.20.0",
+ "versionCode": 69,
+ "versionName": "2.21.0",
  "date": "2026-11-23",
- "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.20.0-b68/narrativ-v2.20.0-b68.apk",
+ "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.21.0-b69/narrativ-v2.21.0-b69.apk",
  "sizeMb": 11.6,
- "sha256": "377f2837874e83be656c469e6bc103b2f23ee152d872c2bb1bac07e76ddfe037",
+ "sha256": "25aca524acf31d015c2b84d71f3b9c8274c2662582b5989276ef0e5e1ebb8101",
  "changelog": [
+  {
+   "version": "2.21.0",
+   "date": "2026-11-24",
+   "changes": [
+    {
+     "type": "change",
+     "text": "Top 10: the conviction bars now name the level (High, Medium, Low)"
+    },
+    {
+     "type": "change",
+     "text": "Stock summary: sector and industry in one line each, their state with the way it is heading and the 1M and 3M moves"
+    },
+    {
+     "type": "change",
+     "text": "Stock summary: the four key numbers take the colour of their check"
+    }
+   ]
+  },
   {
    "version": "2.20.0",
    "date": "2026-11-24",
