@@ -7,7 +7,7 @@ source. The app shows the result.
 ## Install the app
 
 Download the latest APK from [Releases](https://github.com/ajitzonebot/narrativ-app/releases/latest). The app checks
-`version.json` here and offers updates by itself. The app needs an access key, so it shows data only to its owner.
+`version.json` here and offers updates by itself.
 
 ## What's in this repo
 
