@@ -1,0 +1,72 @@
+# Generated from the private repo by .github/mirror/public_workflows.py: edit it there.
+name: ipo-pm
+# 14:10 IST Mon-Fri, started by the Cloudflare Worker cron (GitHub schedule below is a backup): refresh NSE subscription for open IPOs before the app's 15:00 alert (IPO.md). Exits in seconds when none is open.
+on:
+  schedule:
+    - cron: "40 8 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+concurrency:
+  group: ipo-pm
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Quiet logs (public repo)
+        shell: bash
+        run: |
+          cat > /home/runner/q.sh <<'EOF'
+          bash --noprofile --norc -eo pipefail "$1" >> "$RUNNER_TEMP/narrativ.log" 2>&1 && exit 0
+          echo "Step failed. The full log is saved in the private repo (logs/)."
+          exit 1
+          EOF
+      - uses: actions/checkout@v4
+        with:
+          repository: ajitzonebot/Narrativ
+          token: ${{ secrets.NARRATIV_RW_TOKEN }}
+      - name: Anything open today?
+        id: q
+        run: |
+          python3 -c "import json,datetime as d;x=json.load(open('docs/data/ipo_today.json'));t=(d.datetime.utcnow()+d.timedelta(hours=5,minutes=30)).date().isoformat();print('go=' + ('1' if x.get('date')==t and x.get('actionable') else '0'))" >> $GITHUB_OUTPUT
+      - uses: actions/setup-python@v5
+        if: steps.q.outputs.go == '1'
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Update subscription
+        if: steps.q.outputs.go == '1'
+        run: |
+          pip install -q -r requirements.txt
+          python -m narrativ.ipo_sub
+      - name: Commit
+        if: steps.q.outputs.go == '1'
+        run: |
+          git config user.name "github-actions[bot]"; git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/data/ipo_today.json
+          git diff --cached --quiet && exit 0
+          git commit -m "ipo: 14:10 subscription update"
+          bash scripts/push_retry.sh -X theirs
+      - name: Save the log in the private repo
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          [ -d .git ] && [ -f "$RUNNER_TEMP/narrativ.log" ] || exit 0
+          mkdir -p logs
+          cp "$RUNNER_TEMP/narrativ.log" "logs/$GITHUB_WORKFLOW-$(date -u +%Y%m%d-%H%M).log"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add logs && git commit -qm "logs: $GITHUB_WORKFLOW failed" -- logs
+          git stash -u -q
+          for i in 1 2 3; do git pull -q --rebase && git push -q && break; sleep 5; done
+          exit 0
+
+env:
+  NARRATIV_REPO: ajitzonebot/Narrativ
+
+defaults:
+  run:
+    shell: bash /home/runner/q.sh {0}

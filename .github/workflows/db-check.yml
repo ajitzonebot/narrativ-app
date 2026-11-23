@@ -1,0 +1,61 @@
+# Generated from the private repo by .github/mirror/public_workflows.py: edit it there.
+name: db-check
+
+# Read-only: row counts per D1 table, latest run_log usage, R2 object list. Changes nothing.
+on: workflow_dispatch
+
+# No repo token needed: only the Cloudflare / Worker secrets are used.
+permissions: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Quiet logs (public repo)
+        shell: bash
+        run: |
+          cat > /home/runner/q.sh <<'EOF'
+          bash --noprofile --norc -eo pipefail "$1" >> "$RUNNER_TEMP/narrativ.log" 2>&1 && exit 0
+          echo "Step failed. The full log is saved in the private repo (logs/)."
+          exit 1
+          EOF
+      - name: D1 counts and R2 objects
+        env:
+          CF: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ACC: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          ACC=$(printf %s "$ACC" | tr -d "[:space:]\"'")
+          API="https://api.cloudflare.com/client/v4/accounts/$ACC"
+          H=(-H "Authorization: Bearer $CF" -H "Content-Type: application/json")
+          DB=$(curl -s "${H[@]}" "$API/d1/database?name=narrativ" | jq -r '.result[] | select(.name=="narrativ") | .uuid')
+          curl -s "${H[@]}" "$API/d1/database?name=narrativ" | jq -c '.result[] | select(.name=="narrativ") | {num_tables, file_size_mb: (.file_size/1e6)}'
+          Q() { curl -s -X POST "${H[@]}" "$API/d1/database/$DB/query" -d "$(jq -nc --arg s "$1" '{sql:$s}')" | jq -c '.result[0].results'; }
+          for t in company quarter snapshot stock_detail event checkpoint verdict_log research forward_item document market_day run_log; do
+            echo "$t $(Q "SELECT COUNT(*) AS n FROM $t")"
+          done
+          echo "event range $(Q "SELECT MIN(date) AS oldest, MAX(date) AS newest, SUM(severity='red') AS red FROM event")"
+          echo "snapshot dates $(Q "SELECT date, COUNT(*) AS n FROM snapshot GROUP BY date ORDER BY date DESC LIMIT 3")"
+          echo "run_log $(Q "SELECT date, counts, usage FROM run_log ORDER BY date DESC LIMIT 1")"
+          echo "sample $(Q "SELECT c.symbol, s.verdict, s.price, s.mcap_cr FROM snapshot s JOIN company c USING(isin) WHERE c.symbol IN ('RELIANCE.NS','TCS.NS','BONDADA.NS') ORDER BY s.date DESC LIMIT 3")"
+          echo "r2 $(curl -s "${H[@]}" "$API/r2/buckets/narrativ-data/objects" | jq -c '[.result[]? | {key, mb: (.size/1e6)}]')"
+      - name: Save the log in the private repo
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          [ -d .git ] && [ -f "$RUNNER_TEMP/narrativ.log" ] || exit 0
+          mkdir -p logs
+          cp "$RUNNER_TEMP/narrativ.log" "logs/$GITHUB_WORKFLOW-$(date -u +%Y%m%d-%H%M).log"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add logs && git commit -qm "logs: $GITHUB_WORKFLOW failed" -- logs
+          git stash -u -q
+          for i in 1 2 3; do git pull -q --rebase && git push -q && break; sleep 5; done
+          exit 0
+
+env:
+  NARRATIV_REPO: ajitzonebot/Narrativ
+
+defaults:
+  run:
+    shell: bash /home/runner/q.sh {0}

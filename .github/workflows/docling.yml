@@ -1,0 +1,82 @@
+# Generated from the private repo by .github/mirror/public_workflows.py: edit it there.
+name: docling
+
+# Layout-aware reading (narrativ/docread.py): OCR for scanned PDFs, tables kept for presentations of stocks in Claude's
+# queue. Runs after the daily run, in parallel with the readers; results feed tomorrow's packs, readers and verifier.
+on:
+  workflow_run:
+    workflows: ["daily-funnel"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      max_docs: { description: "Documents this run", default: "40" }
+
+permissions:
+  contents: write
+
+concurrency:
+  group: docling
+  cancel-in-progress: false
+
+jobs:
+  convert:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Quiet logs (public repo)
+        shell: bash
+        run: |
+          cat > /home/runner/q.sh <<'EOF'
+          bash --noprofile --norc -eo pipefail "$1" >> "$RUNNER_TEMP/narrativ.log" 2>&1 && exit 0
+          echo "Step failed. The full log is saved in the private repo (logs/)."
+          exit 1
+          EOF
+      - uses: actions/checkout@v4
+        with:
+          repository: ajitzonebot/Narrativ
+          token: ${{ secrets.NARRATIV_RW_TOKEN }}
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt "docling>=2.0"
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: docling-models-v2
+      - name: Convert
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: python -m narrativ.docread "${{ inputs.max_docs || '40' }}"
+      - name: Commit results
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/docling
+          git diff --cached --quiet && exit 0
+          git commit -m "data: docling $(TZ=Asia/Kolkata date +%F)"
+          bash scripts/push_retry.sh
+      - name: Save the log in the private repo
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          [ -d .git ] && [ -f "$RUNNER_TEMP/narrativ.log" ] || exit 0
+          mkdir -p logs
+          cp "$RUNNER_TEMP/narrativ.log" "logs/$GITHUB_WORKFLOW-$(date -u +%Y%m%d-%H%M).log"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add logs && git commit -qm "logs: $GITHUB_WORKFLOW failed" -- logs
+          git stash -u -q
+          for i in 1 2 3; do git pull -q --rebase && git push -q && break; sleep 5; done
+          exit 0
+
+env:
+  NARRATIV_REPO: ajitzonebot/Narrativ
+
+defaults:
+  run:
+    shell: bash /home/runner/q.sh {0}

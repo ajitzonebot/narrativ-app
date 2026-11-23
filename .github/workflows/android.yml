@@ -1,0 +1,189 @@
+# Generated from the private repo by .github/mirror/public_workflows.py: edit it there.
+name: android-build
+
+# Push (any branch): build and unit-test only (debug, no key needed, nothing published).
+# Release: only by hand (Actions > android-build > Run workflow, on main) after the owner confirms.
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: "Publish a release (owner confirmed)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android
+  cancel-in-progress: false
+
+jobs:
+  check:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Quiet logs (public repo)
+        shell: bash
+        run: |
+          cat > /home/runner/q.sh <<'EOF'
+          bash --noprofile --norc -eo pipefail "$1" >> "$RUNNER_TEMP/narrativ.log" 2>&1 && exit 0
+          echo "Step failed. The full log is saved in the private repo (logs/)."
+          exit 1
+          EOF
+      - uses: actions/checkout@v4
+        with:
+          repository: ajitzonebot/Narrativ
+          token: ${{ secrets.NARRATIV_RW_TOKEN }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.11.1"
+      - name: Build and test (debug, nothing published)
+        working-directory: android
+        run: gradle testDebugUnitTest assembleDebug --stacktrace
+      - name: Save the log in the private repo
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          [ -d .git ] && [ -f "$RUNNER_TEMP/narrativ.log" ] || exit 0
+          mkdir -p logs
+          cp "$RUNNER_TEMP/narrativ.log" "logs/$GITHUB_WORKFLOW-$(date -u +%Y%m%d-%H%M).log"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add logs && git commit -qm "logs: $GITHUB_WORKFLOW failed" -- logs
+          git stash -u -q
+          for i in 1 2 3; do git pull -q --rebase && git push -q && break; sleep 5; done
+          exit 0
+
+  build:
+    if: github.event_name == 'workflow_dispatch' && inputs.release && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Quiet logs (public repo)
+        shell: bash
+        run: |
+          cat > /home/runner/q.sh <<'EOF'
+          bash --noprofile --norc -eo pipefail "$1" >> "$RUNNER_TEMP/narrativ.log" 2>&1 && exit 0
+          echo "Step failed. The full log is saved in the private repo (logs/)."
+          exit 1
+          EOF
+      - uses: actions/checkout@v4
+        with:
+          repository: ajitzonebot/Narrativ
+          token: ${{ secrets.NARRATIV_RW_TOKEN }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.11.1"
+      - name: Version
+        id: v
+        run: |
+          NAME=$(grep versionName android/version.properties | cut -d= -f2)
+          CODE=$(( ${{ github.run_number }} + 64 ))
+          echo "name=$NAME" >> $GITHUB_OUTPUT
+          echo "code=$CODE" >> $GITHUB_OUTPUT
+          echo "tag=v$NAME-b$CODE" >> $GITHUB_OUTPUT
+      - name: Signing key
+        env:
+          KS_B64: ${{ secrets.NARRATIV_KEYSTORE_B64 }}
+          KS_PASS: ${{ secrets.NARRATIV_KS_PASS }}
+        run: |
+          if [ -n "$KS_B64" ] && [ -n "$KS_PASS" ]; then
+            echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/narrativ.jks"
+            echo "NARRATIV_KS_PASS=$KS_PASS" >> $GITHUB_ENV
+          else
+            echo "::warning::Signing secrets not set. Using a one-off key: installing the next build will need an uninstall first."
+            P=$(openssl rand -hex 16); echo "::add-mask::$P"
+            keytool -genkeypair -keystore "$RUNNER_TEMP/narrativ.jks" -alias narrativ -keyalg RSA -keysize 2048 -validity 20000 \
+              -storepass "$P" -keypass "$P" -dname "CN=Narrativ Temp" >/dev/null
+            echo "NARRATIV_KS_PASS=$P" >> $GITHUB_ENV
+          fi
+          echo "NARRATIV_KEYSTORE=$RUNNER_TEMP/narrativ.jks" >> $GITHUB_ENV
+      - name: Check the app reads today's data (decode test)
+        working-directory: android
+        run: gradle testReleaseUnitTest --stacktrace
+      - name: Build signed APK
+        working-directory: android
+        env:
+          NARRATIV_APP_KEY: ${{ secrets.NARRATIV_APP_KEY }}
+        run: gradle assembleRelease -PversionCode=${{ steps.v.outputs.code }} -PversionName=${{ steps.v.outputs.name }} --stacktrace
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.NARRATIV_GH_TOKEN || secrets.GITHUB_TOKEN }}
+          HAS_APP_TOKEN: ${{ secrets.NARRATIV_GH_TOKEN != '' }}
+        run: |
+          # Downloads live in the public repo ajitzonebot/narrativ-app once NARRATIV_GH_TOKEN is set; this repo can then be private.
+          if [ "$HAS_APP_TOKEN" = "true" ]; then APP_REPO=ajitzonebot/narrativ-app; else APP_REPO=ajitzonebot/Narrativ; fi
+          if [ "$HAS_APP_TOKEN" = "true" ] && ! gh api "repos/$APP_REPO/contents/README.md" >/dev/null 2>&1; then
+            # an empty repo has no branch to tag; give it a first commit
+            printf '# Narrativ app\n\nPersonal Android app. Download the latest APK from Releases.\n' > /tmp/readme.md
+            gh api -X PUT "repos/$APP_REPO/contents/README.md" -f message="init" -f content="$(base64 -w0 /tmp/readme.md)" >/dev/null
+            # remove drafts left by a failed earlier attempt
+            for id in $(gh api "repos/$APP_REPO/releases" --jq '.[] | select(.draft) | .id'); do gh api -X DELETE "repos/$APP_REPO/releases/$id"; done
+          fi
+          APK=narrativ-${{ steps.v.outputs.tag }}.apk
+          cp android/app/build/outputs/apk/release/app-release.apk "$APK"
+          python3 -c "
+          import json
+          ch = json.load(open('android/CHANGELOG.json'))
+          open('notes.md', 'w').write('\n'.join(f\"- [{c['type'].upper()}] {c['text']}\" for c in ch[0]['changes']))
+          "
+          gh release create "${{ steps.v.outputs.tag }}" "$APK" --repo "$APP_REPO" --title "Narrativ ${{ steps.v.outputs.tag }}" --notes-file notes.md --latest
+          SIZE=$(python3 -c "import os;print(round(os.path.getsize('$APK')/1048576,1))")
+          SHA256=$(sha256sum "$APK" | cut -d' ' -f1)
+          python3 -c "
+          import json, datetime
+          ch = json.load(open('android/CHANGELOG.json'))
+          v = {'versionCode': ${{ steps.v.outputs.code }}, 'versionName': '${{ steps.v.outputs.name }}',
+               'date': datetime.date.today().isoformat(),
+               'apkUrl': 'https://github.com/$APP_REPO/releases/download/${{ steps.v.outputs.tag }}/$APK',
+               'sizeMb': $SIZE, 'sha256': '$SHA256', 'changelog': ch}
+          json.dump(v, open('docs/app/version.json', 'w'), indent=1)
+          "
+          if [ "$HAS_APP_TOKEN" = "true" ]; then
+            # mirror version.json into the public repo so a public download page / old installs can read it
+            CONTENT=$(base64 -w0 docs/app/version.json)
+            SHA=$(gh api "repos/$APP_REPO/contents/version.json" --jq .sha 2>/dev/null) || SHA=""
+            [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || SHA=""
+            gh api -X PUT "repos/$APP_REPO/contents/version.json" -f message="release ${{ steps.v.outputs.tag }}" -f content="$CONTENT" ${SHA:+-f sha=$SHA} >/dev/null
+          fi
+      - name: Commit version.json
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/app/version.json
+          git diff --cached --quiet && exit 0
+          git commit -m "app: release ${{ steps.v.outputs.tag }}"
+          # two builds can race on this file: keep this build's version (-X theirs = the commit being rebased)
+          bash scripts/push_retry.sh -X theirs
+      - name: Save the log in the private repo
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          [ -d .git ] && [ -f "$RUNNER_TEMP/narrativ.log" ] || exit 0
+          mkdir -p logs
+          cp "$RUNNER_TEMP/narrativ.log" "logs/$GITHUB_WORKFLOW-$(date -u +%Y%m%d-%H%M).log"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add logs && git commit -qm "logs: $GITHUB_WORKFLOW failed" -- logs
+          git stash -u -q
+          for i in 1 2 3; do git pull -q --rebase && git push -q && break; sleep 5; done
+          exit 0
+
+env:
+  NARRATIV_REPO: ajitzonebot/Narrativ
+
+defaults:
+  run:
+    shell: bash /home/runner/q.sh {0}

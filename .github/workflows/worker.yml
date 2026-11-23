@@ -1,0 +1,78 @@
+# Hand-written for the public repo (not generated).
+name: worker-deploy
+
+# Deploys the Cloudflare Worker from the private repo's worker/ folder. Run by hand after a Worker change.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Quiet logs (public repo)
+        shell: bash
+        run: |
+          cat > /home/runner/q.sh <<'EOF'
+          bash --noprofile --norc -eo pipefail "$1" >> "$RUNNER_TEMP/narrativ.log" 2>&1 && exit 0
+          echo "Step failed. The full log is saved in the private repo (logs/)."
+          exit 1
+          EOF
+      - uses: actions/checkout@v4
+        with:
+          repository: ajitzonebot/Narrativ
+          token: ${{ secrets.NARRATIV_RW_TOKEN }}
+      - name: Check secrets
+        env:
+          CF: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          GHT: ${{ secrets.NARRATIV_RW_TOKEN }}
+          KEY: ${{ secrets.NARRATIV_APP_KEY }}
+        run: |
+          # No default key: a published fallback would let anyone call the API. Fail instead of deploying with it.
+          [ -n "$CF" ] && [ -n "$GHT" ] && [ -n "$KEY" ]
+      - name: Deploy
+        working-directory: worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          GH_TOKEN: ${{ secrets.NARRATIV_RW_TOKEN }}
+          APP_KEY: ${{ secrets.NARRATIV_APP_KEY }}
+        run: |
+          npx -y wrangler@4.20.0 deploy > "$RUNNER_TEMP/deploy.txt"
+          printf '%s' "$GH_TOKEN" | npx -y wrangler@4.20.0 secret put GH_TOKEN
+          printf '%s' "$APP_KEY" | npx -y wrangler@4.20.0 secret put APP_KEY
+          grep -oE 'https://[a-z0-9.-]+\.workers\.dev' "$RUNNER_TEMP/deploy.txt" | head -1 > "$RUNNER_TEMP/url.txt"
+          [ -s "$RUNNER_TEMP/url.txt" ]
+      # Hard gate: the Worker is up, accepts the app key and can read the private repo.
+      - name: Smoke test (health, app key, /data)
+        env:
+          KEY: ${{ secrets.NARRATIV_APP_KEY }}
+        run: |
+          URL=$(cat "$RUNNER_TEMP/url.txt")
+          sleep 5
+          curl -sS --fail --retry 3 --retry-delay 5 --max-time 30 "$URL/health"
+          curl -sS --fail --retry 3 --retry-delay 5 --max-time 30 "$URL/data/data/picks.json" -H "X-App-Key: $KEY" -o /dev/null
+      - name: Save the log in the private repo
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          [ -d .git ] && [ -f "$RUNNER_TEMP/narrativ.log" ] || exit 0
+          mkdir -p logs
+          cp "$RUNNER_TEMP/narrativ.log" "logs/$GITHUB_WORKFLOW-$(date -u +%Y%m%d-%H%M).log"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add logs && git commit -qm "logs: $GITHUB_WORKFLOW failed" -- logs
+          git stash -u -q
+          for i in 1 2 3; do git pull -q --rebase && git push -q && break; sleep 5; done
+          exit 0
+
+env:
+  NARRATIV_REPO: ajitzonebot/Narrativ
+
+defaults:
+  run:
+    shell: bash /home/runner/q.sh {0}

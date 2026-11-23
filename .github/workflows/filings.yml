@@ -1,0 +1,86 @@
+# Generated from the private repo by .github/mirror/public_workflows.py: edit it there.
+name: filings-backfill
+
+on:
+  schedule:
+    - cron: "15 15 * * *"  # once a day (20:45 IST, after most results); exits in ~1 min when nothing is due. Use filings-burst for big backlogs
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: funnel
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Quiet logs (public repo)
+        shell: bash
+        run: |
+          cat > /home/runner/q.sh <<'EOF'
+          bash --noprofile --norc -eo pipefail "$1" >> "$RUNNER_TEMP/narrativ.log" 2>&1 && exit 0
+          echo "Step failed. The full log is saved in the private repo (logs/)."
+          exit 1
+          EOF
+      - uses: actions/checkout@v4
+        with:
+          repository: ajitzonebot/Narrativ
+          token: ${{ secrets.NARRATIV_RW_TOKEN }}
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip }
+      - run: pip install -r requirements.txt
+      - name: Stop when everything is fresh
+        id: chk
+        run: |
+          python3 - <<'PY' >> $GITHUB_OUTPUT
+          import json, pathlib, datetime
+          from narrativ import filings
+          u = json.loads(pathlib.Path("data/universe_stage1.json").read_text()) if pathlib.Path("data/universe_stage1.json").exists() else []
+          import contextlib, sys
+          try:
+              with contextlib.redirect_stdout(sys.stderr):  # only "due=N" may reach $GITHUB_OUTPUT
+                  f = filings.recent_filers(filings.NSESession(), datetime.date.today())
+          except Exception:
+              f = {}
+          due = [s for s in u if s.endswith(".NS") and filings.needs_check(filings.load(s), datetime.date.today(), None, f.get(s))]
+          print(f"due={len(due)}")
+          PY
+      - name: Backfill company filings (NSE XBRL)
+        if: steps.chk.outputs.due != '0'
+        env:
+          FILINGS_MAX_MINUTES: "50"
+        run: python -m narrativ.filings --backfill 300
+      - name: Commit
+        if: steps.chk.outputs.due != '0'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A data/financials
+          git diff --cached --quiet && exit 0
+          git commit -m "data: filings backfill $(date -u +%FT%H%M)"
+          bash scripts/push_retry.sh
+      - name: Save the log in the private repo
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          [ -d .git ] && [ -f "$RUNNER_TEMP/narrativ.log" ] || exit 0
+          mkdir -p logs
+          cp "$RUNNER_TEMP/narrativ.log" "logs/$GITHUB_WORKFLOW-$(date -u +%Y%m%d-%H%M).log"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add logs && git commit -qm "logs: $GITHUB_WORKFLOW failed" -- logs
+          git stash -u -q
+          for i in 1 2 3; do git pull -q --rebase && git push -q && break; sleep 5; done
+          exit 0
+
+env:
+  NARRATIV_REPO: ajitzonebot/Narrativ
+
+defaults:
+  run:
+    shell: bash /home/runner/q.sh {0}

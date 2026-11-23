@@ -1,0 +1,93 @@
+# Generated from the private repo by .github/mirror/public_workflows.py: edit it there.
+name: daily-funnel
+
+on:
+  schedule:
+    - cron: "40 11 * * 1-5"   # 17:10 IST; the Worker cron (once deployed) also starts it at 17:10 IST, and this run then skips if no newer prices exist than the data already built
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: funnel
+  cancel-in-progress: false
+
+jobs:
+  funnel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Quiet logs (public repo)
+        shell: bash
+        run: |
+          cat > /home/runner/q.sh <<'EOF'
+          bash --noprofile --norc -eo pipefail "$1" >> "$RUNNER_TEMP/narrativ.log" 2>&1 && exit 0
+          echo "Step failed. The full log is saved in the private repo (logs/)."
+          exit 1
+          EOF
+      - uses: actions/checkout@v4
+        with:
+          repository: ajitzonebot/Narrativ
+          token: ${{ secrets.NARRATIV_RW_TOKEN }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Skip if there are no new prices since the last build (backup schedule only)
+        id: skip
+        # picks.json "date" is the last PRICE (trading) date, not the IST calendar day. GitHub's backup schedule can start after
+        # midnight IST, so comparing with the IST date never matched and a full rerun stamped the previous prices with the next
+        # day. Compare with the newest published NSE end-of-day file instead. If that cannot be determined, run (fail open).
+        run: |
+          latest=$(python3 -m scripts.latest_trading_date 2>/dev/null || true)
+          have=$(python3 -c "import json;print(json.load(open('docs/data/picks.json')).get('date',''))" 2>/dev/null || true)
+          echo "latest exchange date=${latest:-unknown} data date=${have:-none}"
+          if [ "${{ github.event_name }}" = "schedule" ] && [ -n "$latest" ] && [ "$have" = "$latest" ]; then echo "already built for $latest"; echo "skip=true" >> $GITHUB_OUTPUT; fi
+      - uses: actions/cache@v4
+        if: steps.skip.outputs.skip != 'true'
+        with:
+          path: data/source_cache
+          key: sources-${{ github.run_id }}
+          restore-keys: sources-
+      - name: Run funnel
+        if: steps.skip.outputs.skip != 'true'
+        env:
+          PYTHONUNBUFFERED: "1"
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          GITHUB_TOKEN: ${{ secrets.NARRATIV_RW_TOKEN }}
+        run: python run.py
+      - name: Commit results
+        if: steps.skip.outputs.skip != 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A docs/data data RULES.md
+          git diff --cached --quiet && exit 0
+          git commit -m "data: daily funnel $(date -u +%F)"
+          bash scripts/push_retry.sh
+      - name: Save the log in the private repo
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          [ -d .git ] && [ -f "$RUNNER_TEMP/narrativ.log" ] || exit 0
+          mkdir -p logs
+          cp "$RUNNER_TEMP/narrativ.log" "logs/$GITHUB_WORKFLOW-$(date -u +%Y%m%d-%H%M).log"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add logs && git commit -qm "logs: $GITHUB_WORKFLOW failed" -- logs
+          git stash -u -q
+          for i in 1 2 3; do git pull -q --rebase && git push -q && break; sleep 5; done
+          exit 0
+
+env:
+  NARRATIV_REPO: ajitzonebot/Narrativ
+
+defaults:
+  run:
+    shell: bash /home/runner/q.sh {0}

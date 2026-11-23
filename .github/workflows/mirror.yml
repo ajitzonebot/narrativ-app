@@ -1,0 +1,43 @@
+# Hand-written for the public repo (not generated).
+name: mirror
+
+# Copies the open-source part of the private repo here every evening.
+# Only the paths in the private repo's .github/mirror/paths.txt are copied; everything else stays private.
+on:
+  schedule:
+    - cron: '30 14 * * *'   # 20:00 IST, after the daily run
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: mirror
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: pub
+      - uses: actions/checkout@v4
+        with:
+          repository: ajitzonebot/Narrativ
+          token: ${{ secrets.NARRATIV_RW_TOKEN }}
+          path: priv
+          fetch-depth: 1
+      - name: Copy the public paths
+        run: bash priv/.github/mirror/mirror.sh priv pub
+      - name: Commit if anything changed
+        run: |
+          cd pub
+          git config user.name "narrativ-mirror"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then echo "No changes."; exit 0; fi
+          git commit -qm "Mirror $(TZ=Asia/Kolkata date '+%d %b %Y')"
+          for i in 1 2 3; do git pull -q --rebase && git push -q && break; sleep 5; done
+          echo "Pushed: $(git show --stat --format= HEAD | tail -1)"

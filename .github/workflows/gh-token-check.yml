@@ -1,0 +1,57 @@
+# Generated from the private repo by .github/mirror/public_workflows.py: edit it there.
+name: gh-token-check
+
+# Can the Worker's GitHub token (NARRATIV_GH_TOKEN) start workflows? Starts the read-only d1-check as a harmless test.
+on: workflow_dispatch
+
+# No repo token needed: only the Cloudflare / Worker secrets are used.
+permissions: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Quiet logs (public repo)
+        shell: bash
+        run: |
+          cat > /home/runner/q.sh <<'EOF'
+          bash --noprofile --norc -eo pipefail "$1" >> "$RUNNER_TEMP/narrativ.log" 2>&1 && exit 0
+          echo "Step failed. The full log is saved in the private repo (logs/)."
+          exit 1
+          EOF
+      - name: Dispatch d1-check with the Worker token
+        env:
+          T: ${{ secrets.NARRATIV_GH_TOKEN }}
+        run: |
+          code=$(curl -s -o out.json -w "%{http_code}" -X POST -H "Authorization: Bearer $T" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/ajitzonebot/Narrativ/actions/workflows/d1-check.yml/dispatches" -d '{"ref":"main"}')
+          echo "dispatch http=$code (204 = token can start workflows; 403 = add Actions: Read and write)"
+          cat out.json 2>/dev/null | head -c 300; echo
+          for path in "" "/actions/workflows" "/issues?per_page=1"; do
+            c=$(curl -s -o o2.json -w "%{http_code}" -H "Authorization: Bearer $T" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/ajitzonebot/Narrativ$path")
+            echo "GET repo$path http=$c"
+          done
+          c=$(curl -s -o o3.json -w "%{http_code}" -H "Authorization: Bearer $T" "https://api.github.com/repos/ajitzonebot/narrativ-app")
+          echo "GET narrativ-app http=$c push=$(jq -r '.permissions.push // "n/a"' o3.json)"
+          curl -s -I -H "Authorization: Bearer $T" "https://api.github.com/repos/ajitzonebot/Narrativ" | grep -i "x-accepted-github-permissions\|github-authentication-token-expiration" || true
+      - name: Save the log in the private repo
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          [ -d .git ] && [ -f "$RUNNER_TEMP/narrativ.log" ] || exit 0
+          mkdir -p logs
+          cp "$RUNNER_TEMP/narrativ.log" "logs/$GITHUB_WORKFLOW-$(date -u +%Y%m%d-%H%M).log"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add logs && git commit -qm "logs: $GITHUB_WORKFLOW failed" -- logs
+          git stash -u -q
+          for i in 1 2 3; do git pull -q --rebase && git push -q && break; sleep 5; done
+          exit 0
+
+env:
+  NARRATIV_REPO: ajitzonebot/Narrativ
+
+defaults:
+  run:
+    shell: bash /home/runner/q.sh {0}

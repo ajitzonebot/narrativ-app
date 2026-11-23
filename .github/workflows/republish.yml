@@ -1,0 +1,93 @@
+# Hand-written for the public repo (not generated).
+name: Publish research
+
+# Claude's research runs push docs/data/theses.json to the private repo. A push there can't start a job here,
+# so this checks every 30 minutes and publishes anything new: verify the changed stocks and re-rate them.
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: funnel
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Quiet logs (public repo)
+        shell: bash
+        run: |
+          cat > /home/runner/q.sh <<'EOF'
+          bash --noprofile --norc -eo pipefail "$1" >> "$RUNNER_TEMP/narrativ.log" 2>&1 && exit 0
+          echo "Step failed. The full log is saved in the private repo (logs/)."
+          exit 1
+          EOF
+      - uses: actions/checkout@v4
+        with:
+          repository: ajitzonebot/Narrativ
+          token: ${{ secrets.NARRATIV_RW_TOKEN }}
+          fetch-depth: 300
+      - name: Anything new since the last publish?
+        id: n
+        run: |
+          base=$(cat data/republish_base.txt 2>/dev/null || true)
+          head=$(git log -1 --format=%H -- docs/data/theses.json)
+          echo "base=$base" >> $GITHUB_OUTPUT
+          echo "head=$head" >> $GITHUB_OUTPUT
+          if [ "$base" = "$head" ]; then echo "new=false" >> $GITHUB_OUTPUT; else echo "new=true" >> $GITHUB_OUTPUT; fi
+          if [ -n "$base" ] && ! git cat-file -e "$base^{commit}" 2>/dev/null; then git fetch --no-tags --deepen=1000 origin main || true; fi
+      - uses: actions/setup-python@v5
+        if: steps.n.outputs.new == 'true'
+        with:
+          python-version: "3.12"
+          cache: pip
+      - if: steps.n.outputs.new == 'true'
+        run: pip install -r requirements.txt
+      - uses: actions/cache/restore@v4
+        if: steps.n.outputs.new == 'true'
+        with:
+          path: data/source_cache
+          key: sources-${{ github.run_id }}
+          restore-keys: sources-
+      - name: Verify and re-rate changed stocks
+        if: steps.n.outputs.new == 'true'
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: python -m narrativ.republish "${{ steps.n.outputs.base }}"
+      - name: Commit
+        if: steps.n.outputs.new == 'true'
+        run: |
+          echo "${{ steps.n.outputs.head }}" > data/republish_base.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/data data/research_log.json data/republish_base.txt
+          git diff --cached --quiet && exit 0
+          git commit -m "data: research published $(TZ=Asia/Kolkata date '+%F %H:%M') IST"
+          bash scripts/push_retry.sh
+      - name: Save the log in the private repo
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          [ -d .git ] && [ -f "$RUNNER_TEMP/narrativ.log" ] || exit 0
+          mkdir -p logs
+          cp "$RUNNER_TEMP/narrativ.log" "logs/$GITHUB_WORKFLOW-$(date -u +%Y%m%d-%H%M).log"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add logs && git commit -qm "logs: $GITHUB_WORKFLOW failed" -- logs
+          git stash -u -q
+          for i in 1 2 3; do git pull -q --rebase && git push -q && break; sleep 5; done
+          exit 0
+
+env:
+  NARRATIV_REPO: ajitzonebot/Narrativ
+
+defaults:
+  run:
+    shell: bash /home/runner/q.sh {0}

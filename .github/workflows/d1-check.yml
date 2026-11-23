@@ -1,0 +1,53 @@
+# Generated from the private repo by .github/mirror/public_workflows.py: edit it there.
+name: d1-check
+
+# Read-only: can the existing Cloudflare token use D1? Lists databases only; creates nothing.
+on: workflow_dispatch
+
+# No repo token needed: only the Cloudflare / Worker secrets are used.
+permissions: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Quiet logs (public repo)
+        shell: bash
+        run: |
+          cat > /home/runner/q.sh <<'EOF'
+          bash --noprofile --norc -eo pipefail "$1" >> "$RUNNER_TEMP/narrativ.log" 2>&1 && exit 0
+          echo "Step failed. The full log is saved in the private repo (logs/)."
+          exit 1
+          EOF
+      - name: Check D1 access
+        env:
+          CF: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ACC: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          [ -z "$CF" ] && { echo "token not set"; exit 0; }
+          ACC=$(printf %s "$ACC" | tr -d "[:space:]\"'")
+          for path in "d1/database" "r2/buckets" "workers/scripts"; do
+            code=$(curl -s -o out.json -w "%{http_code}" -H "Authorization: Bearer $CF" "https://api.cloudflare.com/client/v4/accounts/$ACC/$path") || code="curl-$?"
+            echo "$path http=$code $(jq -c '{success, errors, n: (.result|if type=="array" then length elif type=="object" then (.buckets|length) else null end)}' out.json 2>/dev/null || head -c 200 out.json)"
+          done
+      - name: Save the log in the private repo
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          [ -d .git ] && [ -f "$RUNNER_TEMP/narrativ.log" ] || exit 0
+          mkdir -p logs
+          cp "$RUNNER_TEMP/narrativ.log" "logs/$GITHUB_WORKFLOW-$(date -u +%Y%m%d-%H%M).log"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add logs && git commit -qm "logs: $GITHUB_WORKFLOW failed" -- logs
+          git stash -u -q
+          for i in 1 2 3; do git pull -q --rebase && git push -q && break; sleep 5; done
+          exit 0
+
+env:
+  NARRATIV_REPO: ajitzonebot/Narrativ
+
+defaults:
+  run:
+    shell: bash /home/runner/q.sh {0}

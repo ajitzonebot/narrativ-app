@@ -1,0 +1,67 @@
+# Generated from the private repo by .github/mirror/public_workflows.py: edit it there.
+name: probe-universe
+
+# Dry run of the exchange-sourced sweep: prints counts and joins, commits nothing.
+on: workflow_dispatch
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Quiet logs (public repo)
+        shell: bash
+        run: |
+          cat > /home/runner/q.sh <<'EOF'
+          bash --noprofile --norc -eo pipefail "$1" >> "$RUNNER_TEMP/narrativ.log" 2>&1 && exit 0
+          echo "Step failed. The full log is saved in the private repo (logs/)."
+          exit 1
+          EOF
+      - uses: actions/checkout@v4
+        with:
+          repository: ajitzonebot/Narrativ
+          token: ${{ secrets.NARRATIV_RW_TOKEN }}
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip }
+      - run: pip install -r requirements.txt
+      - name: Sweep dry run
+        env: { PYTHONUNBUFFERED: "1" }
+        run: |
+          python - <<'PY'
+          import json
+          from narrativ import sweep, universe as U
+          df, st = sweep.sweep()
+          print("STATS", json.dumps(st["universe"]))
+          print("cols", sorted(df.columns)[:40])
+          print("no price", int(df["regularMarketPrice"].isna().sum()), "no industry", int(df["industry"].isna().sum()), "no sector", int(df["sector"].isna().sum()))
+          print("tags", df["tags"].explode().value_counts().head(12).to_dict())
+          codes = json.load(open("data/bse_codes.json"))
+          print("aliases", U.aliases(df[["symbol", "bse_code"]].to_dict("records"), codes))
+          for s in ["RELIANCE.NS", "TCS.NS", "BONDADA.NS", "NSE.BO", "SIMMOND.BO"]:
+              r = df[df.symbol == s]
+              print(s, r[["symbol", "isin", "bse_code", "longName", "industry", "sector", "regularMarketPrice", "marketCap"]].to_dict("records"))
+          PY
+      - name: Save the log in the private repo
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          [ -d .git ] && [ -f "$RUNNER_TEMP/narrativ.log" ] || exit 0
+          mkdir -p logs
+          cp "$RUNNER_TEMP/narrativ.log" "logs/$GITHUB_WORKFLOW-$(date -u +%Y%m%d-%H%M).log"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add logs && git commit -qm "logs: $GITHUB_WORKFLOW failed" -- logs
+          git stash -u -q
+          for i in 1 2 3; do git pull -q --rebase && git push -q && break; sleep 5; done
+          exit 0
+
+env:
+  NARRATIV_REPO: ajitzonebot/Narrativ
+
+defaults:
+  run:
+    shell: bash /home/runner/q.sh {0}
