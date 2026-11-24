@@ -1,11 +1,41 @@
 {
- "versionCode": 71,
- "versionName": "2.22.0",
+ "versionCode": 73,
+ "versionName": "2.23.0",
  "date": "2026-11-24",
- "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.22.0-b71/narrativ-v2.22.0-b71.apk",
- "sizeMb": 11.6,
- "sha256": "0b3c102e91452464b9cc4bd6047da5f3b85b9ba4c431005ce3a08e0fedf763bb",
+ "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.23.0-b73/narrativ-v2.23.0-b73.apk",
+ "sizeMb": 11.5,
+ "sha256": "a310c84184844399c9e772020db81d292ba67561068940b10884c1820b55734a",
  "changelog": [
+  {
+   "version": "2.23.0",
+   "date": "2026-11-24",
+   "changes": [
+    {
+     "type": "fix",
+     "text": "Home: 'Strong outlook' uses the same outlook rating as the stock's Outlook tab (was Claude's research score); the Outlook tab also shows Claude's research outlook"
+    },
+    {
+     "type": "fix",
+     "text": "Same number on every screen: Top 10 rank, Claude's review queue position, institutional holding (NSE), search and industry counts, Stocks chip counts follow your search"
+    },
+    {
+     "type": "fix",
+     "text": "One name for each setup ('Avoid \u00b7 trend broken' in lists and on the Plan card) and for turnarounds"
+    },
+    {
+     "type": "fix",
+     "text": "Wrong text fixed: IPO alert times, Claude's review times, empty Nifty row on Momentum; loading shows placeholders instead of 'not in today's data'"
+    },
+    {
+     "type": "changed",
+     "text": "One look: blue only for things you tap, green and red for good and bad, one rotation palette, one way to write dates, multiples (\u00d7), returns and price ranges, same titles and buttons everywhere"
+    },
+    {
+     "type": "changed",
+     "text": "Filter presets renamed so they don't share names with verdicts: Top tiers, Quality + cheap, Under-owned quality"
+    }
+   ]
+  },
   {
    "version": "2.22.0",
    "date": "2026-11-24",
