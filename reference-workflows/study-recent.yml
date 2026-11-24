@@ -1,0 +1,49 @@
+name: study-recent
+
+# Research study (narrativ/study_recent.py): which traits and 2-3 trait combinations raised the odds of a 25%+ rise in the
+# next 12 months, point-in-time at each month end Jan 2024 - Oct 2025 (train 2024, test 2025). Manual runs only.
+on:
+  workflow_dispatch:
+    inputs:
+      quick: { description: "Quick test (300 stocks, 3 months)", default: "false" }
+
+permissions:
+  contents: write
+
+concurrency:
+  group: study-recent
+  cancel-in-progress: false
+
+jobs:
+  study:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt && pip install scikit-learn
+      - uses: actions/cache/restore@v4
+        with:
+          path: data/source_cache
+          key: sources-${{ github.run_id }}
+          restore-keys: sources-
+      - name: Study
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: |
+          mkdir -p data/study_recent
+          python -m narrativ.study_recent ${{ inputs.quick == 'true' && '--quick' || '' }} 2>&1 | tee data/study_recent/run.log
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/study_recent
+          [ "${{ inputs.quick }}" = "true" ] || git add docs/data/study_recent.json docs/research/study_recent.md
+          git diff --cached --quiet && exit 0
+          git commit -m "data: study_recent $(TZ=Asia/Kolkata date +%F)"
+          bash scripts/push_retry.sh

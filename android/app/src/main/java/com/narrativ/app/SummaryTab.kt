@@ -6,20 +6,15 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.NorthEast
 import androidx.compose.material.icons.rounded.SouthEast
 import androidx.compose.material.icons.rounded.RocketLaunch
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -50,7 +45,7 @@ val METRIC_NAMES = mapOf(
     "fcf_yield_pct" to "FCF yield", "capex_pct_rev" to "Capex / revenue", "interest_cover" to "Interest cover",
     "free_float_mcap_cr" to "Free-float market cap", "revenue_ttm_cr" to "Revenue (4 quarters)", "pat_ttm_cr" to "Profit (4 quarters)",
     "asset_turnover" to "Fixed-asset turnover", "gnpa_pct_advances" to "Gross NPA % of advances",
-    "rev_cagr_3y_pct" to "Revenue growth a year (span in formula)", "roce_3y_avg_pct" to "ROCE, average of filed years", "net_debt_ebitda" to "Net debt / EBITDA",
+    "rev_cagr_3y_pct" to "Revenue growth, 3-yr avg", "roce_3y_avg_pct" to "ROCE, avg of filed years", "net_debt_ebitda" to "Net debt / EBITDA",
     "current_ratio" to "Current ratio", "cfo_negative_years" to "Years of negative operating cash", "loss_quarters_4" to "Loss quarters (last 4)",
     "dilution_3y_pct" to "Share dilution, 3 years", "debt_chg_yoy_pct" to "Borrowings change, 1 year", "ev_sales" to "EV / sales",
     "ev_midcycle_ebitda" to "EV / mid-cycle EBITDA", "margin_chg_3y_pts" to "EBITDA margin change over filed years (pts)",
@@ -61,13 +56,13 @@ val METRIC_NAMES = mapOf(
 )
 
 @Composable
-fun SectionHeader2(t: String, sub: String) = Column(Modifier.padding(top = 20.dp, bottom = 8.dp)) { T(t, 18.sp, weight = FontWeight.SemiBold); T(sub, 12.sp, C.grey) }
+fun SectionHeader2(t: String, sub: String) = Column(Modifier.padding(top = 20.dp, bottom = 8.dp)) { T(t, SECTION_TITLE, weight = FontWeight.SemiBold); T(sub, LABEL, C.dim) }
 
 @Composable
 fun MarkBox(m: Mark, onClick: () -> Unit) {
     val (sym, fg, bg) = when (m.mark) {
-        "y" -> Triple("✓", C.teal, C.teal.copy(alpha = 0.18f)); "p" -> Triple("~", C.blue, C.blue.copy(alpha = 0.15f))
-        "n" -> Triple("✗", C.red, C.red.copy(alpha = 0.15f)); else -> Triple("–", C.dim, C.chip)
+        "y" -> statusColor("Pass").let { Triple("✓", it, it.copy(alpha = 0.18f)) }; "p" -> statusColor("Partly").let { Triple("~", it, it.copy(alpha = 0.15f)) }
+        "n" -> statusColor("Miss").let { Triple("✗", it, it.copy(alpha = 0.15f)) }; else -> Triple("–", C.dim, C.chip)
     }
     Box(Modifier.size(19.dp).clip(RoundedCornerShape(5.dp)).background(bg).clickable(onClick = onClick), contentAlignment = Alignment.Center) { T(sym, 11.sp, fg, FontWeight.Bold) }
 }
@@ -77,26 +72,55 @@ fun WatchRow(n: String, w: Watch, col: Color, onClick: () -> Unit) {
     Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 6.dp)) {
         Box(Modifier.size(24.dp).clip(CircleShape).background(col.copy(alpha = 0.15f)), contentAlignment = Alignment.Center) { T(n, 12.sp, col, FontWeight.Bold) }
         Spacer(Modifier.width(12.dp))
-        Column { T(w.text, 14.sp, weight = FontWeight.SemiBold); T(w.check + (w.due?.let { " · due $it" } ?: ""), 12.sp, C.grey) }
+        Column { T(w.text, 14.sp, weight = FontWeight.SemiBold); T(w.check + (w.due?.let { " · due ${skDue(it)}" } ?: ""), 12.sp, C.dim) }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun FormulaSheet(name: String, m: Metric, onClose: () -> Unit) {
-    val ctx = LocalContext.current
-    ModalBottomSheet(onDismissRequest = onClose, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), containerColor = C.card) {
-        Column(Modifier.padding(horizontal = 18.dp).padding(bottom = 28.dp).verticalScroll(rememberScrollState())) {
-            T(name, 20.sp, weight = FontWeight.Bold)
-            T((if (m.nm) "n/m (outside the meaningful range) · " else "") + fmt(m.v, 2) + (m.u?.let { " $it" } ?: ""), 28.sp, C.teal, FontWeight.Bold)
-            T("Formula", 13.sp, C.grey, FontWeight.SemiBold, modifier = Modifier.padding(top = 14.dp, bottom = 2.dp)); T(m.f, 14.sp, lineHeight = 19.sp)
-            if (m.inputs.isNotEmpty()) {
-                T("Inputs", 13.sp, C.grey, FontWeight.SemiBold, modifier = Modifier.padding(top = 14.dp, bottom = 2.dp))
-                m.inputs.forEach { (k, v) -> KV(inputLabel(k), inputValue(k, v.content)) }
-            }
-            T("Source", 13.sp, C.grey, FontWeight.SemiBold, modifier = Modifier.padding(top = 14.dp, bottom = 2.dp)); T(m.src, 13.sp, C.grey)
-            m.url?.let { u -> T("Open the filing", 14.sp, C.blue, FontWeight.SemiBold, modifier = Modifier.padding(top = 10.dp).clickable { openUrl(ctx, u) }) }
+/** Metric keys that are multiples ("23.0×"). */
+private val MULT_KEYS = setOf("pe", "pb", "peg", "ev_ebitda", "ev_sales", "ev_midcycle_ebitda", "de", "net_debt_ebitda", "interest_cover", "asset_turnover")
+
+/** The figure with its unit, as the Ratios sheet shows it: "%" for _pct keys, "×" for multiples, then the metric's own unit. */
+fun metricUnit(key: String?, m: Metric): String = when {
+    m.u != null -> " ${m.u}"
+    key?.endsWith("_pct") == true -> "%"
+    key != null && key in MULT_KEYS -> "×"
+    else -> ""
+}
+
+/** The rule that tests a metric key: the check's mark (2 pass, 1 partly, 0 miss, null n/a) and its name ("ROCE ≥ 10%"). */
+data class KeyRule(val m: Int?, val rule: String)
+
+/** metric key -> the check that tests it, from every level item with a key; when several checks use one key, the worst mark. */
+fun Detail.rulesByKey(): Map<String, KeyRule> {
+    fun rank(m: Int?) = m ?: 3  // miss 0 < partly 1 < pass 2 < n/a
+    val out = mutableMapOf<String, KeyRule>()
+    levels.values.forEach { lv ->
+        lv.items.forEach { i ->
+            val k = i.k
+            if (k != null) { val cur = out[k]; if (cur == null || rank(i.m) < rank(cur.m)) out[k] = KeyRule(i.m, i.n) }
         }
+    }
+    return out
+}
+
+/** Colour of a ratio by the check that tests it: pass light green, partly yellow, miss light red; no check (or n/a) white. */
+fun ruleColor(r: KeyRule?): Color = when (r?.m) { 2 -> TierC.lightGreen; 1 -> TierC.yellow; 0 -> TierC.lightRed; else -> C.white }
+
+@Composable
+fun FormulaSheet(name: String, m: Metric, key: String? = null, det: Detail? = null, onClose: () -> Unit) {
+    val ctx = LocalContext.current
+    val rule = remember(det, key) { key?.let { k -> det?.rulesByKey()?.get(k) } }
+    BottomSheet(onClose, name) {
+        T((if (m.nm) "n/m (outside the meaningful range) · " else "") + skFx(m.v, 2) + (if (m.v != null) metricUnit(key, m) else ""), 28.sp,
+            if (m.nm) C.white else ruleColor(rule), FontWeight.Bold)
+        if (det != null) T(rule?.rule ?: "no rule", LABEL, C.dim, maxLines = 2, modifier = Modifier.padding(top = 2.dp))
+        T("Formula", 13.sp, C.dim, FontWeight.SemiBold, modifier = Modifier.padding(top = 14.dp, bottom = 2.dp)); T(m.f, 14.sp, lineHeight = 19.sp)
+        if (m.inputs.isNotEmpty()) {
+            T("Inputs", 13.sp, C.dim, FontWeight.SemiBold, modifier = Modifier.padding(top = 14.dp, bottom = 2.dp))
+            m.inputs.forEach { (k, v) -> KV(inputLabel(k), inputValue(k, v.content)) }
+        }
+        T("Source", 13.sp, C.dim, FontWeight.SemiBold, modifier = Modifier.padding(top = 14.dp, bottom = 2.dp)); T(m.src, 13.sp, C.grey)
+        m.url?.let { u -> T("Open the filing", 14.sp, C.blue, FontWeight.SemiBold, modifier = Modifier.padding(top = 10.dp).clickable { openUrl(ctx, u) }) }
     }
 }
 
@@ -130,9 +154,9 @@ fun inputValue(k: String, raw: String): String {
     val x = raw.toDoubleOrNull() ?: return raw
     return when {
         k.endsWith("_cr") -> "₹${fmt(x, 2)} cr"
-        k.endsWith("_pct") -> "${fmt(x, 1)}%"
+        k.endsWith("_pct") -> "${skFx(x, 1)}%"
         k == "price" -> "₹${fmt(x, 2)}"
-        k.startsWith("shares") -> "%,.0f".format(x)
+        k.startsWith("shares") -> fmt(x, 0)
         k in setOf("quarters", "years") -> fmt(x, 0)
         else -> fmt(x, 2)
     }
@@ -143,43 +167,27 @@ fun pct0(v: Double?) = v?.let { "${fmt(it, 0)}%" } ?: "–"
 
 
 // ---------------------------------------------------------------- research blocks (Outlook tab)
+/** A card on its own; inside another card ([nested]) the same content without a second card around it. */
 @Composable
-fun ScenariosCard(scan: Scan) {
-    SectionHeader2("Bull · Base · Bear", "Price from quoted guidance × own P/E band. A scenario, not a target")
-    Card(Modifier.fillMaxWidth()) {
-        scan.scenarios.forEach { s ->
-            val col = when (s.name.lowercase()) { "bull" -> C.teal; "bear" -> C.red; else -> C.blue }
-            Row(Modifier.padding(vertical = 4.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(C.card2).height(IntrinsicSize.Min)) {
-                Box(Modifier.width(3.dp).fillMaxHeight().background(col))
-                Column(Modifier.padding(10.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        T(s.name, 14.sp, col, FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                        T("₹${fmt(s.price, 0)} ", 16.sp, weight = FontWeight.SemiBold); T(pctStr(s.pct), 12.sp, col)
-                    }
-                    if (s.theory.isNotBlank()) T(s.theory, 13.sp, Color(0xFFDFE3E6), lineHeight = 17.sp)
-                    T(s.formula, 12.sp, C.grey, lineHeight = 16.sp); T(s.src, 11.sp, C.dim)
-                }
-            }
-        }
-        scan.settles?.let { T("Settles at $it", 11.sp, C.dim, modifier = Modifier.padding(top = 6.dp)) }
-    }
+private fun ListBlock(nested: Boolean, content: @Composable ColumnScope.() -> Unit) {
+    if (nested) Column(Modifier.fillMaxWidth(), content = content) else Card(Modifier.fillMaxWidth(), content = content)
 }
 
 @Composable
-fun ResearchLists(scan: Scan) {
+fun ResearchLists(scan: Scan, nested: Boolean = false) {
     val ctx = LocalContext.current
     if (scan.mustGoRight.isNotEmpty()) {
         SectionHeader2("Must go right", "Each one is a checkpoint with a date")
-        Card(Modifier.fillMaxWidth()) { scan.mustGoRight.forEachIndexed { i, w -> WatchRow("${i + 1}", w, C.teal) { w.source.takeIf { it.isNotBlank() }?.let { openUrl(ctx, it) } } } }
+        ListBlock(nested) { scan.mustGoRight.forEachIndexed { i, w -> WatchRow("${i + 1}", w, TierC.lightGreen) { w.source.takeIf { it.isNotBlank() }?.let { openUrl(ctx, it) } } } }
     }
     if (scan.killSwitches.isNotEmpty()) {
         SectionHeader2("Kill switches", "Thesis breaks if any of these happen")
-        Card(Modifier.fillMaxWidth()) { scan.killSwitches.forEach { w -> WatchRow("✗", w, C.red) { w.source.takeIf { it.isNotBlank() }?.let { openUrl(ctx, it) } } } }
+        ListBlock(nested) { scan.killSwitches.forEach { w -> WatchRow("✗", w, TierC.red) { w.source.takeIf { it.isNotBlank() }?.let { openUrl(ctx, it) } } } }
     }
     if (scan.checklist.isNotEmpty()) {
         var mark by remember { mutableStateOf<Mark?>(null) }
         SectionHeader2("Research checklist", "multibagger-scan rubric · tap a mark for its quote")
-        Card(Modifier.fillMaxWidth()) {
+        ListBlock(nested) {
             listOf("fundamentals", "valuation", "management", "outlook", "flow").forEach { lens ->
                 val ms = scan.checklist[lens].orEmpty()
                 if (ms.isNotEmpty()) Row(Modifier.padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -188,7 +196,7 @@ fun ResearchLists(scan: Scan) {
                 }
             }
             mark?.let { m ->
-                Column(Modifier.padding(top = 8.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(C.card2).padding(10.dp)) {
+                Column(Modifier.padding(top = 8.dp).fillMaxWidth().clip(RoundedCornerShape(S.inner)).background(C.card2).padding(10.dp)) {
                     T("${m.id} ${m.name}", 13.sp, weight = FontWeight.SemiBold); if (m.note.isNotBlank()) T(m.note, 12.sp, C.grey)
                     if (m.quote.isNotBlank()) Quote(ctx, m.quote, m.source)
                 }
@@ -197,11 +205,11 @@ fun ResearchLists(scan: Scan) {
     }
     if (scan.derived.isNotEmpty()) {
         SectionHeader2("Derived from research", "Quoted figure ÷ filed figure")
-        Card(Modifier.fillMaxWidth()) {
+        ListBlock(nested) {
             scan.derived.forEach { d ->
                 Row(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
                     Column(Modifier.weight(1f)) { T(d.name, 14.sp, weight = FontWeight.Medium); T(d.formula + " · " + d.src, 11.sp, C.dim, maxLines = 3) }
-                    T(d.value, 15.sp, if (d.good == true) C.teal else C.white, FontWeight.SemiBold)
+                    T(d.value, 15.sp, if (d.good == true) TierC.lightGreen else C.white, FontWeight.SemiBold)
                 }
             }
         }
@@ -211,27 +219,35 @@ fun ResearchLists(scan: Scan) {
 // ================================================================ Summary tab (redesign s01) and the decision sheet (s02)
 private val LENDERS = setOf("bank", "nbfc", "insurance")
 private val FORWARD_KEYS = setOf("Capacity", "Order", "Guidance", "Driver", "Product", "Demand")
-/** Plain setup names (mockup kit SETUP). */
-fun planName(s: Setup): String = when (s.type) {
-    "Breakout" -> "Breaking out"; "Pullback" -> "Dip in uptrend"; "Base" -> "Near entry"
-    "No setup" -> if (s.note?.startsWith("No entry: trend broken") == true) "Avoid" else "Wait"
-    else -> "No data"
-}
+/** The setup's trend-broken flag, from the rule note. */
+private fun Setup.trendBroken(): Boolean = note?.startsWith("No entry: trend broken") == true
+/** Plain setup name (Look.kt setupName, the same words as every list). */
+fun planName(s: Setup): String = setupName(s.type, s.trendBroken())
 
 @Composable
-fun SummaryTab(st: AppState, sym: String, p: P?, det: Detail?, chart: Chart?, openTab: (Int) -> Unit) {
-    var formula by remember { mutableStateOf<Pair<String, Metric>?>(null) }
-    val open: (String?) -> Unit = { k -> k?.let { key -> det?.m(key)?.let { formula = (METRIC_NAMES[key] ?: key) to it } } }
+fun SummaryTab(st: AppState, sym: String, p: P?, det: Detail?, chart: Chart?, loaded: Boolean = true, chartLoaded: Boolean = true, openTab: (Int) -> Unit) {
+    var formula by remember { mutableStateOf<Triple<String, String, Metric>?>(null) }
+    val open: (String?) -> Unit = { k -> k?.let { key -> det?.m(key)?.let { formula = Triple(METRIC_NAMES[key] ?: key, key, it) } } }
     var sheet by rememberSaveable { mutableStateOf("") }  // "decision", "research", "ratios"
+    val loading = det == null && !loaded  // the stock file is still loading: placeholders, not "missing"
     DecisionCard(st, sym, p, det) { sheet = "decision" }
     RotationCard(st, p, det)
-    PriceCard(p, det, chart)
-    det?.let { PlanCard(it.setup) }
+    PriceCard(p, det, chart, chartLoaded)
+    if (loading) {
+        Card(Modifier.fillMaxWidth()) { Skel(90.dp, 15.dp); Spacer(Modifier.height(12.dp)); Skel(null, 12.dp); Spacer(Modifier.height(8.dp)); Skel(null, 12.dp) }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            repeat(2) { Card(Modifier.weight(1f), radius = S.tile) { Skel(70.dp, 11.dp); Spacer(Modifier.height(8.dp)); Skel(50.dp, 16.dp) } }
+        }
+    }
+    det?.let { PlanCard(it.setup, it.analyst) }
     det?.let { KeyTiles(it, open) }
     WatchCard(st, sym, p, det)
-    Card(Modifier.fillMaxWidth(), pad = 14.dp) {
+    Card(Modifier.fillMaxWidth(), pad = S.cardPad) {
         val log = det?.researchLog.orEmpty()
-        LinkRow("Claude's research", if (log.isEmpty()) "not studied yet" else "${log.size} entr${if (log.size == 1) "y" else "ies"} · last ${skDay(log.maxOf { it.date })}") { sheet = "research" }
+        if (loading) Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            T("Claude's research", 14.sp, modifier = Modifier.weight(1f), maxLines = 1); Skel(90.dp, 12.dp)
+        }
+        else LinkRow("Claude's research", if (log.isEmpty()) "not studied yet" else "${log.size} entr${if (log.size == 1) "y" else "ies"} · last ${skDay(log.maxOf { it.date })}") { sheet = "research" }
         if (det != null) LinkRow("All ratios and formulas", divider = true) { sheet = "ratios" }
     }
     when (sheet) {
@@ -239,7 +255,7 @@ fun SummaryTab(st: AppState, sym: String, p: P?, det: Detail?, chart: Chart?, op
         "research" -> ResearchSheet(st, sym, det) { sheet = "" }
         "ratios" -> det?.let { RatiosSheet(it, { sheet = "" }, open) }
     }
-    formula?.let { (n, m) -> FormulaSheet(n, m) { formula = null } }
+    formula?.let { (n, k, m) -> FormulaSheet(n, m, k, det) { formula = null } }
 }
 
 // ---------------------------------------------------------------- decision card
@@ -250,18 +266,18 @@ private fun DecisionCard(st: AppState, sym: String, p: P?, det: Detail?, onOpen:
     val dcol = decisionColor(d)
     val rv = reviewState(st, sym)
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(S.card)).background(C.card)
-        .background(Brush.linearGradient(listOf(dcol.copy(alpha = 0.16f), Color.Transparent))).clickable(onClick = onOpen).padding(16.dp)) {
+        .background(Brush.linearGradient(listOf(dcol.copy(alpha = 0.16f), Color.Transparent))).clickable(onClick = onOpen).padding(S.cardPad)) {
         Row(verticalAlignment = Alignment.Top) {
             T(d.uppercase(), if (d.length <= 6) 40.sp else 26.sp, dcol, FontWeight.ExtraBold, maxLines = 1, lineHeight = 44.sp)
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f).padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 when {
                     rv.verdict == "pass" -> Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.Check, null, tint = TierC.lightGreen, modifier = Modifier.size(15.dp)); Spacer(Modifier.width(4.dp))
-                        T("Claude verified" + (rv.date?.let { " ${skDay(it)}" } ?: ""), 13.sp, TierC.lightGreen, maxLines = 1)
+                        Icon(Icons.Rounded.Check, null, tint = reviewColor(rv.verdict), modifier = Modifier.size(15.dp)); Spacer(Modifier.width(4.dp))
+                        T("Claude verified" + (rv.date?.let { " ${skDay(it)}" } ?: ""), 13.sp, reviewColor(rv.verdict), maxLines = 1)
                     }
-                    rv.verdict != null -> T("Claude's review: ${rv.verdict}" + (rv.date?.let { " · ${skDay(it)}" } ?: ""), 13.sp, reviewColor(rv.verdict), maxLines = 1)
-                    rv.pos > 0 -> T("Queued #${rv.pos} for Claude's full review", 13.sp, C.dim, maxLines = 2)
+                    rv.verdict != null -> T("Claude's review: ${reviewWord(rv.verdict)}" + (rv.date?.let { " · ${skDay(it)}" } ?: ""), 13.sp, reviewColor(rv.verdict), maxLines = 1)
+                    rv.pos > 0 -> T("Claude's review: #${rv.pos} of ${rv.of} in the queue", 13.sp, C.dim, maxLines = 2)
                     rv.pos != 0 -> T("In Claude's research queue", 13.sp, C.dim, maxLines = 1)
                     rv.studied != null -> T("Claude's notes only, no full review yet", 13.sp, C.dim, maxLines = 2)
                     else -> T("Rules only: not studied by Claude", 13.sp, C.dim, maxLines = 2)
@@ -272,14 +288,17 @@ private fun DecisionCard(st: AppState, sym: String, p: P?, det: Detail?, onOpen:
                     Row(verticalAlignment = Alignment.CenterVertically) { T("Conviction ", 13.sp, C.dim, maxLines = 1); T(level, 13.sp, weight = FontWeight.SemiBold, maxLines = 1) }
                     if (cv?.met != null && cv.of != null && cv.of > 0) Meter(cv.of, cv.met, color = TierC.lightGreen, style = MeterStyle.Dot)
                 }
-                st.picks?.top10?.indexOf(sym)?.takeIf { it >= 0 }?.let { T("#${it + 1} in Top 10", 13.sp, C.dim, maxLines = 1) }
+                topTenRank(st, sym)?.let { T("#$it in today's Top 10", 13.sp, C.dim, maxLines = 1) }
             }
         }
         val why = dd?.why.orEmpty()
         val missing = dd?.missing.orEmpty()
         val fwd = why.filter { it.substringBefore(":") in FORWARD_KEYS }.map { it.substringAfter(": ") }.take(2)
         val lv = det?.levels
-        fun tierWord(k: String, pre: String) = lv?.get(k)?.takeIf { it.t != 0 }?.name?.let { if (pre.isEmpty()) it else "$pre ${it.lowercase()}" }
+        // tier words as the level tabs name them (a quality turnaround is "turnaround watch", P.levelTierName / LevelTab)
+        fun tierWord(k: String, pre: String) = lv?.get(k)?.takeIf { it.t != 0 }?.let { l ->
+            if (k == "qual" && (l.turn || p?.turn == true)) "Turnaround watch" else l.name.ifBlank { null }
+        }?.let { if (pre.isEmpty()) it else "$pre ${it.lowercase()}" }
         val tiers = listOfNotNull(tierWord("val", ""), tierWord("surv", "stability"), tierWord("qual", "quality")).joinToString(" · ")
         val reasons = (if (fwd.isNotEmpty()) fwd else why.filter { !it.startsWith("Verified") }.take(2)) + listOfNotNull(tiers.ifBlank { null }) + missing.take(1)
         if (reasons.isNotEmpty()) Column(Modifier.padding(top = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -300,7 +319,7 @@ private fun RotationCard(st: AppState, p: P?, det: Detail?) {
     val ir = st.rotation?.industries?.get(ind)
     if (sec == null && ir == null) return
     // feedback #78: one line each, where it stands vs the market and which way it is heading (no quadrant map)
-    Card(Modifier.fillMaxWidth(), pad = 12.dp) {
+    Card(Modifier.fillMaxWidth(), pad = S.cardPad) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             sec?.let { RotLine("Sector · ${it.ticker ?: "Nifty $secKey"}", it) }
             ir?.let { RotLine("Industry · $ind", it) }
@@ -310,7 +329,7 @@ private fun RotationCard(st: AppState, p: P?, det: Detail?) {
 
 @Composable
 private fun RotLine(label: String, r: Rot) {
-    val qc = QUAD_MINI[r.q] ?: C.dim
+    val qc = quadC(r.q)
     val up = r.mom >= 100.0
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         Column(Modifier.weight(1f)) {
@@ -330,27 +349,39 @@ private fun RotLine(label: String, r: Rot) {
 private val RANGES = listOf("1M" to 22, "3M" to 65, "6M" to 130, "1Y" to 260)
 
 @Composable
-private fun PriceCard(p: P?, det: Detail?, chart: Chart?) {
+private fun PriceCard(p: P?, det: Detail?, chart: Chart?, chartLoaded: Boolean = true) {
     var range by rememberSaveable { mutableIntStateOf(3) }
     val all = chart?.c.orEmpty()
     val s = det?.setup
-    Card(Modifier.fillMaxWidth(), pad = 12.dp) {
+    Card(Modifier.fillMaxWidth(), pad = S.cardPad) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             SegmentedControl(RANGES.map { it.first }, range, { range = it }, compact = true)
             Spacer(Modifier.weight(1f))
             val lo = det?.stock?.lo52; val hi = det?.stock?.hi52
-            if (lo != null && hi != null) T("52w ${skRs(lo)}–${fmt(hi, 0)}", 12.sp, C.dim, maxLines = 1)
+            if (lo != null && hi != null) T("52-week ${rangeStr(lo, hi)}", 12.sp, C.dim, maxLines = 1)
         }
-        if (all.size < 2) { T("Chart is published for stocks in the funnel.", 12.sp, C.dim, modifier = Modifier.padding(8.dp)); return@Card }
+        if (all.size < 2) {
+            if (!chartLoaded) Skel(null, 190.dp, Modifier.padding(top = 10.dp))
+            else T("Chart is published for stocks in the funnel.", 12.sp, C.dim, modifier = Modifier.padding(8.dp))
+            return@Card
+        }
         val n = RANGES[range].second
         val vals = all.takeLast(n)
         val col = if (vals.last() >= vals.first()) TierC.lightGreen else TierC.lightRed
         val bands = mutableListOf<HBand>(); val lines = mutableListOf<HLine>()
-        if (s?.lo != null && s.hi != null) bands += HBand(s.lo, s.hi, TierC.darkGreen, "Buy zone ${skRs(s.lo)}–${fmt(s.hi, 0)}")
-        else if (s?.watchLo != null && s.watchHi != null) bands += HBand(s.watchLo, s.watchHi, C.teal, "Buy on a dip ${skRs(s.watchLo)}–${fmt(s.watchHi, 0)}")
-        s?.add?.let { lines += HLine(it, C.blue, "Buy rest above ${skRs(it)}") }
+        // the dip zone and "buy rest above" take the Plan card's colour (white), never blue
+        if (s?.lo != null && s.hi != null) bands += HBand(s.lo, s.hi, TierC.darkGreen, "Buy zone ${rangeStr(s.lo, s.hi)}")
+        else if (s?.watchLo != null && s.watchHi != null) bands += HBand(s.watchLo, s.watchHi, C.white, "Buy on a dip ${rangeStr(s.watchLo, s.watchHi)}", alpha = 0.12f)
+        s?.add?.let { lines += HLine(it, C.white, "Buy rest above ${skRs(it)}") }
         if (s?.add == null && s?.watchLo != null) s.sma50?.let { lines += HLine(it, C.amber, "50-day ${skRs(it)}") }
         s?.stop?.let { lines += HLine(it, TierC.lightRed, "Exit ${skRs(it)}", labelBelow = true) }
+        // analyst target (feedback #87): only when it sits inside the chart's range or up to 15% above it (the range grows to it)
+        det?.analyst?.takeIf { it.mean > 0 }?.let { an ->
+            val base = vals + lines.map { it.value } + bands.flatMap { listOf(it.lo, it.hi) }
+            val bLo = base.minOrNull() ?: an.mean; val bHi = base.maxOrNull() ?: an.mean
+            if (an.mean >= bLo && an.mean <= bHi + 0.15 * (bHi - bLo).coerceAtLeast(bHi * 0.02))
+                lines += HLine(an.mean, C.white, "Analyst target ${skRs(an.mean)}" + (an.n?.let { " · $it analyst" + (if (it == 1) "" else "s") } ?: ""))
+        }
         val months = mapOf(22 to 1L, 65 to 3L, 130 to 6L, 260 to 12L)[n] ?: 12L
         val start = if (n >= all.size && chart?.d0 != null) skDate(chart.d0) else skToday().minusMonths(months)
         val startLabel = start?.let { if (months <= 3) skDay(it.toString()) else shortMonth(it.toString()) } ?: ""
@@ -361,28 +392,67 @@ private fun PriceCard(p: P?, det: Detail?, chart: Chart?) {
 
 // ---------------------------------------------------------------- plan
 @Composable
-private fun PlanCard(s: Setup) {
+private fun PlanCard(s: Setup, an: Analyst? = null) {
     Card(Modifier.fillMaxWidth()) {
         Row(Modifier.padding(bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            T("Plan", 17.sp, weight = FontWeight.Bold); Spacer(Modifier.width(8.dp))
-            val nm = planName(s)
-            StatusChip(nm, color = when (nm) { "Avoid" -> TierC.lightRed; "No data", "Wait" -> C.dim; else -> C.blue }, minWidth = 0.dp)
+            T("Plan", SECTION_TITLE, weight = FontWeight.SemiBold); Spacer(Modifier.width(8.dp))
+            StatusChip(planName(s), color = setupColor(s.type, s.trendBroken()), minWidth = 0.dp)
         }
+        val target = an?.takeIf { it.mean > 0 }
         val rows = buildList {
             if (s.lo != null && s.hi != null) add(Triple(if (s.type == "Breakout") "Buy on a close above" else "Buy between",
-                if (s.type == "Breakout") skRs(s.lo) else "${skRs(s.lo)} – ${skRs(s.hi)}", C.white))
-            else if (s.watchLo != null && s.watchHi != null) add(Triple("Buy on a dip to", "${skRs(s.watchLo)} – ${skRs(s.watchHi)}", C.white))
+                if (s.type == "Breakout") skRs(s.lo) else rangeStr(s.lo, s.hi), C.white))
+            else if (s.watchLo != null && s.watchHi != null) add(Triple("Buy on a dip to", rangeStr(s.watchLo, s.watchHi), C.white))
             s.add?.let { add(Triple("Buy rest above", skRs(it), C.white)) }
             if (s.add == null && s.watchLo != null) s.sma50?.let { add(Triple("Weakens below (50-day)", skRs(it), C.amber)) }
             s.stop?.let { add(Triple("Exit if it closes below", skRs(it), TierC.lightRed)) }
             when {
                 s.rrNote == "Above analyst target" -> add(Triple("Upside vs risk", "above target", C.amber))
-                s.rr != null -> add(Triple("Upside vs risk", "${skFx(s.rr, 1)}×", C.white))
+                s.rr != null -> add(Triple("Upside vs risk", mult(s.rr), C.white))
+            }
+            target?.let { a ->
+                val extra = listOfNotNull(a.upside?.let { skSgn(it) }, a.n?.let { "$it analyst" + if (it == 1) "" else "s" })
+                add(Triple("Analyst target", skRs(a.mean) + if (extra.isEmpty()) "" else " (${extra.joinToString(", ")})", C.white))
             }
         }
         if (rows.isEmpty()) T(s.note ?: "No buy zone today.", 13.sp, C.dim)
         rows.forEachIndexed { i, (k, v, c) -> KvRow(k, v, valueColor = c, divider = i < rows.lastIndex) }
+        val how = planHow(s, showNote = rows.isNotEmpty())
+        if (how.isNotEmpty()) {
+            T("How these are set", 13.sp, C.white, FontWeight.SemiBold, modifier = Modifier.padding(top = 12.dp, bottom = 4.dp))
+            how.forEach { T(it, 13.sp, C.muted, lineHeight = 19.sp, modifier = Modifier.padding(bottom = 4.dp)) }
+            T("Based on: Donchian / Turtle 55-day breakout; Wilder's average true range for the exit; O'Neil's 5% chase and 8% loss limits. " +
+                "Our replay: stocks with a live setup beat the Nifty more often (51–53% vs 31–43%).", LABEL, C.dim, lineHeight = 17.sp,
+                modifier = Modifier.padding(top = 4.dp))
+        }
     }
+}
+
+/** The Plan card's "How these are set" sentences from the setup's own numbers; a sentence whose numbers are missing is left out. */
+fun planHow(s: Setup, showNote: Boolean = true): List<String> = buildList {
+    val zoneExit = if (s.stopBasis == "zone" && s.atr != null && s.stop != null)
+        "Exit: 1.5 × the average daily move (${priceStr(s.atr)}) under the buy zone's low, and never more than 8% under it: ${skRs(s.stop)}." else null
+    when (s.type) {
+        "Breakout" -> {
+            val h = s.h55 ?: s.lo
+            if (h != null && s.hi != null) add("Entry: a breakout. Buy on a close above the 55-day high, ${skRs(h)}, and not more than 5% above it (${skRs(s.hi)}).")
+            if (s.stopBasis == "zone") zoneExit?.let { add(it) }
+            else if (s.ref != null && s.atr != null && s.stop != null)
+                add("Exit: ${skRs(s.ref)} less 1.5 × the average daily move (${priceStr(s.atr)}), and never more than 8% below it: ${skRs(s.stop)}.")
+        }
+        "Pullback" -> {
+            if (s.lo != null && s.hi != null) add("Entry: a dip in an uptrend, to the 10–21 day averages (${rangeStr(s.lo, s.hi)}).")
+            if (s.stopBasis == "zone") zoneExit?.let { add(it) }
+            else s.sma50?.let { add("Exit: a close below the 50-day average (${skRs(it)}).") }
+        }
+        "Base" -> {
+            if (s.lo != null && s.hi != null) add("Entry: near the 20-day low (${rangeStr(s.lo, s.hi)})" + (s.add?.let { "; add above the 50-day average (${skRs(it)})." } ?: "."))
+            if (s.stopBasis == "zone") zoneExit?.let { add(it) }
+            else s.stop?.let { add("Exit: 1.5 × the average daily move under the 20-day low, never more than 10% under it: ${skRs(it)}.") }
+        }
+        else -> if (showNote) s.note?.takeIf { it.isNotBlank() }?.let { add(it) }
+    }
+    s.rr?.let { rr -> add("Reward to risk: ${mult(rr)} to the analyst target" + (s.rrNote?.takeIf { it.isNotBlank() }?.let { " (${it.lowercase()})" } ?: "") + ".") }
 }
 
 // ---------------------------------------------------------------- four key numbers with small visuals
@@ -404,29 +474,38 @@ private fun KeyTiles(det: Detail, open: (String?) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             val metric = vl?.metric ?: METRIC_NAMES[vkey] ?: "P/E"
-            KeyTile(if (hist.size >= 2) "$metric · own ${skFx(hist.min(), 1)}–${skFx(hist.max(), 1)}" else metric, skFx(vnow, 1), { open(vkey) }, checkColor(vl, "V1")) {
-                val c = if (vl?.item("V1")?.m != null) statusColor(vl.status("V1")) else C.blue
+            // short label; the own range goes on a dim line under the figure (half-width tile)
+            KeyTile(metric, mult(vnow), { open(vkey) }, checkColor(vl, "V1")) {
+                val c = if (vl?.item("V1")?.m != null) statusColor(vl.status("V1")) else C.muted
                 if (hist.size >= 2 && vnow != null) MiniRange(hist.min(), hist.max(), vnow, c)
+                if (hist.size >= 2) T("own ${skFx(hist.min(), 1)}–${mult(hist.max())}", LABEL, C.dim, maxLines = 1)
             }
             if (lender) KeyTile("ROE", det.v("roe_pct")?.let { "${skFx(it, 1)}%" } ?: "–", { open("roe_pct") }, checkColor(qual, "Q1"))
             else {
                 val roce = det.roceFy
-                KeyTile(if (roce.size >= 2) "ROCE avg · FY${roce.first().first % 100}–${roce.last().first % 100}" else "ROCE avg",
+                KeyTile(METRIC_NAMES.getValue("roce_3y_avg_pct"),
                     det.v("roce_3y_avg_pct")?.let { "${skFx(it, 1)}%" } ?: "–", { open("roce_3y_avg_pct") }, checkColor(qual, "Q1")) {
-                    if (roce.size >= 2) Bars(roce.map { it.second }, Modifier.fillMaxWidth().height(26.dp), color = C.teal, base = roce.minOf { it.second } * 0.85, barFrac = 0.75f)
+                    if (roce.size >= 2) {
+                        Bars(roce.map { it.second }, Modifier.fillMaxWidth().height(26.dp), color = C.muted, base = roce.minOf { it.second } * 0.85, barFrac = 0.75f)
+                        T("FY${roce.first().first % 100}–FY${roce.last().first % 100}", LABEL, C.dim, maxLines = 1)
+                    }
                 }
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             val rev = det.quarterly.mapNotNull { it.getOrNull(1) }
-            KeyTile(if (rev.size >= 2) "Revenue growth · ${rev.size}Q" else "Revenue growth", det.v("rev_cagr_3y_pct")?.let { "${skFx(it, 1)}%/yr" } ?: "–", { open("rev_cagr_3y_pct") }, checkColor(qual, "Q3")) {
-                if (rev.size >= 2) Sparkline(rev, Modifier.fillMaxWidth().height(26.dp), color = C.teal, area = true, endDot = true)
+            KeyTile(METRIC_NAMES.getValue("rev_cagr_3y_pct"), det.v("rev_cagr_3y_pct")?.let { "${skFx(it, 1)}%" } ?: "–", { open("rev_cagr_3y_pct") }, checkColor(qual, "Q3")) {
+                if (rev.size >= 2) {
+                    Sparkline(rev, Modifier.fillMaxWidth().height(26.dp), color = C.muted, area = true, endDot = true)
+                    T("revenue, last ${rev.size} quarters", LABEL, C.dim, maxLines = 1)
+                }
             }
             if (lender) KeyTile("Gross NPA", det.v("gnpa_pct_advances")?.let { "${skFx(it, 1)}%" } ?: "–", { open("gnpa_pct_advances") }, checkColor(det.levels["surv"], "C1"))
             else {
                 val cc = det.v("cfo_to_ebitda_pct")
-                KeyTile("Cash conversion · pass 70%", cc?.let { "${skFx(it, 0)}%" } ?: "–", { open("cfo_to_ebitda_pct") }, checkColor(qual, "Q7")) {
-                    if (cc != null) BulletBar(cc, 0.0, 100.0, 70.0, statusColor(qual?.status("Q7") ?: "n/a"), Modifier.fillMaxWidth().height(12.dp), partly = 50.0)
+                KeyTile("Cash conversion", cc?.let { "${skFx(it, 0)}%" } ?: "–", { open("cfo_to_ebitda_pct") }, checkColor(qual, "Q7")) {
+                    if (cc != null) FillBar(cc, 0.0, 100.0, 70.0, fillColor(qual?.status("Q7") ?: "n/a"), Modifier.fillMaxWidth(), unit = "%")
+                    else T("pass ≥ 70%", LABEL, C.dim, maxLines = 1)
                 }
             }
         }
@@ -446,11 +525,11 @@ private fun WatchCard(st: AppState, sym: String, p: P?, det: Detail?) {
             add(TimelineItem(skDay(nr.date), "Last results", if (filed) "filed" else nr.purpose, C.dim))
         }
         add(TimelineItem(skDay(today.toString()), "Today", today = true))
-        if (nr != null && nd != null && nd.isAfter(today)) add(TimelineItem(skDay(nr.date), "Results", nr.purpose, C.blue, hollow = true))
+        if (nr != null && nd != null && nd.isAfter(today)) add(TimelineItem(skDay(nr.date), "Results", nr.purpose, C.muted, hollow = true))
         val ks = st.research[sym]?.scan?.killSwitches.orEmpty().filter { skDate(it.due)?.isAfter(today) ?: false }.minByOrNull { it.due ?: "" }
         if (ks != null) add(TimelineItem(skDay(ks.due), ks.text, "Kill switch · check: ${ks.check}", TierC.red))
         else p?.cp?.filter { (it.status == "open" || it.status == "due") && it.due != null && it.type != "results" }?.minByOrNull { it.due!! }?.let { c ->
-            add(TimelineItem(skDay(c.due), c.what ?: c.type ?: "", (c.type ?: "").replace('_', ' ').replaceFirstChar { it.uppercase() }, C.blue))
+            add(TimelineItem(skDay(c.due), c.what ?: c.type ?: "", (c.type ?: "").replace('_', ' ').replaceFirstChar { it.uppercase() }, C.muted))
         }
     }
     if (items.size < 2) return
@@ -464,9 +543,8 @@ fun DecisionDetailsSheet(st: AppState, sym: String, p: P?, det: Detail?, onDismi
     val dd = det?.decision ?: p?.dc?.let { Decision(it) }
     val r = st.research[sym]
     val audit = r?.audit
-    val verified = (dd?.verified ?: p?.vf) == "pass"
-    val badge: (@Composable () -> Unit)? = if (verified) ({ StatusChip("Verified", color = TierC.lightGreen) }) else null
-    BottomSheet(onDismiss, "Why ${dd?.d ?: "not rated"}", titleExtra = badge) {
+    val dn = dd?.d ?: "Not rated"
+    BottomSheet(onDismiss, "Why " + if (dn == "Not rated") "not rated" else dn) {
         FlowRow(Modifier.padding(bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             val vd = det?.verdict?.ifBlank { null } ?: p?.vd?.ifBlank { null }
             vd?.let { DotChip(it, verdictColor(it)) }
@@ -484,9 +562,11 @@ fun DecisionDetailsSheet(st: AppState, sym: String, p: P?, det: Detail?, onDismi
         if (lvl.isNotEmpty()) SheetSection("Levels") {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 lvl.forEach { w ->
-                    val k = w.substringBefore(":"); val nm = w.substringAfter(": ")
-                    val c = tierColor(det?.levels?.get(LEVELS[LEVEL_SHORT.indexOf(k)])?.t ?: 0)
-                    Row(Modifier.clip(RoundedCornerShape(9.dp)).background(Color.White.copy(alpha = 0.063f)).padding(horizontal = 10.dp, vertical = 5.dp),
+                    val k = w.substringBefore(":"); val li = LEVEL_SHORT.indexOf(k); val lvd = det?.levels?.get(LEVELS[li])
+                    // the same tier words as the level tab (a quality turnaround reads "Turnaround watch")
+                    val nm = if (li == 1 && (lvd?.turn ?: p?.turn ?: false) && (lvd?.t ?: p?.tier(1) ?: 0) != 0) "Turnaround watch" else w.substringAfter(": ")
+                    val c = tierColor(lvd?.t ?: 0)
+                    Row(Modifier.clip(RoundedCornerShape(S.inner)).background(C.chip).padding(horizontal = 10.dp, vertical = 5.dp),
                         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Box(Modifier.size(7.dp).clip(CircleShape).background(c)); T(k, 12.sp, C.muted, maxLines = 1); T(nm, 12.sp, c, FontWeight.Bold, maxLines = 1)
                     }
@@ -519,15 +599,15 @@ fun DecisionDetailsSheet(st: AppState, sym: String, p: P?, det: Detail?, onDismi
             }
         }
         // Claude's review
-        SheetSection("Review · Claude", audit?.date?.let { skDay(it, true) }) {
+        SheetSection("Review · Claude", audit?.date?.let { skDay(it) }) {
             if (audit == null) {
                 val rv = reviewState(st, sym)
-                T(when { rv.verdict != null -> "Review ${rv.verdict}"; rv.pos > 0 -> "Queued #${rv.pos} of ${rv.of} for a full review"; rv.pos != 0 -> "In Claude's research queue"
+                T(when { rv.verdict != null -> "Claude's review: ${reviewWord(rv.verdict)}"; rv.pos > 0 -> queueLabel(st, sym) ?: "In Claude's review queue"; rv.pos != 0 -> "In Claude's research queue"
                          rv.studied != null -> "Claude's notes only (${skDay(rv.studied)}), no full review yet"; else -> "Rules only: not studied by Claude" }, 13.sp, C.dim)
             } else {
                 val oks = audit.checks.map { (it["ok"] as? JsonPrimitive)?.content == "true" }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    audit.verdict?.let { StatusChip(it.uppercase(), color = if (it == "pass") TierC.lightGreen else reviewColor(it)) }
+                    audit.verdict?.let { StatusChip(reviewWord(it), color = reviewColor(it)) }
                     if (oks.isNotEmpty()) Meter(oks.size, oks.count { it }, colors = oks.map { if (it) TierC.lightGreen else TierC.lightRed }, style = MeterStyle.Dot)
                 }
                 val di = r.dataIssues.size
@@ -552,24 +632,20 @@ fun DecisionDetailsSheet(st: AppState, sym: String, p: P?, det: Detail?, onDismi
         // conviction (rule-built, verified Buys only)
         val cv = det?.conviction
         val cvLevel = cv?.level
-        if (cv != null && cvLevel != null) SheetSection("Conviction", listOfNotNull(cv.rule?.let { "rule $it" }, cv.date?.let { skDay(it) }).joinToString(" · ").ifBlank { null }) {
-            Row(Modifier.padding(bottom = 8.dp), verticalAlignment = Alignment.Bottom) {
-                T(cvLevel, 15.sp, weight = FontWeight.Bold); if (cv.met != null && cv.of != null) T(" · ${cv.met} of ${cv.of} met", 13.sp)
-            }
-            if (cv.checks.isNotEmpty()) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                cv.checks.forEach { c ->
-                    val col = if (c.ok == true) TierC.lightGreen else Color.White.copy(alpha = 0.13f)
-                    Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Box(Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)).background(col))
-                        T(c.id, 9.5.sp, if (c.ok == true) TierC.lightGreen else C.dim, modifier = Modifier.padding(top = 3.dp), maxLines = 1)
+        if (cv != null && cvLevel != null) SheetSection("Conviction: $cvLevel" + (if (cv.met != null && cv.of != null) " · ${cv.met} of ${cv.of} met" else ""),
+            listOfNotNull(cv.rule?.let { "rule $it" }, cv.date?.let { skDay(it) }).joinToString(" · ").ifBlank { null }) {
+            // every check as a row: a status circle and its name; a check not met adds its figure or reason (feedback #88, no bare codes)
+            cv.checks.forEach { c ->
+                val ok = c.ok == true
+                Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.Top) {
+                    Box(Modifier.size(20.dp).clip(CircleShape).background(if (ok) TierC.lightGreen else C.line), contentAlignment = Alignment.Center) {
+                        T(if (ok) "✓" else "–", 12.sp, if (ok) Color.Black else C.dim, FontWeight.Bold, maxLines = 1)
                     }
-                }
-            }
-            cv.checks.filter { it.ok != true }.forEach { c ->
-                Row(Modifier.padding(top = 6.dp)) {
-                    Box(Modifier.padding(top = 6.dp).size(6.dp).clip(CircleShape).background(TierC.yellow)); Spacer(Modifier.width(8.dp))
-                    Text(buildAnnotatedString { append("${c.id} ${c.n}: "); withStyle(SpanStyle(color = C.dim)) { append(c.v ?: c.why ?: "not met") } },
-                        color = C.white, fontSize = 13.sp, lineHeight = 18.sp)
+                    Spacer(Modifier.width(10.dp))
+                    Text(buildAnnotatedString {
+                        append(c.n.ifBlank { "Check" })
+                        if (!ok) (c.v ?: c.why)?.takeIf { it.isNotBlank() }?.let { withStyle(SpanStyle(color = C.dim)) { append(" · $it") } }
+                    }, color = C.white, fontSize = 13.sp, lineHeight = 18.sp, modifier = Modifier.weight(1f).padding(top = 1.dp))
                 }
             }
         } else p?.cv?.let { lv -> SheetSection("Conviction") { T(lv, 15.sp, weight = FontWeight.Bold) } }
@@ -578,7 +654,7 @@ fun DecisionDetailsSheet(st: AppState, sym: String, p: P?, det: Detail?, onDismi
             if (flags.isEmpty()) T("None raised", 12.sp, C.dim) else flags.forEach { T("• $it", 12.sp, C.amber, lineHeight = 17.sp) }
         }
         p?.let { pk ->
-            SheetSection("Overall score", fmt(pk.pr, 0)) {
+            SheetSection("Overall score", "${fmt(pk.pr, 0)}/100") {
                 ProgressLine((pk.pr / 100).toFloat())
                 var how by remember { mutableStateOf(false) }
                 ToggleRow("Formula", "", how, { how = !how }, Modifier.padding(top = 6.dp))
@@ -606,7 +682,7 @@ fun DecisionDetailsSheet(st: AppState, sym: String, p: P?, det: Detail?, onDismi
             if (more) {
                 stmt?.let { T(it, 13.sp, lineHeight = 19.sp) }
                 r?.thesis?.let {
-                    T("CLAUDE'S THESIS" + (r.updated?.let { u -> " · ${skDay(u)}" } ?: ""), 10.sp, C.blue, FontWeight.Bold, modifier = Modifier.padding(top = 10.dp))
+                    T("Claude's thesis" + (r.updated?.let { u -> " · ${skDay(u)}" } ?: ""), LABEL, C.dim, modifier = Modifier.padding(top = 10.dp))
                     T(it, 13.sp, lineHeight = 19.sp)
                 }
                 vl.takeIf { it.size > 1 }?.last()?.let { v -> T("Changed ${skDay(v.d)}: ${v.from} → ${v.v} (${v.cause})", 11.sp, C.amber, modifier = Modifier.padding(top = 8.dp)) }

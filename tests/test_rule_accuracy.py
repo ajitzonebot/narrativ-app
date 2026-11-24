@@ -89,8 +89,15 @@ def test_repair_stamps_uses_the_reviewed_version():
 
 
 def test_future_dated_audit_is_not_valid():
-    assert FN.verification({"date": "2026-12-01", "verdict": "pass"}, None, TODAY)["state"] == "pending"
-    assert FN.verification({"date": "2026-11-19", "verdict": "pass"}, None, TODAY)["state"] == "pass"
+    assert FN.verification({"date": "2026-12-01", "verdict": "pass"}, None, TODAY, now=TODAY)["state"] == "pending"
+    assert FN.verification({"date": "2026-11-19", "verdict": "pass"}, None, TODAY, now=TODAY)["state"] == "pass"
+
+
+def test_review_dated_the_calendar_day_after_the_trading_day_is_valid():
+    from datetime import timedelta
+    nxt = TODAY + timedelta(days=1)  # the run's data date is the last trading day; Claude dates by the calendar
+    assert FN.verification({"date": str(nxt), "verdict": "pass"}, None, TODAY, now=nxt)["state"] == "pass"
+    assert FN.verification({"date": str(nxt + timedelta(days=1)), "verdict": "pass"}, None, TODAY, now=nxt)["state"] == "pending"
 
 
 def test_republish_turns_a_buy_with_changed_research_into_a_pending_hold():
@@ -223,6 +230,16 @@ def _L(stage="Stage 2", mom_t=3):
     L = {k: {"t": 2, "name": "x", "items": []} for k in FN.LEVELS}
     L["mom"] = {"t": mom_t, "name": "x", "items": [{"id": "P1", "v": stage}]}
     return L
+
+
+def test_code_trigger_counts_as_forward_driver():  # owner, 24 Nov 2026 (idea 1)
+    L = _L()
+    L["out"]["triggers"] = [{"id": "T4", "n": "Capacity coming"}]
+    assert FN.decision(L, None, {}, None, None, 100, None, today=TODAY)["why"][0].startswith("No trigger yet")  # T4 alone is not one
+    L["out"]["triggers"].append({"id": "T2", "n": "Results beat"})
+    d = FN.decision(L, None, {}, None, None, 100, None, today=TODAY)
+    assert d["d"] != "Not rated" and not d["why"][0].startswith("No trigger yet")
+    assert any(w == "Signal: T2 Results beat" for w in d["why"])
 
 
 def test_sell_reasons_come_before_not_rated():

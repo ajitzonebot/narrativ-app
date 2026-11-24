@@ -251,13 +251,13 @@ private fun rupees(v: Double): String = (if (v < 0) "−" else "") + if (kotlin.
 internal data class Dg(val group: String, val text: String, val color: Color)
 internal fun decisionOf(p: P?): Dg? = when {
     p == null -> null
-    p.dc in setOf("Sell", "Strong Sell") -> Dg("Sell", p.dc ?: "Sell", TierC.lightRed)
-    p.vf in setOf("caution", "fail") -> Dg("Hold", "${p.dc ?: "Hold"} · caution", C.amber)
-    p.dc in setOf("Buy", "Strong Buy") -> Dg("Buy", p.dc ?: "Buy", TierC.lightGreen)
-    p.dc == "Hold" -> Dg("Hold", "Hold", C.dim)
-    else -> Dg("Not rated", p.dc ?: "Not rated", C.dim)
+    p.dc in setOf("Sell", "Strong Sell") -> Dg("Sell", p.dc ?: "Sell", decisionColor(p.dc))
+    p.vf in setOf("caution", "fail") -> Dg("Hold", "${p.dc ?: "Hold"} · caution", reviewColor("caution"))  // Claude's caution, its one colour
+    p.dc in setOf("Buy", "Strong Buy") -> Dg("Buy", p.dc ?: "Buy", decisionColor(p.dc))
+    p.dc == "Hold" -> Dg("Hold", "Hold", decisionColor("Hold"))
+    else -> Dg("Not rated", p.dc ?: "Not rated", decisionColor(null))
 }
-private val DEC_BAR = mapOf("Buy" to TierC.lightGreen, "Hold" to TierC.yellow, "Sell" to TierC.lightRed, "Not rated" to TierC.grey)
+private val DEC_BAR = listOf("Buy", "Hold", "Sell", "Not rated").associateWith { decisionColor(it) }
 
 /** Pill in a header ("Import"). */
 @Composable
@@ -273,7 +273,7 @@ fun HeaderPill(icon: androidx.compose.ui.graphics.vector.ImageVector, text: Stri
 @Composable
 fun SecHead(title: String, sub: String = "", modifier: Modifier = Modifier) {
     Row(modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 8.dp), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        T(title, 17.sp, weight = FontWeight.SemiBold, maxLines = 1)
+        T(title, SECTION_TITLE, weight = FontWeight.SemiBold, maxLines = 1)
         if (sub.isNotEmpty()) T(sub, 12.sp, C.dim, maxLines = 1, modifier = Modifier.padding(bottom = 1.dp))
     }
 }
@@ -341,11 +341,7 @@ fun PortfolioScreen(st: AppState) {
                     T("Track your holdings", 24.sp, weight = FontWeight.Bold, modifier = Modifier.padding(top = 24.dp))
                     T("Import the holdings CSV from Zerodha (Instrument, Qty., Avg. cost).", 14.sp, C.dim, lineHeight = 20.sp,
                         align = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.padding(top = 8.dp, bottom = 28.dp))
-                    Row(Modifier.fillMaxWidth().height(50.dp).clip(RoundedCornerShape(25.dp)).background(C.teal).clickable { launchImport() },
-                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-                        androidx.compose.material3.Icon(Icons.Rounded.Upload, null, tint = C.white, modifier = Modifier.size(20.dp))
-                        T("  Import Zerodha CSV", 16.sp, weight = FontWeight.SemiBold)
-                    }
+                    PrimaryButton("Import Zerodha CSV", Modifier.fillMaxWidth()) { launchImport() }
                     Row(Modifier.padding(top = 22.dp), verticalAlignment = Alignment.CenterVertically) {
                         androidx.compose.material3.Icon(Icons.Rounded.Lock, null, tint = C.dim, modifier = Modifier.size(16.dp))
                         T("  Kept only on this phone. Never uploaded.", 13.sp, C.dim)
@@ -365,16 +361,16 @@ fun PortfolioScreen(st: AppState) {
         item {
             Card(Modifier.padding(horizontal = 16.dp, vertical = 4.dp).fillMaxWidth(), pad = 16.dp) {
                 Row(verticalAlignment = Alignment.Top) {
-                    Column(Modifier.weight(1f)) { T("CURRENT VALUE", 11.sp, C.dim); T(rupees(value), 28.sp, weight = FontWeight.Bold, maxLines = 1) }
-                    Column(horizontalAlignment = Alignment.End) { T("INVESTED", 11.sp, C.dim); T(rupees(inv), 16.sp, C.muted, FontWeight.SemiBold, modifier = Modifier.padding(top = 6.dp)) }
+                    Column(Modifier.weight(1f)) { T("Current value", LABEL, C.dim); T(rupees(value), 28.sp, weight = FontWeight.Bold, maxLines = 1) }
+                    Column(horizontalAlignment = Alignment.End) { T("Invested", LABEL, C.dim); T(rupees(inv), 16.sp, C.muted, FontWeight.SemiBold, modifier = Modifier.padding(top = 6.dp)) }
                 }
                 Row(Modifier.padding(top = 14.dp)) {
                     Column(Modifier.weight(1f)) {
-                        T("TOTAL P&L", 11.sp, C.dim)
+                        T("Total P&L", LABEL, C.dim)
                         T("${rupees(pl)} · ${sg(plPct, 1)}", 15.sp, plColor(pl), FontWeight.Bold, maxLines = 1)
                     }
                     Column(horizontalAlignment = Alignment.End) {
-                        T("TODAY", 11.sp, C.dim)
+                        T("Today", LABEL, C.dim)
                         T("${rupees(today)} · ${sg(todayPct, 1)}", 15.sp, plColor(today), FontWeight.Bold, maxLines = 1)
                     }
                 }
@@ -428,8 +424,8 @@ fun needsAttention(p: P): Boolean = p.dc in setOf("Sell", "Strong Sell") || p.vd
 /** [sym] only matters when [p] is null: ETFs are told by name, anything else not scored is an equity Narrativ does not cover. */
 fun holdingLabel(p: P?, sym: String = ""): Pair<String, Color> = when {
     p == null -> (if (Regex("ETF|BEES").containsMatchIn(sym.uppercase())) "ETF" else "Not scored") to C.dim
-    p.dc in setOf("Buy", "Strong Buy") && p.vf == "pass" -> (p.dc ?: "Buy") to TierC.darkGreen
-    p.dc in setOf("Sell", "Strong Sell") -> (p.dc ?: "Sell") to C.red
+    p.dc in setOf("Buy", "Strong Buy") && p.vf == "pass" -> (p.dc ?: "Buy") to decisionColor(p.dc)
+    p.dc in setOf("Sell", "Strong Sell") -> (p.dc ?: "Sell") to decisionColor(p.dc)
     p.vf in setOf("caution", "fail") -> "${p.dc ?: "Hold"} · Claude ${p.vf}" to C.amber
     else -> (p.dc ?: "Not rated") to (if (p.dc == "Hold") C.grey else C.dim)
 }
@@ -454,7 +450,7 @@ fun ColumnScope.HoldingRows(st: AppState, rows: List<Triple<Holding, Double?, Do
                     if (dg != null) StatusChip(dg.text, color = dg.color, minWidth = 0.dp)
                     else T(holdingLabel(null, h.s).first, 11.sp, C.dim, maxLines = 1)
                 }
-                T("${fmt(h.qty, 0)} × ₹${fmt(h.avg, 2)} · now ₹${fmt(p, 2)}", 11.sp, C.dim, maxLines = 1)
+                T("${fmt(h.qty, 0)} × ${priceStr(h.avg)} · now ${priceStr(p)}", 11.sp, C.dim, maxLines = 1)
             }
             Column(horizontalAlignment = Alignment.End) {
                 T(sg(pl, 1), 14.sp, plColor(pl), FontWeight.SemiBold, maxLines = 1)

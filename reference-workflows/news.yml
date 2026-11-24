@@ -1,0 +1,27 @@
+name: news
+# Headlines from publisher RSS and RBI / PIB releases (narrativ/news.py collect). Each feed holds only its latest items,
+# so this runs every 2 hours into the Actions cache (data/news_cache); the daily run reads it. No commit.
+on:
+  schedule:
+    - cron: "20 */2 * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: news
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/cache@v4
+        with:
+          path: data/news_cache
+          key: news-${{ github.run_id }}
+          restore-keys: news-
+      - name: Collect
+        run: python -m narrativ.news collect

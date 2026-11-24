@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
@@ -75,8 +76,8 @@ fun smoothPath(pts: List<Offset>, k: Float = 1f / 8f, into: Path = Path(), moveF
 private val dash = PathEffect.dashPathEffect(floatArrayOf(10f, 10f))
 private val dashFine = PathEffect.dashPathEffect(floatArrayOf(8f, 10f))
 /** Track behind bars, meters and gauges (#ffffff1a in the mockups). */
-val TRACK = Color.White.copy(alpha = 0.10f)
-private val KNOB_RING = Color(0xFF0B0C0E)
+val TRACK = C.line
+private val KNOB_RING = C.card2
 
 // ---------------------------------------------------------------- AreaLine
 /** Horizontal level on a line chart (exit, buy-rest, pass line), dashed by default, label as a dark tag at the left. */
@@ -133,7 +134,7 @@ fun AreaLine(
         }
         bands.forEach { b -> drawRoundRect(b.color.copy(alpha = b.alpha), Offset(0f, y(b.hi)), Size(size.width, y(b.lo) - y(b.hi)), CornerRadius(4.dp.toPx())) }
         if (median != null) {
-            drawLine(Color.White.copy(alpha = 0.25f), Offset(0f, y(median)), Offset(size.width, y(median)), 1.dp.toPx(), pathEffect = dashFine)
+            drawLine(TierC.grey, Offset(0f, y(median)), Offset(size.width, y(median)), 1.dp.toPx(), pathEffect = dashFine)
             medianLabel?.let { chartText(tm, it, size.width, y(median) - 5.dp.toPx(), C.dim, 9.5.sp, anchor = Anchor.End) }
         }
         lines.forEach { l ->
@@ -249,7 +250,7 @@ fun Bars(values: List<Double>, modifier: Modifier = Modifier.fillMaxWidth().heig
  */
 @Composable
 fun BarsWithLine(bars: List<Double>, line: List<Double>, labels: List<String>, modifier: Modifier = Modifier.fillMaxWidth().height(150.dp),
-                 barColor: Color = C.teal, lineColor: Color = TierC.yellow, lineFmt: (Double) -> String = { "${fmt(it, 1)}%" },
+                 barColor: Color = C.teal, lineColor: Color = TierC.yellow, lineFmt: (Double) -> String = { "${skFx(it, 1)}%" },
                  lineEndLabel: String? = line.lastOrNull()?.let(lineFmt), lastBarLabel: String? = null,
                  legend: List<Pair<String, Color>>? = null) {
     if (bars.isEmpty()) return
@@ -282,7 +283,7 @@ fun BarsWithLine(bars: List<Double>, line: List<Double>, labels: List<String>, m
 }
 
 // ---------------------------------------------------------------- DivergingBars
-/** One row of [DivergingBars]. value null = no data (dashed placeholder). [group] starts a new labelled group (e.g. "1 MONTH"). */
+/** One row of [DivergingBars]. value null = no data (dashed placeholder, "–"). [group] starts a new labelled group (e.g. "1 month"). */
 data class DivRow(val label: String, val value: Double?, val color: Color, val group: String? = null, val hollow: Boolean = false,
                   val valueText: String? = null)
 
@@ -292,17 +293,17 @@ data class DivRow(val label: String, val value: Double?, val color: Color, val g
  */
 @Composable
 fun DivergingBars(rows: List<DivRow>, modifier: Modifier = Modifier.fillMaxWidth(), span: Double? = null,
-                  valueFmt: (Double) -> String = { (if (it >= 0) "+" else "−") + fmt(abs(it), 1) + "%" },
-                  labelWidth: Dp = 104.dp, valueWidth: Dp = 56.dp, mutedColor: Color = Color.White.copy(alpha = 0.25f)) {
+                  valueFmt: (Double) -> String = { skSgn(it) },
+                  labelWidth: Dp = 104.dp, valueWidth: Dp = 56.dp, mutedColor: Color = TierC.grey) {
     val sp = span ?: ChartMath.divergingSpan(rows.map { it.value })
     Column(modifier) {
         rows.forEachIndexed { i, r ->
-            if (r.group != null) T(r.group, 10.sp, C.dim, FontWeight.Bold, Modifier.padding(top = if (i > 0) 6.dp else 0.dp, bottom = 2.dp))
+            if (r.group != null) T(r.group, 12.sp, C.dim, FontWeight.Medium, Modifier.padding(top = if (i > 0) 6.dp else 0.dp, bottom = 2.dp))
             Row(Modifier.fillMaxWidth().height(20.dp), verticalAlignment = Alignment.CenterVertically) {
                 T(r.label, 11.5.sp, C.muted, modifier = Modifier.width(labelWidth), maxLines = 1)
                 Canvas(Modifier.weight(1f).fillMaxHeight()) {
                     val cx = size.width / 2; val k = (size.width / 2 - 4.dp.toPx()) / sp.toFloat(); val bh = 12.dp.toPx(); val top = (size.height - bh) / 2
-                    drawLine(Color.White.copy(alpha = 0.2f), Offset(cx, 0f), Offset(cx, size.height), 1.dp.toPx())
+                    drawLine(TierC.grey, Offset(cx, 0f), Offset(cx, size.height), 1.dp.toPx())
                     val v = r.value
                     if (v == null) drawRoundRect(C.dim, Offset(cx - 24.dp.toPx(), top), Size(48.dp.toPx(), bh), CornerRadius(bh / 2),
                         style = Stroke(1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f))))
@@ -312,7 +313,7 @@ fun DivergingBars(rows: List<DivRow>, modifier: Modifier = Modifier.fillMaxWidth
                         else drawRoundRect(r.color, Offset(x, top), Size(w, bh), CornerRadius(bh / 2))
                     }
                 }
-                T(r.valueText ?: r.value?.let(valueFmt) ?: "[no data]", if (r.value == null) 10.5.sp else 11.5.sp,
+                T(r.valueText ?: r.value?.let(valueFmt) ?: "–", 11.5.sp,
                     if (r.value == null || r.color == mutedColor) C.dim else C.white, if (r.value == null) FontWeight.Normal else FontWeight.SemiBold,
                     Modifier.width(valueWidth), maxLines = 1, align = androidx.compose.ui.text.style.TextAlign.End)
             }
@@ -320,28 +321,57 @@ fun DivergingBars(rows: List<DivRow>, modifier: Modifier = Modifier.fillMaxWidth
     }
 }
 
-// ---------------------------------------------------------------- BulletBar
+// ---------------------------------------------------------------- FillBar (feedback #83, option B)
+/** Fill colour of a check by its status word: pass light green, partly yellow, miss light red, n/a grey. */
+fun fillColor(status: String): Color = when (status) { "Pass" -> TierC.lightGreen; "Partly" -> TierC.yellow; "Miss" -> TierC.lightRed; else -> C.grey }
+
+/** A scale number with its unit: "70%", "1.5×", "67th", "−2 pts". */
+fun scaleNum(v: Double, unit: String): String {
+    val d = if (abs(v - Math.round(v).toDouble()) < 1e-9) 0 else 1
+    return when (unit) {
+        "th" -> skOrd(Math.round(v).toInt())
+        else -> skFx(v, d) + unit
+    }
+}
+
 /**
- * Small bullet bar for a check: track, shaded pass zone (green) and optional partly zone (yellow), white tick at the pass
- * line, dot at the value in [color] (a chevron at the edge when off scale). [higherIsBetter] false for "≤" checks.
+ * Filled bar for a check: 8dp rounded track, filled from the scale start up to [value] in [color] (the check's status
+ * colour), a 2dp white tick at the [pass] mark and under it a 12sp dim row: scale min, "pass x" at the tick, scale max.
+ * Lower-is-better checks fill the same way (the colour carries the verdict).
  */
 @Composable
-fun BulletBar(value: Double, lo: Double, hi: Double, pass: Double, color: Color, modifier: Modifier = Modifier.size(76.dp, 12.dp),
-              higherIsBetter: Boolean = true, partly: Double? = null) {
-    Canvas(modifier) {
-        val pad = 3.dp.toPx(); val cy = size.height / 2; val th = 4.dp.toPx()
-        fun X(t: Double) = ChartMath.lerp(t, lo, hi, pad, size.width - pad, clamp = true)
-        fun zone(a: Float, b: Float, c: Color) { if (b > a) drawRoundRect(c.copy(alpha = 0.35f), Offset(a, cy - th / 2), Size(b - a, th), CornerRadius(th / 2)) }
-        drawRoundRect(TRACK, Offset(pad, cy - th / 2), Size(size.width - 2 * pad, th), CornerRadius(th / 2))
-        if (higherIsBetter) { zone(X(pass), size.width - pad, TierC.lightGreen); partly?.let { zone(X(it), X(pass), TierC.yellow) } }
-        else { zone(pad, X(pass), TierC.lightGreen); partly?.let { zone(X(pass), X(it), TierC.yellow) } }
-        drawRoundRect(Color.White.copy(alpha = 0.8f), Offset(X(pass) - 1.dp.toPx(), cy - 5.dp.toPx()), Size(2.dp.toPx(), 10.dp.toPx()), CornerRadius(1.dp.toPx()))
-        val vx = X(value)
-        if (value > hi || value < lo) {
-            val d = if (value > hi) 1f else -1f
-            val p = Path().apply { moveTo(vx - 3.dp.toPx() * d, cy - 4.dp.toPx()); lineTo(vx + 2.dp.toPx() * d, cy); lineTo(vx - 3.dp.toPx() * d, cy + 4.dp.toPx()) }
-            drawPath(p, color, style = Stroke(2.dp.toPx(), cap = StrokeCap.Round))
-        } else { drawCircle(C.card, 5.5.dp.toPx(), Offset(vx, cy)); drawCircle(color, 4.5.dp.toPx(), Offset(vx, cy)) }
+fun FillBar(value: Double, lo: Double, hi: Double, pass: Double, color: Color, modifier: Modifier = Modifier.fillMaxWidth(),
+            unit: String = "", labels: Boolean = true) {
+    val span = if (hi > lo) hi - lo else 1.0
+    val tick = ((pass - lo) / span).coerceIn(0.0, 1.0).toFloat()
+    Column(modifier) {
+        Canvas(Modifier.fillMaxWidth().height(12.dp)) {
+            val bh = 8.dp.toPx(); val top = (size.height - bh) / 2; val r = CornerRadius(bh / 2)
+            drawRoundRect(C.line, Offset(0f, top), Size(size.width, bh), r)
+            val f = ((value - lo) / span).coerceIn(0.0, 1.0).toFloat()
+            if (f > 0f) drawRoundRect(color, Offset(0f, top), Size(max(size.width * f, bh), bh), r)
+            val tx = (size.width * tick).coerceIn(1.dp.toPx(), size.width - 1.dp.toPx())
+            drawRect(Color.White, Offset(tx - 1.dp.toPx(), 0f), Size(2.dp.toPx(), size.height))
+        }
+        // min left, "pass x" centred on the tick, max right; an end label that would touch the pass label is left out
+        if (labels) Layout(content = {
+            T(scaleNum(lo, unit), 12.sp, C.dim, maxLines = 1)
+            T("pass ${scaleNum(pass, unit)}", 12.sp, C.dim, maxLines = 1)
+            T(scaleNum(hi, unit), 12.sp, C.dim, maxLines = 1)
+        }, modifier = Modifier.fillMaxWidth().padding(top = 3.dp)) { ms, c ->
+            val w = c.maxWidth
+            val ps = ms.map { it.measure(c.copy(minWidth = 0)) }
+            val a = ps[0]; val p = ps[1]; val b = ps[2]
+            val gap = 6.dp.roundToPx()
+            val px = (w * tick - p.width / 2f).toInt().coerceIn(0, max(0, w - p.width))
+            val showA = a.width + gap <= px
+            val showB = px + p.width + gap <= w - b.width
+            layout(w, ps.maxOf { it.height }) {
+                if (showA) a.place(0, 0)
+                p.place(px, 0)
+                if (showB) b.place(w - b.width, 0)
+            }
+        }
     }
 }
 
@@ -464,7 +494,7 @@ enum class MeterStyle { Bar, Dot }
  * [colors] colours each segment individually (e.g. seven level tiers) and overrides [color]/[on].
  */
 @Composable
-fun Meter(n: Int, on: Int, modifier: Modifier = Modifier, color: Color = TierC.yellow, off: Color = Color.White.copy(alpha = 0.15f),
+fun Meter(n: Int, on: Int, modifier: Modifier = Modifier, color: Color = TierC.yellow, off: Color = C.line,
           style: MeterStyle = MeterStyle.Bar, colors: List<Color>? = null, segment: Dp = if (style == MeterStyle.Dot) 10.dp else 9.dp) {
     Row(modifier, horizontalArrangement = Arrangement.spacedBy(if (style == MeterStyle.Dot) 4.dp else 2.dp), verticalAlignment = Alignment.CenterVertically) {
         repeat(n) { i ->
@@ -489,7 +519,7 @@ fun DotTimeline(items: List<TimelineItem>, modifier: Modifier = Modifier.fillMax
             Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)
                 .then(if (onClick != null) Modifier.pointerInput(i) { detectTapGestures { onClick(i) } } else Modifier)) {
                 Canvas(Modifier.width(22.dp).fillMaxHeight()) {
-                    val x = 6.dp.toPx(); val cy = 16.dp.toPx(); val line = Color.White.copy(alpha = 0.10f)
+                    val x = 6.dp.toPx(); val cy = 16.dp.toPx(); val line = C.line
                     if (i > 0) drawLine(line, Offset(x, 0f), Offset(x, cy), 2.dp.toPx())
                     if (i < items.lastIndex) drawLine(line, Offset(x, cy), Offset(x, size.height), 2.dp.toPx())
                     val c = if (it.today) C.white else it.color
@@ -531,7 +561,7 @@ fun DotStrip(dots: List<StripDot>, start: LocalDate, end: LocalDate, modifier: M
             drawRoundRect(windowColor.copy(alpha = 0.08f), Offset(lx, 0f), Size(X(end) - lx + pad, base), CornerRadius(4.dp.toPx()))
             windowLabel?.let { chartText(tm, it, lx + 3.dp.toPx(), 10.dp.toPx(), windowColor.copy(alpha = 0.9f), 9.sp) }
         }
-        drawLine(Color.White.copy(alpha = if (stack) 0.13f else 0.10f), Offset(if (stack) 0f else pad, base), Offset(size.width - if (stack) 0f else pad, base),
+        drawLine(C.line, Offset(if (stack) 0f else pad, base), Offset(size.width - if (stack) 0f else pad, base),
             (if (stack) 1 else 2).dp.toPx())
         val idx = ChartMath.stackIndex(dots.map { it.date })
         dots.forEachIndexed { i, d ->
@@ -550,9 +580,9 @@ fun DotStrip(dots: List<StripDot>, start: LocalDate, end: LocalDate, modifier: M
 // ---------------------------------------------------------------- RotationMap
 /** One sector / industry on a [RotationMap]: RS ratio and momentum (100 = in line with the benchmark), quadrant name. */
 data class RotPoint(val ratio: Double, val mom: Double, val q: String, val label: String? = null)
-/** Quadrant colours: full map (Market) and mini map (stock Summary). */
-val QUAD_FULL = mapOf("Leading" to TierC.lightGreen, "Improving" to Color(0xFF5FD0C5), "Weakening" to TierC.yellow, "Lagging" to TierC.lightRed)
-val QUAD_MINI = mapOf("Leading" to TierC.darkGreen, "Improving" to C.teal, "Weakening" to TierC.yellow, "Lagging" to TierC.red)
+/** Quadrant colours: one palette for the full map (Market) and the mini map (Look.kt QUAD_COLORS); names kept for callers. */
+val QUAD_FULL: Map<String, Color> get() = QUAD_COLORS
+val QUAD_MINI: Map<String, Color> get() = QUAD_COLORS
 private val QUADS = listOf("Improving", "Leading", "Lagging", "Weakening")  // top-left, top-right, bottom-left, bottom-right
 
 /**
@@ -574,7 +604,7 @@ fun RotationMap(points: List<RotPoint>, modifier: Modifier = Modifier.fillMaxWid
             QUADS.forEachIndexed { i, q ->
                 val c = colors[q] ?: C.grey; val x = if (i % 2 == 1) cx else 0f; val y = if (i >= 2) cy else 0f
                 drawRoundRect(c.copy(alpha = 0.13f), Offset(x + 1, y + 1), Size(cx - 2, cy - 2), CornerRadius(8.dp.toPx()))
-                chartText(tm, q.uppercase(), if (i % 2 == 1) x + cx - 6.dp.toPx() else x + 6.dp.toPx(), if (i < 2) y + 12.dp.toPx() else y + cy - 6.dp.toPx(),
+                chartText(tm, q, if (i % 2 == 1) x + cx - 6.dp.toPx() else x + 6.dp.toPx(), if (i < 2) y + 12.dp.toPx() else y + cy - 6.dp.toPx(),
                     c, 8.5.sp, FontWeight.Bold, if (i % 2 == 1) Anchor.End else Anchor.Start)
             }
             val span = max(3.0, (points.maxOfOrNull { max(abs(it.ratio - 100), abs(it.mom - 100)) } ?: 0.0) * 1.3)
@@ -634,16 +664,15 @@ private fun ChartsPreview() = NarrativTheme {
         BarsWithLine(listOf(480.0, 490.0, 500.0, 510.0, 515.0, 560.0, 575.0, 630.0), listOf(32.9, 33.4, 34.8, 35.5, 35.1, 34.0, 35.0, 35.4),
             listOf("Dec", "Mar", "Jun", "Sep", "Dec", "Mar", "Jun", "Sep"), lastBarLabel = "₹630 cr", lineEndLabel = "margin 35.4%")
         Bars(listOf(21.5, 20.4, 19.2), labels = listOf("FY24", "FY25", "FY26"), valueFmt = { "${fmt(it, 1)}%" }, base = 15.0)
-        DivergingBars(listOf(DivRow("CAPLIPOINT", -6.2, TierC.lightRed, "1 MONTH"), DivRow("Nifty Pharma", 11.0, Color.White.copy(alpha = 0.25f)),
-            DivRow("Nifty 50", null, C.dim)))
+        DivergingBars(listOf(DivRow("CAPLIPOINT", -6.2, TierC.lightRed, "1 month"), DivRow("Nifty Pharma", 11.0, TierC.grey)))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            BulletBar(68.0, 0.0, 100.0, 70.0, TierC.yellow, partly = 50.0); Meter(3, 2); Meter(7, 5, color = TierC.lightGreen, style = MeterStyle.Dot)
+            FillBar(68.0, 0.0, 100.0, 70.0, TierC.yellow, Modifier.width(120.dp), unit = "%"); Meter(3, 2); Meter(7, 5, color = TierC.lightGreen, style = MeterStyle.Dot)
             Gauge(37, Modifier.size(36.dp, 22.dp), mini = true); ArcGauge(53, "RS pct")
         }
-        RangeBar(1495.0, 2990.0, listOf(RangeMark(1495.0, "₹1,495", C.grey), RangeMark(2198.0, "200d", C.blue, true), RangeMark(2495.0, "50d", TierC.yellow, true),
+        RangeBar(1495.0, 2990.0, listOf(RangeMark(1495.0, "₹1,495", C.grey), RangeMark(2198.0, "200-day", C.muted, true), RangeMark(2495.0, "50-day", TierC.yellow, true),
             RangeMark(2085.0, "now ₹2,085", C.white), RangeMark(2990.0, "₹2,990", C.grey)))
         Gauge(37, label = "Fear")
-        SegmentedBar(listOf(Segment(69.6, TierC.darkGreen, "Promoter 69.6%"), Segment(3.1, C.teal, "Foreign 3.1%"), Segment(27.3, Color.White.copy(alpha = 0.19f), "Public 27.3%")))
+        SegmentedBar(listOf(Segment(69.6, TierC.darkGreen, "Promoter 69.6%"), Segment(3.1, C.muted, "Foreign 3.1%"), Segment(27.3, TierC.grey, "Public 27.3%")))
         TierScale(2)
         DotTimeline(listOf(TimelineItem("12 Nov", "Last results", "filed"), TimelineItem("20 Nov", "Today", today = true),
             TimelineItem("15 Feb 2028", "Thervoy oncology API unit not completed in CY27", "Kill switch", TierC.red)))

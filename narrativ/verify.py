@@ -186,6 +186,9 @@ def fetch_text(url: str) -> str | None:
 
 
 def _fetch_text(url: str) -> str | None:
+    if url.startswith("https://api.alphastreet.co.in/"):  # AlphaStreet transcript: the same text the pack showed
+        from .alphastreet import text as as_text
+        return as_text(url)
     CACHE.mkdir(parents=True, exist_ok=True)
     key = CACHE / (hashlib.sha1(url.encode()).hexdigest() + ".txt")
     if key.exists():

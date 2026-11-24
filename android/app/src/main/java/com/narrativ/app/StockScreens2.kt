@@ -37,8 +37,7 @@ import kotlin.math.abs
 
 /*
  * Stock page redesign, part 2 (mockups scratchpad/mock/out_stock, generator screens_stock.py): shared helpers for the
- * stock tabs, the Filings tab (s09) and the sheets behind the Summary rows (Claude's research, all ratios). These replace
- * StockParts.kt's ResearchSection and AnnouncementsPage for the stock page (the old ones stay until the lead removes them).
+ * stock tabs, the Filings tab (s09) and the sheets behind the Summary rows (Claude's research, all ratios).
  */
 
 // ---------------------------------------------------------------- small helpers (figures parsed from the rule texts)
@@ -76,12 +75,21 @@ fun skDay(iso: String?, year: Boolean? = null): String {
     return "${d.dayOfMonth} " + d.month.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.ENGLISH) + if (y) " ${d.year}" else ""
 }
 
+/** A due date: the exact day ("24 Nov") when it has one, else the month ("Nov 2026") for month-precision items; "–" when missing. */
+fun skDue(s: String?): String {
+    if (s.isNullOrBlank()) return "–"
+    if (skDate(s) != null) return skDay(s)
+    val ym = runCatching { java.time.YearMonth.parse(s.take(7)) }.getOrNull() ?: return s
+    val m = ym.month.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.ENGLISH)
+    return if (ym.year != skToday().year) "$m ${ym.year}" else m
+}
+
 
 // ---------------------------------------------------------------- small UI pieces
 /** Chip with coloured text and no dot ("1M +11.0%", "vs 200-day −5.2%"). */
 @Composable
 fun ValChip(text: String, color: Color = C.muted, modifier: Modifier = Modifier) {
-    Box(modifier.clip(RoundedCornerShape(9.dp)).background(Color.White.copy(alpha = 0.063f)).padding(horizontal = 8.dp, vertical = 3.dp)) {
+    Box(modifier.clip(RoundedCornerShape(S.inner)).background(C.chip).padding(horizontal = 8.dp, vertical = 3.dp)) {
         T(text, 11.sp, color, maxLines = 1)
     }
 }
@@ -89,7 +97,7 @@ fun ValChip(text: String, color: Color = C.muted, modifier: Modifier = Modifier)
 /** Empty state inside the page padding. */
 @Composable
 fun EmptyNote(text: String, modifier: Modifier = Modifier) {
-    Box(modifier.fillMaxWidth().clip(RoundedCornerShape(S.card)).background(C.card).padding(16.dp)) { T(text, 13.sp, C.dim, lineHeight = 18.sp) }
+    Box(modifier.fillMaxWidth().clip(RoundedCornerShape(S.card)).background(C.card).padding(S.cardPad)) { T(text, 13.sp, C.dim, lineHeight = 18.sp) }
 }
 
 /** Tappable row with a label, grey right text and a chevron (Summary: Claude's research, all ratios). */
@@ -124,7 +132,7 @@ fun PairBars(rows: List<Triple<String, Double, Color>>, valueFmt: (Double) -> St
         Row(Modifier.fillMaxWidth().padding(top = if (i > 0) 10.dp else 0.dp, bottom = 4.dp)) {
             T(label, 12.sp, C.muted, modifier = Modifier.weight(1f), maxLines = 1); T(valueFmt(v), 12.sp, weight = FontWeight.Bold, maxLines = 1)
         }
-        BoxWithConstraints(Modifier.fillMaxWidth().height(12.dp).clip(RoundedCornerShape(6.dp)).background(Color.White.copy(alpha = 0.07f))) {
+        BoxWithConstraints(Modifier.fillMaxWidth().height(12.dp).clip(RoundedCornerShape(6.dp)).background(TRACK)) {
             Box(Modifier.width((maxWidth * (v / mx).toFloat()).coerceAtLeast(6.dp)).fillMaxHeight().clip(RoundedCornerShape(6.dp)).background(c))
         }
     }
@@ -132,25 +140,48 @@ fun PairBars(rows: List<Triple<String, Double, Color>>, valueFmt: (Double) -> St
 
 /** Thin progress bar 0..1. */
 @Composable
-fun ProgressLine(frac: Float, color: Color = C.teal, modifier: Modifier = Modifier, height: Dp = 6.dp) {
+fun ProgressLine(frac: Float, color: Color = C.muted, modifier: Modifier = Modifier, height: Dp = 6.dp) {
     BoxWithConstraints(modifier.fillMaxWidth().height(height).clip(RoundedCornerShape(height / 2)).background(TRACK)) {
         Box(Modifier.width(maxWidth * frac.coerceIn(0f, 1f)).fillMaxHeight().clip(RoundedCornerShape(height / 2)).background(color))
     }
 }
 
 // ---------------------------------------------------------------- key checks (level tabs)
-/** A bullet bar under a key check: value on lo..hi, pass line, optional partly line. */
-data class Bullet(val v: Double, val lo: Double, val hi: Double, val pass: Double, val higher: Boolean = true, val partly: Double? = null)
+/** A filled bar under a key check: value on lo..hi, pass mark, scale [unit] ("%", "×", "th", " pts"). [higher] and [partly]
+ *  are kept for the rule texts; the bar fills from the left and its colour carries the verdict. */
+data class Bullet(val v: Double, val lo: Double, val hi: Double, val pass: Double, val higher: Boolean = true, val partly: Double? = null,
+                  val unit: String = "")
 /** One row of "Key checks": status word, short name, figure, pass line and optional bullet. */
 data class KeyCheck(val status: String, val name: String, val figure: String, val pass: String? = null, val bullet: Bullet? = null)
+
+/** " ✓" / " ✗" / " ~" after a figure, by status word. */
+fun statusMark(status: String): String = when (status) { "Pass" -> " ✓"; "Miss" -> " ✗"; "Partly" -> " ~"; else -> "" }
+
+/** A key check with a filled bar (feedback #83 option B): name, figure in the status colour with its mark, bar and scale row. */
+@Composable
+fun BarCheckRow(r: KeyCheck, b: Bullet, divider: Boolean = true) {
+    val col = fillColor(r.status)
+    Column(Modifier.fillMaxWidth()) {
+        Column(Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                T(r.name, 14.sp, modifier = Modifier.weight(1f), maxLines = 2, lineHeight = 18.sp)
+                T(r.figure + statusMark(r.status), 15.sp, if (r.status == "n/a") C.white else col, FontWeight.Bold, maxLines = 1,
+                    modifier = Modifier.padding(start = 8.dp))
+            }
+            FillBar(b.v, b.lo, b.hi, b.pass, col, Modifier.fillMaxWidth().padding(top = 8.dp), unit = b.unit)
+            // extra context from the pass line ("pass ≥ 15% · avg 12.3%"): the part after the rule
+            r.pass?.split(" · ")?.filter { !it.startsWith("pass") }?.joinToString(" · ")?.takeIf { it.isNotBlank() }?.let { T(it, 12.sp, C.dim, maxLines = 1, modifier = Modifier.padding(top = 2.dp)) }
+        }
+        if (divider) HLineDivider()
+    }
+}
 
 @Composable
 fun KeyChecksCard(rows: List<KeyCheck>, total: Int, onAll: () -> Unit) {
     SectionCard("Key checks", more = "All $total checks with formulas", onMore = onAll) {
         rows.forEach { r ->
-            CheckRow(r.status, r.name, r.figure, r.pass, bullet = r.bullet?.let { b ->
-                { BulletBar(b.v, b.lo, b.hi, b.pass, statusColor(r.status), higherIsBetter = b.higher, partly = b.partly) }
-            })
+            val b = r.bullet
+            if (b != null) BarCheckRow(r, b) else CheckRow(r.status, r.name, r.figure, r.pass)
         }
     }
 }
@@ -183,7 +214,7 @@ fun CheckItemRow(item: Item, onClick: () -> Unit) {
 // ---------------------------------------------------------------- Filings tab (s09)
 private val FILING_BOILER = Regex("^.*?(has informed the Exchange|has submitted to the Exchange|has intimated the Exchange|informed the Exchange)\\s*(about|regarding|that|of|,)?\\s*", RegexOption.IGNORE_CASE)
 private val RESULTS_RE = Regex("result|board meeting|presentation|con\\. ?call|analyst|investor meet|earnings", RegexOption.IGNORE_CASE)
-private val INFO_DOT = Color(0xFF7A7F86)
+private val INFO_DOT = TierC.grey  // routine filings: one grey for the strip, the legend and the list
 
 /** Subject of a filing without the exchange boilerplate. */
 fun filingSubject(e: Ev): String {
@@ -192,10 +223,52 @@ fun filingSubject(e: Ev): String {
     return t.replaceFirstChar { it.uppercase() }.ifBlank { e.text }
 }
 
-private fun sevRank(s: String) = when (s) { "red" -> 3; "watch" -> 2; "green" -> 1; else -> 0 }
-
+/** Filings tab (feedback #86): "Filings | News" segmented control on top, then the filings list or the news headlines. */
 @Composable
 fun FilingsTab(det: Detail?) {
+    var view by rememberSaveable { mutableIntStateOf(0) }
+    FilingsNewsSwitch(view) { view = it }
+    if (view == 1) NewsList(det) else FilingsList(det)
+}
+
+/** Two-option segmented control: C.chip track, the selected option on C.card in SemiBold. */
+@Composable
+private fun FilingsNewsSwitch(selected: Int, onSelect: (Int) -> Unit) {
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(S.tile)).background(C.chip).padding(3.dp)) {
+        listOf("Filings", "News").forEachIndexed { i, o ->
+            Box(Modifier.weight(1f).clip(RoundedCornerShape(S.inner)).background(if (i == selected) C.card else Color.Transparent)
+                .clickable { onSelect(i) }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                T(o, 13.sp, if (i == selected) C.white else C.dim, if (i == selected) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1)
+            }
+        }
+    }
+}
+
+/** News headlines matched by company name, last 30 days, newest first; tap opens the article. */
+@Composable
+private fun NewsList(det: Detail?) {
+    val ctx = LocalContext.current
+    val news = det?.news.orEmpty()
+    if (det == null) { EmptyNote("Loading news…"); return }
+    if (news.isEmpty()) {
+        EmptyNote("No news headlines in the last 30 days. Headlines come from Economic Times, Business Standard, BusinessLine, Moneycontrol and Mint, matched by company name.")
+        return
+    }
+    Card(Modifier.fillMaxWidth(), pad = S.cardPad) {
+        news.forEachIndexed { i, n ->
+            Column(Modifier.fillMaxWidth().clickable(enabled = n.url != null) { n.url?.let { openUrl(ctx, it) } }.padding(vertical = 9.dp)) {
+                T(n.title, 13.sp, C.white, FontWeight.Medium, maxLines = 2, lineHeight = 18.sp)
+                T(listOfNotNull(n.source?.takeIf { it.isNotBlank() }, n.time?.let { skDay(it) }).joinToString(" · "), LABEL, C.dim, maxLines = 1,
+                    modifier = Modifier.padding(top = 2.dp))
+            }
+            if (i < news.lastIndex) HLineDivider()
+        }
+    }
+    T("Headlines matched by company name, last 30 days. Tap to open.", LABEL, C.dim, modifier = Modifier.padding(horizontal = 4.dp))
+}
+
+@Composable
+private fun FilingsList(det: Detail?) {
     val ctx = LocalContext.current
     var filter by rememberSaveable { mutableStateOf("All") }
     var showAll by remember { mutableStateOf(false) }
@@ -206,34 +279,24 @@ fun FilingsTab(det: Detail?) {
     val ordered = recentRed + evs.filter { it !in recentRed }
     val nRed = evs.count { it.sev == "red" }; val nWatch = evs.count { it.sev == "watch" }; val nGreen = evs.count { it.sev == "green" }
     val nRes = evs.count { RESULTS_RE.containsMatchIn(it.category ?: it.type) }
+    val nInfo = evs.size - nRed - nWatch - nGreen
+    // the legend and the filters use the same names, colours and counts; every group shows, zero or not
+    val groups = listOf(Triple("Red flags", nRed, TierC.red), Triple("Watch", nWatch, C.amber), Triple("Orders & growth", nGreen, TierC.darkGreen),
+        Triple("Routine", nInfo, INFO_DOT))
     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         ToggleChip("All", filter == "All", { filter = "All" }, count = evs.size)
-        ToggleChip("Red flags", filter == "Red flags", { filter = "Red flags" }, count = nRed)
-        if (nWatch > 0) ToggleChip("Watch", filter == "Watch", { filter = "Watch" }, count = nWatch, dot = C.amber)
-        ToggleChip("Orders & growth", filter == "Orders & growth", { filter = "Orders & growth" }, count = nGreen)
+        groups.forEach { (g, n, c) -> ToggleChip(g, filter == g, { filter = g }, count = n, dot = c) }
         ToggleChip("Results", filter == "Results", { filter = "Results" }, count = nRes)
     }
-    val dates = evs.mapNotNull { e -> skDate(e.date)?.let { it to e } }
-    if (dates.isNotEmpty()) Card(Modifier.fillMaxWidth(), pad = 12.dp) {
-        val start = dates.minOf { it.first }.withDayOfMonth(1)
-        DotStrip(dates.sortedBy { sevRank(it.second.sev) }.map { (d, e) -> StripDot(d, if (e.sev == "info") INFO_DOT else sevColor(e.sev)) },
-            start, maxOf(today, start.plusDays(1)), window = 45, windowLabel = "45 days")
-        FlowRow(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            DotChip("Red $nRed", TierC.red)
-            if (nWatch > 0) DotChip("Watch $nWatch", C.amber)
-            DotChip("Growth $nGreen", TierC.darkGreen)
-            DotChip("Routine ${evs.size - nRed - nWatch - nGreen}", INFO_DOT)
-        }
-    }
     val shown = ordered.filter { e -> when (filter) { "Red flags" -> e.sev == "red"; "Watch" -> e.sev == "watch"; "Orders & growth" -> e.sev == "green"
-        "Results" -> RESULTS_RE.containsMatchIn(e.category ?: e.type); else -> true } }
+        "Routine" -> e.sev !in setOf("red", "watch", "green"); "Results" -> RESULTS_RE.containsMatchIn(e.category ?: e.type); else -> true } }
     if (shown.isEmpty()) EmptyNote("None in this filter.")
-    else Card(Modifier.fillMaxWidth(), pad = 14.dp) {
+    else Card(Modifier.fillMaxWidth(), pad = S.cardPad) {
         val n = if (showAll) shown.size else minOf(11, shown.size)
         shown.take(n).forEachIndexed { i, e ->
             Row(Modifier.fillMaxWidth().clickable(enabled = e.url != null) { e.url?.let { openUrl(ctx, it) } }.padding(vertical = 8.dp),
                 verticalAlignment = Alignment.Top) {
-                Box(Modifier.padding(top = 6.dp).size(8.dp).clip(CircleShape).background(if (e.sev == "info") Color(0xFF5C6066) else sevColor(e.sev)))
+                Box(Modifier.padding(top = 6.dp).size(8.dp).clip(CircleShape).background(if (e.sev in setOf("red", "watch", "green")) sevColor(e.sev) else INFO_DOT))
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
                     T(filingSubject(e), 13.5.sp, weight = FontWeight.Medium, maxLines = 1)
@@ -242,7 +305,7 @@ fun FilingsTab(det: Detail?) {
             }
             if (i < n - 1) HLineDivider()
         }
-        if (shown.size > 11) Row(Modifier.clip(RoundedCornerShape(8.dp)).clickable { showAll = !showAll }.padding(top = 8.dp, bottom = 2.dp),
+        if (shown.size > 11) Row(Modifier.clip(RoundedCornerShape(S.inner)).clickable { showAll = !showAll }.padding(top = 8.dp, bottom = 2.dp),
             verticalAlignment = Alignment.CenterVertically) {
             T(if (showAll) "Show fewer" else "Show ${shown.size - 11} older", 13.sp, C.blue)
             Icon(Icons.Rounded.ExpandMore, null, tint = C.blue, modifier = Modifier.size(16.dp))
@@ -252,7 +315,7 @@ fun FilingsTab(det: Detail?) {
     val fl = det?.stock?.exchange?.filings.orEmpty()
     if (fl.isNotEmpty()) {
         var open by remember { mutableStateOf(false) }
-        Card(Modifier.fillMaxWidth(), pad = 14.dp) {
+        Card(Modifier.fillMaxWidth(), pad = S.cardPad) {
             ToggleRow("Transcripts and presentations", "${fl.size}", open, { open = !open }, divider = false)
             if (open) fl.forEach { f ->
                 HLineDivider()
@@ -278,7 +341,7 @@ fun ResearchSheet(st: AppState, sym: String, det: Detail?, onDismiss: () -> Unit
                     Column(Modifier.weight(1f)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             T(e.kind, 14.sp, weight = FontWeight.SemiBold, maxLines = 1)
-                            e.verdict?.let { v -> StatusChip(v.uppercase(), color = reviewColor(v), minWidth = 0.dp) }
+                            e.verdict?.let { v -> StatusChip(reviewWord(v), color = reviewColor(v), minWidth = 0.dp) }
                         }
                         if (e.text.isNotBlank()) T(e.text, 12.sp, C.dim)
                     }
@@ -294,32 +357,29 @@ fun ResearchSheet(st: AppState, sym: String, det: Detail?, onDismiss: () -> Unit
             }
         }
         det?.scan?.next?.let { T("Next automatic refresh ${skDay(it)}, or after the next results filing", 11.sp, C.dim, modifier = Modifier.padding(bottom = 10.dp)) }
-        val inQueue = st.queue?.items.orEmpty().let { q ->
-            val today = skToday().toString()
-            val left = q.filter { st.research[it.symbol]?.updated != today }
-            val i = left.indexOfFirst { it.symbol == sym }
-            if (i >= 0) (i + 1) to left.size else null
-        }
+        // queue position: the one count every screen uses (Claude's pending review tasks, reviewState / queueLabel)
+        val rv = reviewState(st, sym)
+        val inQueue = rv.verdict == null && rv.pos != 0
         val requested = sym in st.requested
-        if (inQueue != null || requested) SheetSection {
+        if (inQueue || requested) SheetSection {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Rounded.HourglassTop, null, tint = if (inQueue != null) C.teal else C.dim, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp))
-                T(if (inQueue != null) "In Claude's queue" else "Full review requested", 15.sp, weight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                StatusChip(if (inQueue != null) "#${inQueue.first} of ${inQueue.second}" else "not in queue yet", color = if (inQueue != null) C.blue else C.dim)
+                Icon(Icons.Rounded.HourglassTop, null, tint = C.grey, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp))
+                T(if (inQueue) "In Claude's queue" else "Full review requested", 15.sp, weight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                StatusChip(if (inQueue) queueLabel(st, sym) ?: "Research queue" else "Not in queue yet", color = C.grey, minWidth = 0.dp)
             }
-            T(if (inQueue != null) "Estimated: ${expectedRun(inQueue.first)}, in the app about an hour after it starts (about 6 stocks a run)."
+            T(if (rv.pos > 0) "Estimated: ${expectedRun(rv.pos)}, in the app about an hour after it starts (about 6 stocks a run)."
+              else if (inQueue) "Queued for Claude's research notes; a full review runs when the rules rate it Buy."
               else "Requests join the queue at the 17:10 daily run (weekdays) as full reviews; estimated the first research run after that.",
                 12.sp, C.dim, lineHeight = 17.sp, modifier = Modifier.padding(top = 6.dp))
         }
-        val rv = reviewState(st, sym)
         val days = skDate(rv.date)?.let { ChronoUnit.DAYS.between(it, skToday()) }
         val recent = days != null && days <= 7
-        val enabled = !requested && inQueue == null && !recent
-        val label = when { requested || inQueue != null -> "Review queued"; recent -> "Reviewed ${skDay(rv.date)} · a new request opens after 7 days"
+        val enabled = !requested && !inQueue && !recent
+        val label = when { requested || inQueue -> "Review queued"; recent -> "Reviewed ${skDay(rv.date)} · a new request opens after 7 days"
                            rv.verdict != null || rv.studied != null -> "Request a new full review"; else -> "Request a full review" }
-        Box(Modifier.padding(top = 4.dp).fillMaxWidth().height(48.dp).clip(RoundedCornerShape(24.dp)).background(if (enabled) C.teal else C.chip)
-            .clickable(enabled = enabled) { scope.launch { st.toast = st.requestScan(sym).fold({ "Requested (#$it)" }, { "Not sent: ${it.message}" }) } },
-            contentAlignment = Alignment.Center) { T(label, 14.sp, if (enabled) Color.Black else C.dim, FontWeight.SemiBold, maxLines = 1) }
+        PrimaryButton(label, Modifier.padding(top = 4.dp).fillMaxWidth(), enabled = enabled) {
+            scope.launch { st.toast = st.requestScan(sym).fold({ "Requested (#$it)" }, { "Not sent: ${it.message}" }) }
+        }
     }
 }
 
@@ -336,17 +396,34 @@ fun RatiosSheet(det: Detail, onDismiss: () -> Unit, open: (String?) -> Unit) {
             }
         }
         val key = keyRatios(det)
+        val rules = remember(det) { det.rulesByKey() }
         SheetSection("Key ratios") {
-            key.forEachIndexed { i, (r, v) -> KvRow(r.label, v, divider = i < key.lastIndex, onClick = { open(r.key) }) }
+            key.forEachIndexed { i, (r, v) -> RatioRow(r.label, v, rules[r.key], divider = i < key.lastIndex) { open(r.key) } }
         }
         val shown = key.map { it.first.key }.toSet()
         val rest = METRIC_NAMES.keys.filter { it !in shown && det.m(it)?.v != null }
         if (rest.isNotEmpty()) SheetSection("Every computed figure", "${rest.size}") {
             rest.forEachIndexed { i, k ->
                 val m = det.m(k)!!
-                KvRow(METRIC_NAMES[k] ?: k, if (m.nm) "n/m" else fmt(m.v, 2) + (if (k.endsWith("_pct")) "%" else "") + (m.u?.let { " $it" } ?: ""),
-                    divider = i < rest.lastIndex, onClick = { open(k) })
+                RatioRow(METRIC_NAMES[k] ?: k, if (m.nm) "n/m" else skFx(m.v, 2) + (if (k.endsWith("_pct")) "%" else "") + (m.u?.let { " $it" } ?: ""),
+                    rules[k], divider = i < rest.lastIndex) { open(k) }
             }
         }
+    }
+}
+
+/** A ratio with the rule that tests it (feedback #82): name and a 12sp dim rule line left, the value in the check's colour right. */
+@Composable
+fun RatioRow(label: String, value: String, rule: KeyRule?, divider: Boolean = true, onClick: () -> Unit) {
+    Column(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
+        Row(Modifier.fillMaxWidth().padding(vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                T(label, 13.sp, C.muted, maxLines = 2)
+                T(rule?.rule ?: "no rule", LABEL, C.dim, maxLines = 2)
+            }
+            Spacer(Modifier.width(10.dp))
+            T(value, 13.sp, if (value == "n/m") C.white else ruleColor(rule), FontWeight.Bold, maxLines = 1)
+        }
+        if (divider) HLineDivider()
     }
 }

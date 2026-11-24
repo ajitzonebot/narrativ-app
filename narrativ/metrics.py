@@ -830,7 +830,8 @@ def _funnel_inputs(M: dict, s: dict, latest: str, lender: bool, mcap, shares, ur
         # judged on the figure shown (₹ cr, 1 decimal): a −₹0.9 lakh quarter shows as 0.0 and is break-even, not a loss
         shown = [round(_cr(x), 1) + 0.0 for x in pats]  # + 0.0 turns −0.0 into 0.0
         M["loss_quarters_4"] = _m(float(sum(1 for x in shown if x < 0)), "Quarters with a net loss, last 4 (a loss that rounds to ₹0.0 cr counts as break-even)",
-                                  {"profits_cr": ", ".join(f"{x:,.1f}" for x in shown)}, ttm_src, url, 0)
+                                  {"profits_cr": ", ".join(f"{x:,.1f}" for x in shown),  # newest first
+                                   "quarters": ", ".join(str(_prev_q(d, i) if i else latest)[:10] for i in range(4))}, ttm_src, url, 0)
 
     bq, bp = _latest_bs(s)
     bs = (bp or {}).get("bs") or {}

@@ -36,7 +36,7 @@ import kotlinx.serialization.json.jsonPrimitive
 /** One row of a settings card: icon, title and a grey line, an optional figure, then a chevron or [trailing]. */
 @Composable
 private fun SetRow(icon: ImageVector, title: String, sub: String, onClick: () -> Unit, figure: String? = null, figureColor: Color = C.white,
-                   trailing: (@Composable () -> Unit)? = null) {
+                   figureLoading: Boolean = false, trailing: (@Composable () -> Unit)? = null) {
     Row(Modifier.fillMaxWidth().clickable(onClick = onClick).defaultMinSize(minHeight = 64.dp).padding(horizontal = 14.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
         Icon(icon, null, tint = C.muted, modifier = Modifier.size(22.dp))
@@ -44,7 +44,7 @@ private fun SetRow(icon: ImageVector, title: String, sub: String, onClick: () ->
             T(title, 16.sp, weight = FontWeight.SemiBold, maxLines = 1)
             T(sub, 12.5.sp, C.dim, maxLines = 1)
         }
-        figure?.let { T(it, 16.sp, figureColor, FontWeight.Bold, maxLines = 1) }
+        if (figureLoading) Skel(56.dp, 16.dp) else figure?.let { T(it, 16.sp, figureColor, FontWeight.Bold, maxLines = 1) }
         if (trailing != null) trailing() else Icon(Icons.Rounded.ChevronRight, null, tint = C.dim, modifier = Modifier.size(18.dp))
     }
 }
@@ -52,10 +52,11 @@ private fun SetRow(icon: ImageVector, title: String, sub: String, onClick: () ->
 @Composable
 fun SettingsScreen(st: AppState) {
     val v = st.version
-    val calls by produceState<CallsFile?>(null) { value = st.repo.get<CallsFile>("data/calls.json") }
+    val callsF by produceState<Fetched<CallsFile>?>(null) { value = Fetched(st.repo.get<CallsFile>("data/calls.json")) }
+    val calls = callsF?.v
     val newer = v != null && v.versionCode > BuildConfig.VERSION_CODE
     val buys = calls?.calls.orEmpty().count { it.kind == "verified" }
-    val vsNifty = calls?.summary?.now?.avgVsNifty
+    val avgVs = calls?.summary?.now?.avgVsNifty
     AccScreen(st, "Settings", back = false, big = true, context = "Settings") {
         item {
             Card(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth(), pad = 14.dp, onClick = { st.go(Screen.Notes) }) {  // version card opens release notes
@@ -64,7 +65,7 @@ fun SettingsScreen(st: AppState) {
                     Column(Modifier.weight(1f)) {
                         T("Narrativ ${BuildConfig.VERSION_NAME}", 17.sp, weight = FontWeight.Bold, maxLines = 1)
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            StatusDot(if (newer) C.blue else TierC.lightGreen)
+                            StatusDot(if (newer) C.amber else TierC.lightGreen)
                             T((if (newer) "Update available" else "Up to date") + " · data of ${shortDate(st.picks?.date)}", 12.5.sp, C.dim, maxLines = 1)
                         }
                     }
@@ -75,10 +76,10 @@ fun SettingsScreen(st: AppState) {
         item {
             Card(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth(), pad = 0.dp) {
                 SetRow(Icons.Rounded.QueryStats, "Track record", if (buys > 0) "$buys Buys · vs Nifty" else "Every Buy vs Nifty", { st.go(Screen.TrackRecord) },
-                    vsNifty?.let { sg(it) }, plColor(vsNifty))
+                    if (calls == null) null else vsNifty(avgVs), plColor(avgVs), figureLoading = callsF == null)
                 HLineDivider(Modifier.padding(horizontal = 14.dp))
                 // a switch, not a click-through (the old "Alerts" page described push alerts that were never set up: removed)
-                SetRow(Icons.Rounded.NotificationsNone, "IPO alerts", "09:15 and 15:00 on the last day", { st.toggleIpoAlerts() }, trailing = {
+                SetRow(Icons.Rounded.NotificationsNone, "IPO alerts", "09:15 each open day · 15:45 on the last day", { st.toggleIpoAlerts() }, trailing = {
                     androidx.compose.material3.Switch(checked = st.ipoAlerts, onCheckedChange = { st.toggleIpoAlerts() },
                         colors = androidx.compose.material3.SwitchDefaults.colors(checkedTrackColor = C.teal, checkedThumbColor = Color.White))
                 })
@@ -130,10 +131,10 @@ fun AdvancedScreen(st: AppState) {
                 })
                 HLineDivider(Modifier.padding(horizontal = 14.dp))
                 AdvRow(Icons.Rounded.CalendarMonth, "Checkpoint calendar", { st.go(Screen.Calendar) }, if (ndue > 0) C.amber else null, "$ndue due · $n45 in 45 days", visual = {
-                    if (ndue + n45 > 0) SegmentedBar(listOf(Segment(ndue.toDouble(), TierC.yellow), Segment(n45.toDouble(), C.teal)), Modifier.width(56.dp), height = 8.dp, legend = SegLegend.None)
+                    if (ndue + n45 > 0) SegmentedBar(listOf(Segment(ndue.toDouble(), TierC.yellow), Segment(n45.toDouble(), C.grey)), Modifier.width(56.dp), height = 8.dp, legend = SegLegend.None)
                 })
                 HLineDivider(Modifier.padding(horizontal = 14.dp))
-                AdvRow(Icons.Rounded.Info, "Release notes", { st.go(Screen.Notes) }, if (newer) C.blue else TierC.lightGreen,
+                AdvRow(Icons.Rounded.Info, "Release notes", { st.go(Screen.Notes) }, if (newer) C.amber else TierC.lightGreen,
                     "v${BuildConfig.VERSION_NAME} · " + if (newer) "update available" else "up to date")
             }
         }
@@ -167,7 +168,7 @@ private fun MiniRuns(rs: List<RunRec>) {
         val mx = rs.maxOf { it.minutes ?: 0.0 }.coerceAtLeast(0.1); val bw = size.width / rs.size
         rs.forEachIndexed { i, r ->
             val h = (((r.minutes ?: 0.0) / mx).toFloat() * size.height).coerceAtLeast(2.dp.toPx())
-            val c = if (r.problems >= 2) C.amber else C.teal
+            val c = if (r.problems >= 2) C.amber else C.grey
             drawRoundRect(c.copy(alpha = if (i == rs.lastIndex) 1f else 0.55f), androidx.compose.ui.geometry.Offset(i * bw + 0.5.dp.toPx(), size.height - h),
                 androidx.compose.ui.geometry.Size(bw - 1.5.dp.toPx(), h), androidx.compose.ui.geometry.CornerRadius(1.5.dp.toPx()))
         }
@@ -175,33 +176,10 @@ private fun MiniRuns(rs: List<RunRec>) {
 }
 
 @Composable
-fun MoreRow(icon: ImageVector, title: String, onClick: () -> Unit) {
-    Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp).fillMaxWidth().height(56.dp).clip(RoundedCornerShape(16.dp)).background(C.card2)
-        .clickable(onClick = onClick).padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-        Icon(icon, null, tint = C.grey, modifier = Modifier.size(20.dp))
-        Spacer(Modifier.width(12.dp))
-        T(title, 15.sp, modifier = Modifier.weight(1f))
-        Icon(Icons.Rounded.ChevronRight, null, tint = C.dim, modifier = Modifier.size(18.dp))
-    }
-}
-
-@Composable
 fun ReleaseNotes(rel: Release) {
     Column(Modifier.padding(vertical = 6.dp)) {
-        T("v${rel.version} · ${rel.date}", 13.sp, C.grey, FontWeight.SemiBold)
-        rel.changes.forEach { ChangeRow(it) }
-    }
-}
-
-@Composable
-fun ChangeRow(c: Change) {
-    val (label, col) = when (c.type) { "new" -> "NEW" to C.teal; "imp", "improved" -> "IMPROVED" to C.blue; "fix" -> "FIX" to C.grey; else -> c.type.uppercase() to C.grey }
-    Row(Modifier.padding(vertical = 5.dp), verticalAlignment = Alignment.Top) {
-        Box(Modifier.width(70.dp).border(1.dp, col.copy(alpha = 0.35f), RoundedCornerShape(6.dp)).padding(vertical = 2.dp), contentAlignment = Alignment.Center) {
-            T(label, 9.sp, col, FontWeight.Bold)
-        }
-        Spacer(Modifier.width(10.dp))
-        T(c.text, 14.sp, lineHeight = 19.sp)
+        T("v${rel.version} · ${skDay(rel.date)}", 13.sp, C.grey, FontWeight.SemiBold)
+        rel.changes.forEach { ChangeLine(it) }
     }
 }
 
@@ -218,8 +196,8 @@ fun UpdateDialog(st: AppState) {
         Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(C.card).border(1.dp, C.line, RoundedCornerShape(28.dp)).padding(20.dp)
             .heightIn(max = 560.dp).verticalScroll(rememberScrollState())) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Box(Modifier.size(40.dp).clip(CircleShape).background(C.teal.copy(alpha = 0.13f)), contentAlignment = Alignment.Center) {
-                    Icon(Icons.Rounded.Download, null, tint = C.teal, modifier = Modifier.size(20.dp))
+                Box(Modifier.size(40.dp).clip(CircleShape).background(C.amber.copy(alpha = 0.13f)), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Rounded.Download, null, tint = C.amber, modifier = Modifier.size(20.dp))
                 }
                 Box(Modifier.size(34.dp).clip(CircleShape).background(C.chip).clickable { st.dismissUpdate() }, contentAlignment = Alignment.Center) {
                     Icon(Icons.Rounded.Close, null, tint = C.grey, modifier = Modifier.size(18.dp))
@@ -227,13 +205,13 @@ fun UpdateDialog(st: AppState) {
             }
             Spacer(Modifier.height(14.dp))
             T("Update available", 22.sp, weight = FontWeight.Bold)
-            T("v${v.versionName} (build ${v.versionCode}) · you have build ${BuildConfig.VERSION_CODE} · ${v.date}", 13.sp, C.grey)
+            T("v${v.versionName} (build ${v.versionCode}) · you have build ${BuildConfig.VERSION_CODE} · ${skDay(v.date)}", 13.sp, C.grey)
             Spacer(Modifier.height(14.dp))
             T("What's new", 15.sp, weight = FontWeight.SemiBold)
             val mine = BuildConfig.VERSION_NAME
             v.changelog.takeWhile { it.version != mine }.ifEmpty { v.changelog.take(1) }.take(4).forEach { rel ->
                 if (v.changelog.size > 1) T("v${rel.version}", 12.sp, C.dim, modifier = Modifier.padding(top = 6.dp))
-                rel.changes.forEach { ChangeRow(it) }
+                rel.changes.forEach { ChangeLine(it) }
             }
             Spacer(Modifier.height(16.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -241,24 +219,20 @@ fun UpdateDialog(st: AppState) {
                     .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(24.dp)).clickable { st.dismissUpdate() }, contentAlignment = Alignment.Center) {
                     T("Later", 15.sp, weight = FontWeight.SemiBold)
                 }
-                Box(Modifier.weight(1f).height(48.dp).clip(RoundedCornerShape(24.dp)).background(if (busy) C.teal.copy(alpha = 0.5f) else C.teal)
-                    .clickable(enabled = !busy) {
-                        val apk = done
-                        if (apk != null) { if (Updater.canInstall(ctx)) Updater.install(ctx, apk) else err = "Allow Narrativ to install updates, then tap Install again." }
-                        else scope.launch {
-                            busy = true; err = null; prog = 0f
-                            try { done = Updater.download(ctx, v.apkUrl, v.sha256) { p -> prog = p }; if (Updater.canInstall(ctx)) Updater.install(ctx, done!!) else err = "Allow Narrativ to install updates, then tap Install." }
-                            catch (e: Exception) { err = e.message ?: "Download failed. Try again." }
-                            busy = false
-                        }
-                    },
-                    contentAlignment = Alignment.Center) {
-                    T(when { busy && prog >= 0f -> "Downloading ${(prog * 100).toInt()}%"; busy -> "Downloading…"; done != null -> "Install"; else -> "Update now" },
-                        15.sp, Color.Black, FontWeight.SemiBold)
+                PrimaryButton(when { busy && prog >= 0f -> "Downloading ${(prog * 100).toInt()}%"; busy -> "Downloading…"; done != null -> "Install"; else -> "Update now" },
+                    Modifier.weight(1f), enabled = !busy) {
+                    val apk = done
+                    if (apk != null) { if (Updater.canInstall(ctx)) Updater.install(ctx, apk) else err = "Allow Narrativ to install updates, then tap Install again." }
+                    else scope.launch {
+                        busy = true; err = null; prog = 0f
+                        try { done = Updater.download(ctx, v.apkUrl, v.sha256) { p -> prog = p }; if (Updater.canInstall(ctx)) Updater.install(ctx, done!!) else err = "Allow Narrativ to install updates, then tap Install." }
+                        catch (e: Exception) { err = e.message ?: "Download failed. Try again." }
+                        busy = false
+                    }
                 }
             }
             if (busy && prog >= 0f) Box(Modifier.padding(top = 10.dp).fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)).background(C.chip)) {
-                Box(Modifier.fillMaxWidth(prog.coerceIn(0f, 1f)).fillMaxHeight().background(C.teal))
+                Box(Modifier.fillMaxWidth(prog.coerceIn(0f, 1f)).fillMaxHeight().background(C.muted))
             }
             err?.let { T(it, 12.sp, C.red, modifier = Modifier.padding(top = 10.dp)) }
             T("Downloads inside the app from GitHub Releases" + (v.sizeMb?.let { " · ${fmt(it, 1)} MB" } ?: ""), 11.sp, C.dim,
@@ -279,7 +253,7 @@ fun FeedbackSheet(st: AppState) {
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf("Idea", "Bug", "Data looks wrong", "Stock request").forEach { t -> ToggleChip(t, type == t, { type = t }) }
         }
-        Box(Modifier.fillMaxWidth().heightIn(min = 130.dp).clip(RoundedCornerShape(16.dp)).background(Color(0xFF0B0C0D))
+        Box(Modifier.fillMaxWidth().heightIn(min = 130.dp).clip(RoundedCornerShape(16.dp)).background(C.card2)
             .border(1.dp, C.teal.copy(alpha = 0.33f), RoundedCornerShape(16.dp)).padding(14.dp)) {
             BasicTextField(text, { text = it; err = null }, textStyle = TextStyle(color = C.white, fontSize = 15.sp), cursorBrush = SolidColor(C.blue),
                 modifier = Modifier.fillMaxWidth().imePadding(),
@@ -288,20 +262,17 @@ fun FeedbackSheet(st: AppState) {
         T("Attached: ${st.feedbackContext} · v${BuildConfig.VERSION_NAME} · data of ${shortDate(st.picks?.date)}", 12.sp, C.dim, modifier = Modifier.padding(start = 2.dp, top = 12.dp, bottom = 16.dp))
         err?.let { T(it, 13.sp, C.red, modifier = Modifier.padding(bottom = 10.dp)) }
         val ready = text.isNotBlank() && !sending
-        Box(Modifier.fillMaxWidth().height(50.dp).clip(RoundedCornerShape(25.dp)).background(if (ready) C.teal else C.chip)
-            .clickable(enabled = ready) {
-                sending = true
-                scope.launch {
-                    val res = if (type == "Stock request") {
-                        val sym = text.trim().split(Regex("[\\s:,]+")).first().uppercase()
-                        st.requestScan(sym, text)
-                    } else st.sendFeedback(type, text, stock)
-                    sending = false
-                    res.onSuccess { st.showFeedback = false; st.toast = if (type == "Stock request") "Queued for deep scan" else "Thanks, feedback saved" }
-                        .onFailure { err = "Not sent: ${it.message}" }
-                }
-            }, contentAlignment = Alignment.Center) {
-            T(if (sending) "Sending…" else if (type == "Stock request") "Request deep scan" else "Send feedback", 16.sp, if (ready) Color.White else C.dim, FontWeight.SemiBold)
+        PrimaryButton(if (sending) "Sending…" else if (type == "Stock request") "Request deep scan" else "Send feedback", Modifier.fillMaxWidth(), enabled = ready) {
+            sending = true
+            scope.launch {
+                val res = if (type == "Stock request") {
+                    val sym = text.trim().split(Regex("[\\s:,]+")).first().uppercase()
+                    st.requestScan(sym, text)
+                } else st.sendFeedback(type, text, stock)
+                sending = false
+                res.onSuccess { st.showFeedback = false; st.toast = if (type == "Stock request") "Queued for deep scan" else "Thanks, feedback saved" }
+                    .onFailure { err = "Not sent: ${it.message}" }
+            }
         }
     }
 }

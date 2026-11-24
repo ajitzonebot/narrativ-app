@@ -43,6 +43,16 @@ def test_gates_r2_r4_r6():
     assert [x[:2] for x in FN.buy_gates(mx(80, oi=30), False, L, th, TODAY)] == ["R6"]
 
 
+def test_r4_passes_on_top_third_relative_strength():
+    L = {"out": {"triggers": []}, "val": {"t": 2}, "disc": {"t": 1},
+         "mom": {"items": [{"id": "P2", "pts": [11.5, 15]}]}}  # 77th percentile, read from P2 (older stored levels)
+    assert FN.buy_gates(mx(80), False, L, {}, TODAY) == []
+    weak = {**L, "mom": {"rs_pct": 0.44, "items": []}}  # DSSL-like
+    g = FN.buy_gates(mx(80), False, weak, {}, TODAY)
+    assert len(g) == 1 and g[0].startswith("R4") and "44th percentile" in g[0]
+    assert FN.rs_pct_of({"mom": {"rs_pct": 0.7}}) == 0.7 and FN.rs_pct_of({}) is None
+
+
 def test_apply_buy_rules_holds_for_open_issues_and_failed_gates():
     d = FN.apply_buy_rules({"d": "Buy", "why": []}, mx(80), False, TRIG, {}, TODAY, [{"field": "equity_cr"}])
     assert d["d"] == "Hold" and d["candidate"] == "Buy" and "under correction" in d["why"][0]

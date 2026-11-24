@@ -28,13 +28,19 @@ val STOCK_TABS = listOf("Summary") + LEVEL_SHORT + "Filings"
 @Composable
 fun StockScreen(st: AppState, sym: String, startTab: Int = 0) {
     val p = st.pick(sym)
+    // loading vs missing: placeholders until each load attempt has finished, only then "not in today's data" / "no chart"
+    var detLoaded by remember(sym) { mutableStateOf(false) }
+    var chartLoaded by remember(sym) { mutableStateOf(false) }
     val det by produceState<Detail?>(null, sym) {
-        st.cachedDetail(sym)?.let { value = it }  // instant from the phone copy
-        st.detail(sym)?.let { value = it }        // then today's data
+        try {
+            st.cachedDetail(sym)?.let { value = it }  // instant from the phone copy
+            st.detail(sym)?.let { value = it }        // then today's data
+        } finally { detLoaded = true }
     }
-    val chart by produceState<Chart?>(null, sym) { value = loadChart(st, sym) }
+    val chart by produceState<Chart?>(null, sym) { try { value = loadChart(st, sym) } finally { chartLoaded = true } }
     val code = p?.c ?: sym.substringBeforeLast(".")
-    val name = (p?.n ?: det?.stock?.industry ?: "").removeSuffix(" Limited").removeSuffix(" Ltd.").removeSuffix(" Ltd")
+    // the company name only; never the industry in its place (that is under the price)
+    val name = (p?.n ?: "").removeSuffix(" Limited").removeSuffix(" Ltd.").removeSuffix(" Ltd")
     val pager = rememberPagerState(initialPage = startTab.coerceIn(0, STOCK_TABS.lastIndex)) { STOCK_TABS.size }
     val scope = rememberCoroutineScope()
     val tabs = STOCK_TABS.mapIndexed { i, t ->
@@ -52,16 +58,22 @@ fun StockScreen(st: AppState, sym: String, startTab: Int = 0) {
             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 110.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 when {
+                    p == null && det == null && !detLoaded -> {
+                        Card(Modifier.fillMaxWidth()) {
+                            Skel(160.dp, 18.dp); Spacer(Modifier.height(10.dp)); Skel(null, 12.dp); Spacer(Modifier.height(6.dp)); Skel(220.dp, 12.dp)
+                        }
+                        Card(Modifier.fillMaxWidth()) { Skel(null, 150.dp) }
+                    }
                     p == null && det == null -> {
                         Card(Modifier.fillMaxWidth()) {
                             T("Not in today's data", 15.sp, weight = FontWeight.SemiBold)
                             st.memory?.stocks?.firstOrNull { it.symbol == sym }?.dropReason?.let { T(it, 13.sp, C.dim) }
                         }
                         var research by remember { mutableStateOf(false) }
-                        Card(Modifier.fillMaxWidth(), pad = 14.dp) { LinkRow("Claude's research") { research = true } }
+                        Card(Modifier.fillMaxWidth(), pad = S.cardPad) { LinkRow("Claude's research") { research = true } }
                         if (research) ResearchSheet(st, sym, null) { research = false }
                     }
-                    page == 0 -> SummaryTab(st, sym, p, det, chart) { i -> scope.launch { pager.animateScrollToPage(i) } }
+                    page == 0 -> SummaryTab(st, sym, p, det, chart, detLoaded, chartLoaded) { i -> scope.launch { pager.animateScrollToPage(i) } }
                     page == STOCK_TABS.lastIndex -> FilingsTab(det)
                     else -> LevelTab(st, sym, p, det, chart, page - 1)
                 }
@@ -91,9 +103,9 @@ fun keyRatios(d: Detail): List<Pair<Ratio, String>> {
     val lender = d.stock.kind in setOf("bank", "nbfc", "insurance")
     val vk = d.levels["val"]?.let { lv -> lv.mkey ?: METRIC_KEY_OF[lv.metric] }
     val list = if (lender) listOf(Ratio("P/B", "pb", "x"), Ratio("ROE", "roe_pct", "%"), Ratio("ROA", "roa_pct", "%"), Ratio("Gross NPA", "gnpa_pct_advances", "%"),
-        Ratio("P/E", "pe", "x"), Ratio("Profit growth (4Q)", "pat_ttm_growth_pct", "%"), Ratio("Revenue growth (yearly)", "rev_cagr_3y_pct", "%"), Ratio("Market cap", "mcap_cr", " cr"))
-    else listOfNotNull(vk?.takeIf { it != "pe" }?.let { Ratio(METRIC_NAMES[it] ?: it, it, "x") }, Ratio("P/E", "pe", "x"), Ratio("ROCE (avg of years)", "roce_3y_avg_pct", "%"),
-        Ratio("Revenue growth (yearly)", "rev_cagr_3y_pct", "%"), Ratio("EBITDA margin", "ebitda_margin_pct", "%"), Ratio("Net debt / EBITDA", "net_debt_ebitda", "x"),
+        Ratio("P/E", "pe", "x"), Ratio("Profit growth (4Q)", "pat_ttm_growth_pct", "%"), Ratio(METRIC_NAMES.getValue("rev_cagr_3y_pct"), "rev_cagr_3y_pct", "%"), Ratio("Market cap", "mcap_cr", " cr"))
+    else listOfNotNull(vk?.takeIf { it != "pe" }?.let { Ratio(METRIC_NAMES[it] ?: it, it, "x") }, Ratio("P/E", "pe", "x"), Ratio(METRIC_NAMES.getValue("roce_3y_avg_pct"), "roce_3y_avg_pct", "%"),
+        Ratio(METRIC_NAMES.getValue("rev_cagr_3y_pct"), "rev_cagr_3y_pct", "%"), Ratio("EBITDA margin", "ebitda_margin_pct", "%"), Ratio("Net debt / EBITDA", "net_debt_ebitda", "x"),
         Ratio("Cash conversion", "cfo_to_ebitda_pct", "%"), Ratio("Market cap", "mcap_cr", " cr")).take(8)
     return list.map { r ->
         val m = d.m(r.key)
@@ -101,8 +113,9 @@ fun keyRatios(d: Detail): List<Pair<Ratio, String>> {
             m == null || m.v == null -> "–"
             m.nm -> "n/m"
             r.key == "mcap_cr" -> "₹${fmt(m.v, 0)} cr"
-            r.unit == "%" -> "${fmt(m.v, 1)}%"
-            else -> fmt(m.v, if (kotlin.math.abs(m.v) < 10) 2 else 1)
+            r.unit == "%" -> "${skFx(m.v, 1)}%"
+            r.unit == "x" -> mult(m.v)
+            else -> skFx(m.v, 1)
         }
     }
 }

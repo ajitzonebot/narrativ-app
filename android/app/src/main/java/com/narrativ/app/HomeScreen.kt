@@ -57,26 +57,13 @@ fun HomeScreen(st: AppState) {
     var refreshing by remember { mutableStateOf(false) }
     var showEvidence by remember { mutableStateOf(false) }
     val live = pf.picks.filter { it.out == null }
-    val rot = st.rotation
-    val marketUp = pf.regime.niftyAbove == true
-    fun setup(p: P): Int = listOf(
-        marketUp,
-        rot?.industries?.get(p.i ?: "")?.q in setOf("Leading", "Improving"),
-        p.t.getOrNull(0) in setOf(1, 2) && p.t.getOrNull(1) in setOf(1, 2),
-        p.t.getOrNull(5) in setOf(2, 3),
-        p.t.getOrNull(6) in setOf(1, 2),
-        p.su in setOf("Breakout", "Pullback", "Base"),
-    ).count { it }
-    val buys = live.filter { isBuy(it) }
-    // readiness order from the pipeline (RULES.md Ranking; picks.json top10), verified Buys only, max 2 per industry
-    val bySym = buys.associateBy { it.s }
-    val top10 = pf.top10.mapNotNull { bySym[it] }.filter { it.verified() }.ifEmpty {
-        buys.filter { it.verified() }.sortedWith(compareBy<P> { it.rk ?: Int.MAX_VALUE }.thenByDescending { setup(it) }.thenByDescending { it.pr }).take(10) }
-    val pending = buys.count { !it.verified() }
+    // one Top 10 for Home and the stock page rank (Look.kt topTen): open IPOs first, then verified Buys in the pipeline's order
+    val tt = topTen(st)
+    val ipoTop = tt?.ipos.orEmpty()
+    val stockTop = tt?.stocks.orEmpty()
+    val pending = tt?.pendingReview ?: 0
     val today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kolkata")).toString()
     val ipoOpen = st.ipo?.takeIf { it.date == today }?.actionable.orEmpty()
-    val ipoTop = ipoOpen.filter { it.top10 }
-    val stockTop = top10.take((10 - ipoTop.size).coerceAtLeast(0))
     val rp by produceState<ReplayFile?>(null) { value = runCatching { st.repo.get<ReplayFile>("data/replay.json") }.getOrNull() }
     val cf by produceState<CallsFile?>(null) { value = runCatching { st.repo.get<CallsFile>("data/calls.json") }.getOrNull() }
 
@@ -102,13 +89,16 @@ fun HomeScreen(st: AppState) {
                 Row(Modifier.fillMaxWidth().padding(start = 18.dp, end = 16.dp, bottom = 10.dp), verticalAlignment = Alignment.Bottom) {
                     Column(Modifier.weight(1f)) {
                         T("Today's Top 10", 21.sp, weight = FontWeight.Bold)
-                        T("${top10.size} verified Buy${if (top10.size == 1) "" else "s"} · max 2 per industry" + (if (pending > 0) " · $pending awaiting review" else ""),
-                            13.sp, C.dim, maxLines = 2)
+                        // counts what the card shows: the verified Buys listed plus any IPO rated into the Top 10
+                        val ns = stockTop.size; val ni = ipoTop.size
+                        T("$ns verified Buy${if (ns == 1) "" else "s"}" + (if (ni > 0) " + $ni IPO${if (ni == 1) "" else "s"}" else "") + " · max 2 per industry" +
+                            (if (pending > 0) " · $pending awaiting review" else ""), 13.sp, C.dim, maxLines = 2)
                     }
-                    if (top10.isNotEmpty()) Row(Modifier.clip(RoundedCornerShape(8.dp)).clickable {
-                        st.go(Screen.Screener("syms:Today's Top 10|" + top10.joinToString(",") { it.s }))
+                    // Stocks lists stocks only, so "All N" opens exactly the stocks on the card (IPOs open from their own rows)
+                    if (stockTop.isNotEmpty()) Row(Modifier.clip(RoundedCornerShape(8.dp)).clickable {
+                        st.go(Screen.Screener("syms:Today's Top 10|" + stockTop.joinToString(",") { it.s }))
                     }.padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        T("All ${top10.size}", 13.sp, C.blue); Icon(Icons.Rounded.ChevronRight, null, tint = C.blue, modifier = Modifier.size(16.dp))
+                        T("All ${stockTop.size}", 13.sp, C.blue); Icon(Icons.Rounded.ChevronRight, null, tint = C.blue, modifier = Modifier.size(16.dp))
                     }
                 }
             }
@@ -123,11 +113,12 @@ fun HomeScreen(st: AppState) {
             if (ipoOpen.isNotEmpty()) item { IpoRow(st, ipoOpen) }
             item {
                 // Explore: counts open Stocks with the matching preset
-                val good = live.filter { p -> p.dc != "Sell" && p.dc != "Strong Sell" && (st.research[p.s]?.outlookScore ?: 0) >= 55 && st.research[p.s]?.audit?.verdict != "fail" }
-                    .sortedWith(compareByDescending<P> { st.research[it.s]?.outlookScore ?: 0 }.thenByDescending { it.pr })
+                // feedback #81: same Outlook tier the stock's Outlook tab shows (p.t[6]: 1 Very strong, 2 Strong)
+                val good = live.filter { p -> p.dc != "Sell" && p.dc != "Strong Sell" && p.tier(6) in 1..2 }
+                    .sortedWith(compareBy<P> { it.tier(6) }.thenByDescending { it.pr })
                 val bq = live.count { it.bq != null }
                 val vc = live.groupingBy { it.vd }.eachCount()
-                val chips = listOf(Triple("Good outlook", good.size, "syms:Good outlook|" + good.joinToString(",") { it.s }), Triple("Beaten-up quality", bq, "bq")) +
+                val chips = listOf(Triple("Strong outlook", good.size, "syms:Strong outlook|" + good.joinToString(",") { it.s }), Triple("Beaten-up quality", bq, "bq")) +
                     listOf("Prime candidate", "Early story", "Undervalued quality", "Momentum play", "Value watch", "Quality, priced in").map { Triple(it, vc[it] ?: 0, "v:$it") }
                 Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
                     T("Explore", 21.sp, weight = FontWeight.Bold, modifier = Modifier.padding(start = 2.dp, top = 18.dp, bottom = 10.dp))
@@ -172,9 +163,9 @@ fun Top10Card(st: AppState, list: List<P>, ipos: List<IpoOpen> = emptyList()) {
                 T("${k + 1}", 14.sp, C.dim, modifier = Modifier.width(26.dp))
                 Column(Modifier.weight(1f)) {
                     T(i.symbol ?: i.name, 16.sp, weight = FontWeight.Bold, maxLines = 1)
-                    T("IPO · ${i.board} · closes ${shortDate(i.lastDate)}", 13.sp, C.dim, maxLines = 1)
+                    T("IPO · ${i.board} · closes ${ipoCloses(i.lastDate).first}", 13.sp, C.dim, maxLines = 1)
                 }
-                StatusChip(sentence(i.action), color = if (i.action == "APPLY") TierC.lightGreen else C.blue)
+                StatusChip(sentence(i.action), color = ipoActColor(i.action))
             }
             if (k < n - 1) HLineDivider(Modifier.padding(horizontal = S.cardPad))
         }
@@ -189,7 +180,7 @@ fun Top10Card(st: AppState, list: List<P>, ipos: List<IpoOpen> = emptyList()) {
                         ConvictionMeter(p.cv)
                     }
                     Text(androidx.compose.ui.text.buildAnnotatedString {
-                        pushStyle(androidx.compose.ui.text.SpanStyle(color = C.white)); append(setupLabel(p.su)); pop(); append(" · " + (p.i ?: "–"))
+                        pushStyle(androidx.compose.ui.text.SpanStyle(color = C.white)); append(setupName(p.su, p.tb == 1)); pop(); append(" · " + (p.i ?: "–"))
                     }, fontSize = 13.sp, color = C.dim, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                 }
                 Sparkline(p.sp, Modifier.padding(horizontal = 8.dp).size(52.dp, 26.dp))
@@ -211,7 +202,7 @@ private fun TrackBars(cur: ReplayVar, any: ReplayVar?, onClick: () -> Unit) {
             Column(Modifier.weight(1f)) {
                 T("Beat the Nifty over 6 months · past Top 10s", 12.sp, C.dim, maxLines = 1, modifier = Modifier.padding(bottom = 6.dp))
                 TrackBar("Top 10", cur.m6.winPct, C.teal, C.white)
-                any?.m6?.winPct?.let { TrackBar("Any stock", it, Color(0xFF5B6068), C.dim) }
+                any?.m6?.winPct?.let { TrackBar("Any stock", it, TierC.grey, C.dim) }
             }
             Icon(Icons.Rounded.ChevronRight, "How we know", tint = C.dim, modifier = Modifier.padding(start = 6.dp).size(18.dp))
         }
@@ -256,7 +247,7 @@ private fun IpoRow(st: AppState, open: List<IpoOpen>) {
                             12.sp, if (i.finalDay) TierC.lightRed else C.dim, maxLines = 1)
                     }
                     if (!i.upcoming && i.action.isNotEmpty()) StatusChip(sentence(i.action), color = when (i.action) {
-                        "APPLY" -> TierC.lightGreen; "WAIT" -> C.blue; "AVOID" -> TierC.lightRed; else -> C.dim })
+                        "APPLY" -> TierC.lightGreen; "WAIT" -> C.grey; "AVOID" -> TierC.lightRed; else -> C.dim })
                 }
             }
             T("GMP is unofficial grey-market data, not a guaranteed return.", 11.sp, C.dim, modifier = Modifier.padding(top = 4.dp))
@@ -269,11 +260,12 @@ private fun monYear(iso: String?): String = runCatching {
 }.getOrDefault("–")
 
 /** How we know (mockup h02): replay of the rules (Top 10 vs any stock), live Buys, what helps, limits. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun HowWeKnowSheet(st: AppState, rp: ReplayFile, cf: CallsFile?, onDismiss: () -> Unit) {
     val cur = rp.variants["current rules"] ?: return
     val any = rp.baselines["every stock scored"]
-    val grey = Color(0xFF5B6068)
+    val grey = TierC.grey
     val hs = listOf(cur.m3, cur.m6, cur.m12); val ha = listOf(any?.m3, any?.m6, any?.m12)
     val names = listOf("3 months", "6 months", "12 months")
     BottomSheet(onDismiss, "How we know") {
@@ -294,14 +286,16 @@ fun HowWeKnowSheet(st: AppState, rp: ReplayFile, cf: CallsFile?, onDismiss: () -
                 T("Live Buys", 15.sp, weight = FontWeight.SemiBold)
                 Text(androidx.compose.ui.text.buildAnnotatedString {
                     append("  " + listOfNotNull(since?.let { "since ${shortDate(it)}" }, "${now.n} Buys").joinToString(" · "))
-                    now.avgVsNifty?.let { v -> append(" · avg "); pushStyle(androidx.compose.ui.text.SpanStyle(color = gainColor(v))); append(sg1(v, " pts")); pop(); append(" vs Nifty") }
+                    now.avgVsNifty?.let { v -> append(" · avg "); pushStyle(androidx.compose.ui.text.SpanStyle(color = gainColor(v))); append(vsNifty(v)); pop(); append(" vs Nifty") }
                 }, fontSize = 12.sp, color = C.dim, maxLines = 2)
             }
             val m = now.mix
-            SegmentedBar(listOf(Segment(m.multibagger.toDouble(), TierC.darkGreen), Segment(m.onTrack.toDouble(), TierC.lightGreen),
-                Segment(m.beat.toDouble(), Color(0xFF5FD0C5)), Segment(m.near.toDouble(), TierC.yellow), Segment(m.loser.toDouble(), TierC.lightRed)), legend = SegLegend.None)
-            Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                listOf(Triple("Beat", m.beat, Color(0xFF5FD0C5)), Triple("Near", m.near, TierC.yellow), Triple("Behind", m.loser, TierC.lightRed)).forEach { (k, v, c) ->
+            // same four outcomes as Track record (on track counts with Multibagger), every segment named in the legend
+            val mix = listOf(Triple("Multibagger", m.multibagger + m.onTrack, TierC.darkGreen), Triple("Beat Nifty", m.beat, TierC.lightGreen),
+                Triple("Near Nifty", m.near, C.grey), Triple("Behind Nifty", m.loser, TierC.lightRed))
+            SegmentedBar(mix.map { (_, v, c) -> Segment(v.toDouble(), c) }, legend = SegLegend.None)
+            FlowRow(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                mix.forEach { (k, v, c) ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(Modifier.size(8.dp).clip(RoundedCornerShape(2.dp)).background(c)); T(" $k ", 12.sp, C.dim); T("$v", 12.sp, weight = FontWeight.Bold)
                     }
@@ -348,106 +342,6 @@ fun shortDate(iso: String?): String = runCatching {
     "${d.dayOfMonth} " + d.month.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.ENGLISH)
 }.getOrDefault(iso ?: "")
 
-/** Minimal wave from Listed down to Outlook, app gradient, hollow dots, small arrows showing direction. */
-@Composable
-fun WaveFunnel(f: FunnelV2, modifier: Modifier) {
-    val tm = rememberTextMeasurer()
-    val lv = f.levels
-    fun n(i: Int) = lv.getOrNull(i)?.let { fmt(it.toDouble(), 0) } ?: "–"
-    val nodes = listOf(fmt(f.listed?.toDouble(), 0) to "Listed", fmt(f.companies?.toDouble(), 0) to "Companies", n(0) to "Stability",
-        n(1) to "Quality", n(2) to "Value", n(3) to "Mgmt", n(4) to "Momentum", n(5) to "Discovery", n(6) to "Outlook")
-    Canvas(modifier) {
-        val top = size.height * 0.36f
-        val bot = size.height * 0.64f
-        val pad = 22.dp.toPx()
-        val step = (size.width - 2 * pad) / (nodes.size - 1)
-        val pts = nodes.indices.map { i -> Offset(pad + i * step, if (i % 2 == 0) top else bot) }
-        val path = Path().apply {
-            moveTo(pts[0].x, pts[0].y)
-            for (i in 1 until pts.size) {
-                val a = pts[i - 1]; val b = pts[i]
-                val mx = (a.x + b.x) / 2
-                cubicTo(mx, a.y, mx, b.y, b.x, b.y)
-            }
-        }
-        val grad = Brush.horizontalGradient(listOf(C.blue, C.teal))
-        drawPath(path, grad, alpha = 0.18f, style = Stroke(10.dp.toPx(), cap = StrokeCap.Round))
-        drawPath(path, grad, style = Stroke(2.5.dp.toPx(), cap = StrokeCap.Round))
-        val pm = PathMeasure().apply { setPath(path, false) }
-        val len = pm.length
-        for (i in 0 until pts.size - 1) {
-            val d = len * (i + 0.5f) / (pts.size - 1)
-            val p = pm.getPosition(d)
-            val tan = pm.getTangent(d)
-            val ang = kotlin.math.atan2(tan.y, tan.x)
-            val s = 5.dp.toPx()
-            fun rot(dx: Float, dy: Float) = Offset(p.x + dx * kotlin.math.cos(ang) - dy * kotlin.math.sin(ang), p.y + dx * kotlin.math.sin(ang) + dy * kotlin.math.cos(ang))
-            val tri = Path().apply { val a = rot(s, 0f); val b = rot(-s, -s * 0.8f); val c = rot(-s, s * 0.8f); moveTo(a.x, a.y); lineTo(b.x, b.y); lineTo(c.x, c.y); close() }
-            drawPath(tri, C.teal)
-        }
-        pts.forEachIndexed { i, o ->
-            drawCircle(Color.Black, 6.dp.toPx(), o)
-            drawCircle(if (i % 2 == 0) C.blue else C.teal, 6.dp.toPx(), o, style = Stroke(2.dp.toPx()))
-            val (num, label) = nodes[i]
-            val a = tm.measure(num, TextStyle(color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold))
-            val b = tm.measure(label, TextStyle(color = C.grey, fontSize = 10.sp))
-            val cx = o.x
-            if (i % 2 == 0) {
-                val y0 = o.y - 14.dp.toPx() - a.size.height - b.size.height
-                drawText(b, topLeft = Offset((cx - b.size.width / 2).coerceIn(0f, size.width - b.size.width), y0))
-                drawText(a, topLeft = Offset((cx - a.size.width / 2).coerceIn(0f, size.width - a.size.width), y0 + b.size.height))
-            } else {
-                val y0 = o.y + 12.dp.toPx()
-                drawText(a, topLeft = Offset((cx - a.size.width / 2).coerceIn(0f, size.width - a.size.width), y0))
-                drawText(b, topLeft = Offset((cx - b.size.width / 2).coerceIn(0f, size.width - b.size.width), y0 + a.size.height))
-            }
-        }
-    }
-}
-
-@Composable
-fun VerdictSection(st: AppState, vm: VerdictMeta, list: List<P>) {
-    Row(Modifier.fillMaxWidth().clickable { st.go(Screen.Screener("v:" + vm.name)) }.padding(start = 16.dp, end = 16.dp, top = 22.dp, bottom = 10.dp),
-        verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.width(4.dp).height(40.dp).clip(RoundedCornerShape(2.dp)).background(vm.color))
-        Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                T(vm.name, 18.sp, weight = FontWeight.SemiBold); Spacer(Modifier.width(6.dp)); T("${list.size}", 18.sp, vm.color, FontWeight.SemiBold)
-            }
-            T(vm.rule, 12.sp, C.grey, maxLines = 2)
-        }
-        Icon(Icons.Rounded.ChevronRight, null, tint = C.grey)
-    }
-    if (list.isEmpty()) Empty(if (vm.name == "Prime candidate" || vm.name == "Early story") "None today. These need Claude's outlook research (25 stocks a day)." else "None today.")
-    else LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        items(list.take(10), key = { it.s }) { p -> StockCard(st, p) }
-    }
-}
-
-@Composable
-fun StockCard(st: AppState, p: P, label: String? = null) {
-    Card(Modifier.width(176.dp).height(178.dp), radius = 18.dp, pad = 12.dp, onClick = { st.go(Screen.Stock(p.s)) }) {  // equal size (feedback #47), sized to content
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            T(p.c, 15.sp, weight = FontWeight.SemiBold, modifier = Modifier.weight(1f), maxLines = 1)
-            T("₹${fmt(p.p, 0)}", 13.sp, C.grey)
-        }
-        T(p.n, 12.sp, C.grey, maxLines = 1)
-        Row(Modifier.height(22.dp), verticalAlignment = Alignment.CenterVertically) {
-            T("Score ${fmt(p.pr, 0)}", 11.sp, C.grey, FontWeight.SemiBold)  // accent is for taps only (#11)
-            p.dc?.takeIf { it != "Not rated" }?.let { Spacer(Modifier.width(6.dp)); DecisionChip(it, 10.sp) }
-            if (p.dc != null && p.dc != "Not rated") ReviewMark(st, p.s)
-            if (p.mb) androidx.compose.material3.Icon(Icons.Rounded.RocketLaunch, "Multibagger potential", tint = TierC.yellow, modifier = Modifier.padding(start = 4.dp).size(14.dp))
-        }
-        Spacer(Modifier.height(4.dp))
-        Box(Modifier.fillMaxWidth().height(30.dp)) { Sparkline(p.sp, Modifier.fillMaxSize()) }
-        Spacer(Modifier.height(8.dp))
-        LevelBars(p)
-        Spacer(Modifier.height(8.dp))
-        T(label ?: p.why ?: p.bt ?: "", 11.sp, C.dim, maxLines = 2, lineHeight = 14.sp)
-    }
-}
-
 /** Seven short bars, one per level, in tier colours. */
 @Composable
 fun LevelBars(p: P) {
@@ -467,7 +361,7 @@ fun SectionHeader(title: String, sub: String, right: String? = null, onClick: ((
 
 @Composable
 fun Empty(text: String) {
-    Box(Modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(C.card2).padding(16.dp)) { T(text, 13.sp, C.grey) }
+    Box(Modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(RoundedCornerShape(S.card)).background(C.card2).padding(16.dp)) { T(text, 13.sp, C.grey) }
 }
 
 @Composable
@@ -475,11 +369,9 @@ fun Col(k: String, v: String, color: Color = C.white) = Column { T(k, 12.sp, C.g
 
 @Composable
 fun QuadPill(q: String) {
-    val c = quadColor(q)
-    Pill(q.uppercase(), c, c.copy(alpha = 0.15f))
+    val c = quadC(q)
+    Pill(q, c, c.copy(alpha = 0.15f))
 }
-
-fun quadColor(q: String) = when (q) { "Leading" -> C.teal; "Improving" -> C.blue; "Weakening" -> C.amber; else -> C.red }
 
 /** Dots and labels only; quadrants labelled. Labels avoid each other by trying four positions. */
 @Composable
@@ -501,16 +393,16 @@ fun RotationMap(pts: Map<String, Rot>, modifier: Modifier, labels: Boolean = tru
         fun X(v: Double) = (pad + (v - (100 - xr)) / (2 * xr) * (size.width - 2 * pad)).toFloat()
         fun Y(v: Double) = (size.height - pad - (v - (100 - yr)) / (2 * yr) * (size.height - 2 * pad)).toFloat()
         val cx = X(100.0); val cy = Y(100.0)
-        drawRect(C.teal.copy(alpha = 0.06f), Offset(cx, 0f), Size(size.width - cx, cy))
-        drawRect(C.blue.copy(alpha = 0.05f), Offset(0f, 0f), Size(cx, cy))
-        drawRect(C.amber.copy(alpha = 0.04f), Offset(cx, cy), Size(size.width - cx, size.height - cy))
-        drawRect(C.red.copy(alpha = 0.04f), Offset(0f, cy), Size(cx, size.height - cy))
+        drawRect(quadC("Leading").copy(alpha = 0.06f), Offset(cx, 0f), Size(size.width - cx, cy))
+        drawRect(quadC("Improving").copy(alpha = 0.05f), Offset(0f, 0f), Size(cx, cy))
+        drawRect(quadC("Weakening").copy(alpha = 0.04f), Offset(cx, cy), Size(size.width - cx, size.height - cy))
+        drawRect(quadC("Lagging").copy(alpha = 0.04f), Offset(0f, cy), Size(cx, size.height - cy))
         drawLine(C.line, Offset(cx, 0f), Offset(cx, size.height), 1.5f)
         drawLine(C.line, Offset(0f, cy), Offset(size.width, cy), 1.5f)
         val qStyle = { c: Color -> TextStyle(color = c, fontSize = 10.sp, fontWeight = FontWeight.Bold) }
         val sub = { c: Color -> TextStyle(color = c.copy(alpha = 0.7f), fontSize = 9.sp) }
-        listOf(Triple("IMPROVING", "money starting to flow in", C.blue) to (false to false), Triple("LEADING", "money flowing in", C.teal) to (true to false),
-            Triple("LAGGING", "money flowing out", C.red) to (false to true), Triple("WEAKENING", "book profits · tighten stops", C.amber) to (true to true)).forEach { (t, pos) ->
+        listOf(Triple("Improving", "money starting to flow in", quadC("Improving")) to (false to false), Triple("Leading", "money flowing in", quadC("Leading")) to (true to false),
+            Triple("Lagging", "money flowing out", quadC("Lagging")) to (false to true), Triple("Weakening", "book profits · tighten stops", quadC("Weakening")) to (true to true)).forEach { (t, pos) ->
             val a = tm.measure(t.first, qStyle(t.third)); val b = tm.measure(if (labels) t.second else " ", sub(t.third))
             val right = pos.first; val bottom = pos.second
             val x1 = if (right) size.width - a.size.width - 6f else 6f
@@ -520,7 +412,7 @@ fun RotationMap(pts: Map<String, Rot>, modifier: Modifier, labels: Boolean = tru
         }
         val placed = mutableListOf<Rect>()
         pts.entries.sortedBy { it.value.mom }.forEach { (name, r) ->
-            val px = X(r.ratio); val py = Y(r.mom); val c = quadColor(r.q)
+            val px = X(r.ratio); val py = Y(r.mom); val c = quadC(r.q)
             drawCircle(c, 9f, Offset(px, py))
             if (!labels) return@forEach
             val label = tm.measure("$name ${r.r1m?.let { pctStr(it).replace(".0%", "%") } ?: ""}", TextStyle(color = Color.White, fontSize = 10.sp))
@@ -561,45 +453,6 @@ suspend fun loadChart(st: AppState, sym: String): Chart? {
 }
 
 
-@Composable
-fun OpenIposSection(st: AppState) {
-    val x = st.ipo ?: return
-    val today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kolkata")).toString()
-    val open = if (x.date == today) x.actionable else emptyList()
-    val soon = x.laterToday.filter { x.date == today }.map { IpoOpen(name = it.name, board = it.board, lastDate = it.lastDate ?: "", upcoming = true, why = "Opens today ${it.opens ?: ""}".trim()) } +
-        x.upcoming.filter { (it.lastDate ?: "") >= today }.map { IpoOpen(name = it.name, board = it.board, priceLow = it.priceLow, priceHigh = it.priceHigh, openDate = it.openDate ?: "",
-            lastDate = it.lastDate ?: "", upcoming = true, why = "Opens ${shortDate(it.openDate)}" + (it.gmp?.let { g -> " · GMP $g" } ?: ""), sources = listOfNotNull(it.source),
-            gmpNote = it.note, gmpObserved = it.gmpObserved) }
-    SectionHeader("Open IPOs", x.checkedAt?.let { istTime(it) } ?: "")
-    if (open.isEmpty()) Empty(if (x.date == today) "No IPO open today" else "Last check ${shortDate(x.date)}")
-    if (open.isNotEmpty() || soon.isNotEmpty()) LazyRow(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        items(open, key = { "io-" + it.name }) { IpoCard(st, it) }
-        items(soon, key = { "iu-" + it.name }) { IpoCard(st, it) }
-    }
-}
-
-/** Same size and layout as StockCard: name + price, sub-line, chips, subscription where the chart sits, overall bar, teal line. */
-@Composable
-fun IpoCard(st: AppState, i: IpoOpen) {
-    val dim = if (i.upcoming) 0.55f else 1f
-    Card(Modifier.width(160.dp).height(168.dp).alpha(dim), radius = 18.dp, pad = 12.dp, onClick = { st.go(Screen.Ipo(i.name)) }) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            T(i.symbol ?: i.name, 15.sp, weight = FontWeight.SemiBold, modifier = Modifier.weight(1f), maxLines = 1)
-            T(if (i.priceHigh != null) "₹${fmt(i.priceHigh, 0)}" else "₹–", 13.sp, C.grey)
-        }
-        T(i.board, 12.sp, C.grey, maxLines = 1)
-        Box(Modifier.height(30.dp), contentAlignment = Alignment.CenterStart) {
-            if (i.upcoming) T("Opens ${shortDate(i.openDate)}", 12.sp, C.dim)
-            else if (i.action.isNotEmpty()) TierChip(i.action, ipoActColor(i.action), 11.sp)
-        }
-        val gp = i.gmpPct ?: i.gmpPctHigh
-        T("GMP " + (gp?.let { "${fmt(it, 1)}%" } ?: "–"), 13.sp, weight = FontWeight.SemiBold)
-        if (i.rules.isNotEmpty()) RuleDots(i.rules, Modifier.padding(top = 8.dp))
-        Spacer(Modifier.weight(1f))
-        if (!i.upcoming) ipoCloses(i.lastDate).let { (txt, col) -> T(txt, 12.sp, col, maxLines = 1) }
-    }
-}
-
 /** One dot per rule: green passes, red fails, grey not known yet. */
 @Composable
 fun RuleDots(rules: List<IpoRule>, modifier: Modifier = Modifier, size: Dp = 8.dp) {
@@ -619,72 +472,12 @@ fun ipoCloses(last: String): Pair<String, Color> {
     }
 }
 
-fun ipoActColor(a: String) = when (a) { "APPLY" -> TierC.darkGreen; "WAIT" -> C.blue; else -> C.red }
+/** IPO call colour: Apply green, Wait grey (not tappable, so never blue), Avoid red. */
+fun ipoActColor(a: String) = when (a) { "APPLY" -> TierC.lightGreen; "WAIT" -> C.grey; "AVOID" -> TierC.lightRed; else -> C.dim }
 
-
-/** Top 10 as one ranked list (design clean-up #7, #1, #17): rank, code, industry and setup in words, price line, price and today's move. */
-@Composable
-fun Top10List(st: AppState, list: List<P>) {
-    val live = rememberLiveQuotes(st, list.map { it.s.substringBeforeLast(".") })
-    Column(Modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(RoundedCornerShape(S.card)).background(C.card).padding(vertical = 4.dp)) {
-        if (live.isNotEmpty()) T("Delayed quotes, ${quoteTime(live) ?: ""} (unofficial source)", 11.sp, C.dim,
-            modifier = Modifier.padding(horizontal = S.cardPad, vertical = 4.dp))
-        list.forEachIndexed { i, p ->
-            Row(Modifier.fillMaxWidth().clickable { st.go(Screen.Stock(p.s)) }.padding(horizontal = S.cardPad, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically) {
-                T("${i + 1}", 14.sp, C.dim, modifier = Modifier.width(22.dp))
-                Column(Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        T(p.c, 16.sp, weight = FontWeight.SemiBold, maxLines = 1)
-                        if (p.mb) Icon(Icons.Rounded.RocketLaunch, "Multibagger potential", tint = TierC.yellow, modifier = Modifier.padding(start = 4.dp).size(14.dp))
-                    }
-                    T(listOfNotNull(p.i, setupWords(p.su)).joinToString(" · "), 12.sp, C.dim, maxLines = 1)
-                }
-                Box(Modifier.width(64.dp).height(24.dp)) { Sparkline(p.sp, Modifier.fillMaxSize()) }
-                Column(Modifier.width(84.dp), horizontalAlignment = Alignment.End) {
-                    val q = live[p.s.substringBeforeLast(".")]
-                    T("₹${fmt(q?.p ?: p.p, 2)}", 15.sp, maxLines = 1)
-                    (q?.d1 ?: p.d1)?.let { T((if (it >= 0) "+" else "") + fmt(it, 2) + "%", 12.sp, if (it >= 0) TierC.lightGreen else C.red, maxLines = 1) }
-                }
-            }
-        }
-    }
-}
 
 fun setupWords(su: String?): String? = when (su) {
     "Breakout" -> "breaking out"; "Pullback" -> "dip in an uptrend"; "Base" -> "base, near entry"; null, "", "No setup" -> "wait for entry"; else -> su.lowercase()
-}
-
-/** Refresh feedback (#20): a short "Updated" line that fades after a few seconds; "Updating…" while loading. */
-@Composable
-fun UpdatedLine(st: AppState) {
-    var show by remember { mutableStateOf(false) }
-    LaunchedEffect(st.updatedAt, st.offline) { if (st.updatedAt != null || st.offline) { show = true; kotlinx.coroutines.delay(4000); show = false } }
-    val a by androidx.compose.animation.core.animateFloatAsState(if (show || st.loading) 1f else 0f, label = "upd")
-    Row(Modifier.fillMaxWidth().padding(top = 8.dp).alpha(a), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-        if (st.loading) T("Updating…", 12.sp, C.dim)
-        else if (st.offline) { Icon(Icons.Rounded.CloudOff, null, tint = C.amber, modifier = Modifier.size(14.dp)); T(" Offline · data of ${shortDate(st.picks?.date)}", 12.sp, C.amber) }
-        else { Icon(Icons.Rounded.Check, null, tint = TierC.lightGreen, modifier = Modifier.size(14.dp)); T(" Updated ${st.updatedAt ?: ""}", 12.sp, TierC.lightGreen) }
-    }
-}
-
-/** Today's funnel as one line of counts (#13: the decorative wave is gone, the numbers stay). */
-@Composable
-fun FunnelLine(f: FunnelV2) {
-    val lv = f.levels
-    val steps = listOfNotNull(f.listed?.let { "Listed" to it }, f.companies?.let { "Companies" to it }, lv.getOrNull(1)?.let { "Quality" to it },
-        lv.getOrNull(2)?.let { "Value" to it }, lv.getOrNull(6)?.let { "Outlook" to it })
-    Column(Modifier.fillMaxWidth()) {
-        T("Today's funnel", 16.sp, weight = FontWeight.SemiBold, modifier = Modifier.padding(start = 16.dp, top = 18.dp, bottom = 8.dp))
-        Box(Modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(RoundedCornerShape(S.card)).background(C.card).padding(S.cardPad)) {
-            Text(androidx.compose.ui.text.buildAnnotatedString {
-                steps.forEachIndexed { i, (k, v) ->
-                    if (i > 0) append("  →  ")
-                    append("$k "); pushStyle(androidx.compose.ui.text.SpanStyle(color = C.white, fontWeight = FontWeight.SemiBold)); append(fmt(v.toDouble(), 0)); pop()
-                }
-            }, fontSize = 13.sp, color = C.dim, lineHeight = 22.sp)
-        }
-    }
 }
 
 /** Loading placeholders in the shape of the content (#19). */

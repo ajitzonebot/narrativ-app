@@ -44,7 +44,7 @@ import androidx.compose.ui.unit.sp
 
 // ---------------------------------------------------------------- status, severity
 val STATUS_COLORS = mapOf("Pass" to TierC.lightGreen, "Partly" to TierC.yellow, "Miss" to TierC.lightRed, "n/a" to C.dim,
-    "Pending" to C.blue, "Met" to TierC.lightGreen, "Verified" to TierC.lightGreen)
+    "Pending" to C.grey, "Met" to TierC.lightGreen, "Verified" to TierC.lightGreen)
 /** Check mark (Item.m: 2 full, 1 partial, 0 miss, null not scored) as a status word. */
 fun statusOf(m: Int?): String = when (m) { 2 -> "Pass"; 1 -> "Partly"; 0 -> "Miss"; else -> "n/a" }
 fun statusColor(s: String): Color = STATUS_COLORS[s] ?: C.dim
@@ -54,7 +54,7 @@ fun sevColor(sev: String?): Color = when (sev) { "red" -> TierC.red; "watch" -> 
 /** Status word in a tinted pill (Pass / Partly / Miss / n/a, or any word with a colour). */
 @Composable
 fun StatusChip(status: String, modifier: Modifier = Modifier, color: Color = statusColor(status), minWidth: Dp = 52.dp) {
-    Box(modifier.defaultMinSize(minWidth = minWidth).clip(RoundedCornerShape(8.dp)).background(color.copy(alpha = 0.13f))
+    Box(modifier.defaultMinSize(minWidth = minWidth).clip(RoundedCornerShape(S.inner)).background(color.copy(alpha = 0.13f))
         .padding(horizontal = 8.dp, vertical = 3.dp), contentAlignment = Alignment.Center) {
         T(status, 11.sp, color, FontWeight.Bold, maxLines = 1)
     }
@@ -74,7 +74,7 @@ fun VerifiedTick(verified: Boolean, modifier: Modifier = Modifier, size: Dp = 15
 /** Small chip with a colour dot (legends, rotation, quadrant tags). */
 @Composable
 fun DotChip(text: String, color: Color, modifier: Modifier = Modifier, textColor: Color = C.muted) {
-    Row(modifier.clip(RoundedCornerShape(9.dp)).background(Color.White.copy(alpha = 0.063f)).padding(horizontal = 8.dp, vertical = 3.dp),
+    Row(modifier.clip(RoundedCornerShape(S.inner)).background(Color.White.copy(alpha = 0.063f)).padding(horizontal = 8.dp, vertical = 3.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
         Box(Modifier.size(7.dp).clip(CircleShape).background(color))
         T(text, 11.sp, textColor, maxLines = 1)
@@ -101,7 +101,9 @@ fun LevelHead(level: String, tierName: String, tier: Int, score: Int?, line: Str
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
             Column(Modifier.weight(1f)) {
                 T(level, 12.sp, C.dim, maxLines = 1)
-                T(tierName, 26.sp, tierColor(tier), FontWeight.Bold, maxLines = 1)
+                // long names ("Turnaround watch", "Not enough data") shrink and may wrap instead of truncating on 360 dp phones
+                val long = tierName.length > 12
+                T(tierName, if (long) 22.sp else 26.sp, tierColor(tier), FontWeight.Bold, maxLines = 2, lineHeight = if (long) 26.sp else 30.sp)
             }
             Row {
                 if (score != null) {
@@ -116,7 +118,7 @@ fun LevelHead(level: String, tierName: String, tier: Int, score: Int?, line: Str
 }
 
 /**
- * One key check: status chip, name, figure (bold, right) and under it an optional [bullet] (e.g. BulletBar) with the
+ * One key check: status chip, name, figure (bold, right) and under it an optional [bullet] with the
  * small pass-line text ("full ≥ 15%").
  */
 @Composable
@@ -206,13 +208,13 @@ fun StatTile(label: String, value: String, modifier: Modifier = Modifier, valueC
     }
 }
 
-/** Section inside a bottom sheet (darker tile) with an uppercase header and optional right text. */
+/** Section inside a bottom sheet (darker tile) with a sentence-case header (13 sp semibold) and optional right text. */
 @Composable
 fun SheetSection(title: String? = null, right: String? = null, modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
     Column(modifier.fillMaxWidth().padding(bottom = 10.dp).clip(RoundedCornerShape(16.dp)).background(C.sheet).padding(12.dp)) {
         if (title != null) Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            T(title.uppercase(), 11.sp, C.dim, FontWeight.Bold, Modifier.weight(1f), maxLines = 1)
-            right?.let { T(it, 11.sp, C.dim, maxLines = 1) }
+            T(title, 13.sp, C.muted, FontWeight.SemiBold, Modifier.weight(1f), maxLines = 1)
+            right?.let { T(it, LABEL, C.dim, maxLines = 1) }
         }
         content()
     }
@@ -371,7 +373,7 @@ private fun UiPreview() = NarrativTheme {
         TabStrip(listOf(TabSpec("Summary"), TabSpec("Stability", TierC.darkGreen), TabSpec("Quality", TierC.darkGreen)), 2, {})
         LevelHead("Business quality", "Good", 2, 76, "ROCE 20.4% (last 4Q 19.1%); 6 of 7 checks pass.")
         SectionCard("Key checks", more = "All 7 checks with formulas") {
-            CheckRow("Partly", "Cash conversion", "68%", "full ≥ 70%", bullet = { BulletBar(68.0, 0.0, 100.0, 70.0, TierC.yellow, partly = 50.0) })
+            BarCheckRow(KeyCheck("Partly", "Cash conversion", "68%", "pass ≥ 70%"), Bullet(68.0, 0.0, 100.0, 70.0, unit = "%"))
             CheckRow("Pass", "ROCE", "20.4%", "full ≥ 15%", divider = false)
             KvRow("Upside vs risk", "3.6×", divider = false)
         }

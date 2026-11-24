@@ -64,6 +64,12 @@ object IpoAlerts {
         LocalTime.parse(i.closeTime!!.trim().uppercase(), java.time.format.DateTimeFormatter.ofPattern("h:mm a", java.util.Locale.ENGLISH))
     }.getOrDefault(LocalTime.of(17, 0))
 
+    /** "5 PM", or "4:30 PM" when not on the hour: the one way the app writes an IPO close time. */
+    private fun hm12(t: LocalTime): String {
+        val h = if (t.hour % 12 == 0) 12 else t.hour % 12
+        return (if (t.minute == 0) "$h" else "$h:%02d".format(t.minute)) + if (t.hour < 12) " AM" else " PM"
+    }
+
     /** Alerts due for [slot] from today's report at time [now] (pure, so it is easy to check). Nothing once bidding has closed. */
     fun due(x: IpoToday, slot: String, today: String, now: LocalTime = LocalTime.now(IST)): List<Pair<String, String>> {
         if (x.date != today) return emptyList()
@@ -73,13 +79,13 @@ object IpoAlerts {
             if (last && !now.isBefore(close)) return@mapNotNull null  // a late job must not alert after bids closed
             val gmp = (i.gmpPct ?: i.gmpPctHigh)?.let { "GMP ${fmt(it, 1)}%" } ?: "GMP –"
             val sub = i.subscription?.overall?.let { "${fmt(it, 1)}×" } ?: "–"
-            val closes = if (last) "closes ${close.toString().take(5)} today" else "closes ${shortDate(i.lastDate)}"
+            val closes = if (last) "Closes today, ${hm12(close)}" else "Closes ${shortDate(i.lastDate)}"
             val pm = i.pmUpdate
             when {
-                slot == "pm" && pm?.callBefore != null && pm.callBefore != pm.callAfter -> "${i.name} · now ${pm.callAfter}" to "$gmp · $sub · $closes"
+                slot == "pm" && pm?.callBefore != null && pm.callBefore != pm.callAfter -> "${i.name} · now ${sentence(pm.callAfter ?: "")}" to "$gmp · $sub · $closes"
                 i.action != "APPLY" -> null
                 slot == "am" -> "Apply: ${i.name}" to "$gmp · $sub · $closes"
-                last -> "Apply before ${close.toString().take(5)}: ${i.name}" to "$gmp · $sub"
+                last -> "Apply before ${hm12(close)}: ${i.name}" to "$gmp · $sub"
                 else -> null
             }
         }

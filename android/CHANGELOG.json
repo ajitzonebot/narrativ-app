@@ -1,5 +1,87 @@
 [
  {
+  "version": "2.24.0",
+  "date": "2026-11-24",
+  "changes": [
+   {
+    "type": "changed",
+    "text": "Key checks: a filled bar in the result colour with the pass mark labelled, instead of a line with a dot"
+   },
+   {
+    "type": "changed",
+    "text": "Ratios and formulas in green, yellow or red by the check that tests them, with the rule under each"
+   },
+   {
+    "type": "new",
+    "text": "Plan: how the entry and exit are set, with the stock's own numbers and what they're based on; analyst target on the price chart"
+   },
+   {
+    "type": "changed",
+    "text": "Conviction: every check written out, no C1–C7 codes"
+   },
+   {
+    "type": "new",
+    "text": "Stability: operating cash by year and net profit by quarter as bar charts with values"
+   },
+   {
+    "type": "changed",
+    "text": "Who owns it as a ring chart"
+   },
+   {
+    "type": "new",
+    "text": "Filings | News: headlines about the company from ET, Business Standard, BusinessLine, Moneycontrol and Mint"
+   },
+   {
+    "type": "new",
+    "text": "Market: tap a rising industry to see why it is rising: dated, linked reasons (RBI, government, results, orders) written by Claude"
+   },
+   {
+    "type": "changed",
+    "text": "Filings: the dot strip at the top is gone"
+   }
+  ]
+ },
+ {
+  "version": "2.23.0",
+  "date": "2026-11-24",
+  "changes": [
+   {
+    "type": "fix",
+    "text": "Home: 'Strong outlook' uses the same outlook rating as the stock's Outlook tab (was Claude's research score); the Outlook tab also shows Claude's research outlook"
+   },
+   {
+    "type": "fix",
+    "text": "Same number on every screen: Top 10 rank, Claude's review queue position, institutional holding (NSE), search and industry counts, Stocks chip counts follow your search"
+   },
+   {
+    "type": "fix",
+    "text": "One name for each setup ('Avoid · trend broken' in lists and on the Plan card) and for turnarounds"
+   },
+   {
+    "type": "fix",
+    "text": "Wrong text fixed: IPO alert times, Claude's review times, empty Nifty row on Momentum; loading shows placeholders instead of 'not in today's data'"
+   },
+   {
+    "type": "changed",
+    "text": "One look: blue only for things you tap, green and red for good and bad, one rotation palette, one way to write dates, multiples (×), returns and price ranges, same titles and buttons everywhere"
+   },
+   {
+    "type": "changed",
+    "text": "Filter presets renamed so they don't share names with verdicts: Top tiers, Quality + cheap, Under-owned quality"
+   }
+  ]
+ },
+ {
+  "version": "2.22.0",
+  "date": "2026-11-24",
+  "changes": [
+   {
+    "type": "new",
+    "text": "Outlook: Latest call card with the headline, key numbers and points from the latest earnings call, and a link to the full call"
+   }
+  ]
+ },
+ {
   "version": "2.21.0",
   "date": "2026-11-24",
   "changes": [

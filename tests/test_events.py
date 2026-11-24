@@ -144,3 +144,45 @@ def test_retype_never_raises_or_clears_red_from_a_cut_text():
     ]
     assert retype(stored, [], "2026-11-21") == []
     assert [e["sev"] for e in stored] == ["green", "red"]
+
+
+# ---------------------------------------------------------------- owner, 24 Nov 2026: rating, SAST, ESG, appointment, KMP fixes
+@pytest.mark.parametrize("text,want", [
+    ("IRB Infrastructure Developers Limited has informed the Exchange that Fitch has affirmed IRB's Long-Term Issuer Default Rating at 'BB+' | Credit Rating", ("Credit rating", "info")),
+    ("XYZ Ltd has informed the Exchange about default in payment of interest on NCDs | Default", ("Default / delayed payment", "red")),
+    ("Jeena Sikho Lifecare Limited has informed the Exchange about Disclosure under SEBI Takeover Regulations | Substantial Acquisition of Shares and Takeovers", ("SAST disclosure", "info")),
+    ("Capri Global Capital Ltd informed about rating of senior secured notes by Fitch | Credit Rating", ("Credit rating", "info")),
+    ("Dixon Technologies has informed the Exchange about ESG Rating upgrade | ESG Rating", ("ESG rating", "info")),
+    ("Kanoria Chemicals has informed the Exchange about re-appointment of Managing Director approved by members | Change in Management", ("Management appointment", "info")),
+    ("Lumax Auto Technologies Limited has informed the Exchange about Resignation of Director/KMP/SMP | Resignation of Director/KMP/SMP", ("KMP / senior management exit", "watch")),
+    ("Pasupati Acrylon Limited has informed the Exchange about Credit Rating- Upgradation | Credit Rating- Revision", ("Rating upgrade", "green")),
+    ("SRM Contractors Limited has informed the Exchange about Credit Rating- Revision | Credit Rating- Revision", ("Credit rating revised (direction in the filing)", "watch")),
+    ("KIOCL Limited has informed the Exchange about downgradation and withdrawal oflong-term and short-term Credit Ratings | Credit Rating- Others", ("Rating downgrade", "red")),
+    ("Central Bank of India has informed the Exchange about withdrawal of Credit Rating | Credit Rating", ("Rating withdrawn", "watch")),
+    ("Company has secured a contract worth Rs 500 crore | Bagging/Receiving of orders/contracts", ("Order / contract win", "green")),
+    ("Glaxo has informed the Exchange about Change in Auditors | Change in Auditors", ("Auditor change", "info")),
+    ("ABC Ltd informed about resignation of Independent Director | Change in Directors", ("Director exit", "info")),
+    ("CCL informed: Resignation of Company Secretary and Compliance Officer (Key Managerial Personnel)", ("KMP / senior management exit", "watch")),
+    ("UCIL has informed about creation of pledge on shares | Regulation 31", ("Pledge / encumbrance created", "watch")),
+    ("ABC Ltd has informed the Exchange about Buyback of equity shares | Buyback", ("Buyback / demerger / acquisition", "green")),
+    ("Change in management (NSE form) Resignation of Chief Financial Officer (Key Managerial Personnel)", ("Top management exit", "red")),
+    ("Change in management (NSE form) Retirement of Senior Management Personnel", ("KMP / senior management exit", "watch")),
+])
+def test_filing_types_fixed_24_nov(text, want):
+    assert classify(text) == want
+
+
+def test_roid_form_gives_the_role():
+    from narrativ import announcements as A
+    x = ("<in-capmkt:TypeOfChange>Cessation</in-capmkt:TypeOfChange><in-capmkt:CategoryOfCessation>Resignation</in-capmkt:CategoryOfCessation>"
+         "<in-capmkt:CategoryForChange>Key Managerial Personnel</in-capmkt:CategoryForChange>"
+         "<in-capmkt:DesignationOfDesignatedPerson>Chief Financial Officer</in-capmkt:DesignationOfDesignatedPerson>"
+         "<in-capmkt:TypeOfChange>Cessation</in-capmkt:TypeOfChange><in-capmkt:CategoryOfCessation>Superannuation or retirement</in-capmkt:CategoryOfCessation>"
+         "<in-capmkt:CategoryForChange>Senior Management Personnel</in-capmkt:CategoryForChange>"
+         "<in-capmkt:DesignationOfDesignatedPerson>Cessation</in-capmkt:DesignationOfDesignatedPerson>"
+         "<in-capmkt:ReasonOfResignationInBrief>Better prospects</in-capmkt:ReasonOfResignationInBrief>")
+    t = A.roid_text(A.roid_people(x))
+    assert t == ("Resignation of Chief Financial Officer (Key Managerial Personnel); Retirement of Senior Management Personnel. "
+                 "Reason: Better prospects")
+    s = f"{A.ROID_CAT} {t}"
+    assert A.X["CFO"].search(s) and not A.X["CEO"].search(s)

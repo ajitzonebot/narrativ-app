@@ -289,8 +289,7 @@ fun App(startRoute: String? = null, ci: Boolean = false) {
                 if (st.error != null) {
                     T(st.error!!, 15.sp, C.grey)
                     Spacer(Modifier.height(14.dp))
-                    Box(Modifier.clip(RoundedCornerShape(24.dp)).background(C.teal).clickable { scope.launch { st.load() } }
-                        .padding(horizontal = 22.dp, vertical = 12.dp)) { T("Retry", 15.sp, Color.Black, FontWeight.SemiBold) }
+                    PrimaryButton("Retry") { scope.launch { st.load() } }
                 }
             }
             if (st.error == null) HomeSkeleton()  // placeholders in the shape of Home instead of a spinner (#19)
@@ -324,7 +323,7 @@ fun App(startRoute: String? = null, ci: Boolean = false) {
         st.toast?.let { msg ->
             LaunchedEffect(msg) { delay(3500); st.toast = null }
             Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 96.dp, start = 24.dp, end = 24.dp).navigationBarsPadding()
-                .clip(RoundedCornerShape(16.dp)).background(Color(0xFF1E2023)).border(1.dp, C.teal.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
+                .clip(RoundedCornerShape(16.dp)).background(C.chip).border(1.dp, C.line, RoundedCornerShape(16.dp))
                 .padding(horizontal = 16.dp, vertical = 12.dp)) { T(msg, 14.sp) }
         }
     }

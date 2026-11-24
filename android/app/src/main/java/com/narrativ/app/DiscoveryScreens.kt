@@ -77,8 +77,8 @@ fun sg1(v: Double?, suf: String = "%"): String = if (v == null) "–" else (if (
 /** Gains light green, losses light red (mockup pcol). */
 fun gainColor(v: Double?): Color = if ((v ?: 0.0) >= 0) TierC.lightGreen else TierC.lightRed
 
-/** Entry setup as words (mockup SETUP). */
-fun setupLabel(su: String?): String = when (su) { "Breakout" -> "Breaking out"; "Pullback" -> "Dip in uptrend"; "Base" -> "Near entry"; else -> "Wait" }
+/** Entry setup as words; rows that have a P call setupName(p.su, p.tb == 1) so a broken trend reads "Avoid · trend broken". */
+fun setupLabel(su: String?): String = setupName(su)
 
 /** Verified by Claude: the verification of the rating passed. */
 fun P.verified(): Boolean = vf == "pass"
@@ -99,21 +99,18 @@ fun StockTick(st: AppState, p: P, size: Dp = 15.dp) {
     }
 }
 
-/** "MB" tag (multibagger potential), yellow outline. */
+/** "Multibagger" tag (multibagger potential), yellow outline. */
 @Composable
 fun MbTag() {
     Box(Modifier.padding(start = 6.dp).clip(RoundedCornerShape(6.dp)).border(1.dp, TierC.yellow.copy(alpha = 0.4f), RoundedCornerShape(6.dp))
-        .padding(horizontal = 4.dp)) { T("MB", 10.sp, TierC.yellow, maxLines = 1) }
+        .padding(horizontal = 4.dp)) { T("Multibagger", 10.sp, TierC.yellow, maxLines = 1) }
 }
 
-/** Rule-built conviction (P.cv) as a 3-segment meter; nothing when null. */
+/** Rule-built conviction level (P.cv) in white, as the stock page says it (the row has only the level, not the checks met); nothing when null. */
 @Composable
 fun ConvictionMeter(cv: String?, modifier: Modifier = Modifier) {
-    val n = when (cv) { "High" -> 3; "Medium" -> 2; "Low" -> 1; else -> return }
-    Row(modifier.padding(start = 6.dp), verticalAlignment = Alignment.CenterVertically) {  // feedback #80: say which level
-        Meter(3, n)
-        T(cv, 11.sp, TierC.yellow, maxLines = 1, modifier = Modifier.padding(start = 5.dp))
-    }
+    if (cv !in setOf("High", "Medium", "Low")) return
+    T(cv ?: "", 11.sp, C.white, maxLines = 1, modifier = modifier.padding(start = 6.dp))  // feedback #80: say which level
 }
 
 /** Rounded horizontal bar 0..1 on a faint track, optional thin white mark (e.g. the 50% or 1× line). */
@@ -201,8 +198,9 @@ fun SearchScreen(st: AppState) {
     var q by rememberSaveable { mutableStateOf("") }
     val qq = q.trim()
     val hits = remember(qq, all) {
-        if (qq.isEmpty()) emptyList() else all.filter { "${it.c} ${it.n} ${it.i ?: ""}".contains(qq, true) }
-            .sortedWith(compareByDescending<P> { it.c.startsWith(qq, true) }.thenBy { it.out != null }.thenByDescending { it.pr })
+        // removed stocks left out, as Stocks hides them: "All N results" is the list Stocks shows
+        if (qq.isEmpty()) emptyList() else all.filter { it.out == null && "${it.c} ${it.n} ${it.i ?: ""}".contains(qq, true) }
+            .sortedWith(compareByDescending<P> { it.c.startsWith(qq, true) }.thenByDescending { it.pr })
     }
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
@@ -286,6 +284,10 @@ fun QuadrantListScreen(st: AppState, q: String, sectors: Boolean) {
     val live = st.picks?.picks.orEmpty().filter { it.out == null }
     val kind = if (sectors) "sectors" else "industries"
     val span = list.maxOfOrNull { max(abs(it.value.r1m ?: 0.0), abs(it.value.r3m ?: 0.0)) }?.takeIf { it > 0 } ?: 1.0
+    // industries open their Why sheet (feedback #90); sectors have no reasons and keep opening Stocks
+    val why = if (sectors) null else rememberIndustryWhy(st)
+    var whyOf by remember(q, sectors) { mutableStateOf<String?>(null) }
+    whyOf?.let { n -> if (why != null) IndustryWhySheet(st, n, src[n], why) { whyOf = null } }
     LazyColumn(Modifier.fillMaxSize().background(C.screen), contentPadding = PaddingValues(bottom = 110.dp)) {
         item { TopBar(st, "$q $kind", context = "Quadrant $q", subtitle = "${list.size} $kind · ${QUAD_WHAT[q] ?: ""} · by momentum") }
         if (list.isEmpty()) { item { Spacer(Modifier.height(8.dp)); Empty("Nothing in this quadrant today.") }; return@LazyColumn }
@@ -296,7 +298,7 @@ fun QuadrantListScreen(st: AppState, q: String, sectors: Boolean) {
                     val members = live.filter { if (sectors) SECTOR_OF[it.i ?: ""] == name else it.i == name }
                     val tops = members.sortedByDescending { it.pr }.take(3)
                     val nb = members.count { isBuy(it) }
-                    val open = { st.go(Screen.Screener(if (sectors) "sec:$name" else "ind:$name")) }
+                    val open: () -> Unit = { if (sectors) st.go(Screen.Screener("sec:$name")) else { whyOf = name } }
                     Row(Modifier.fillMaxWidth().clickable(onClick = open).padding(horizontal = S.cardPad, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             T(name, 15.sp, weight = FontWeight.Medium, maxLines = 1)
@@ -306,6 +308,7 @@ fun QuadrantListScreen(st: AppState, q: String, sectors: Boolean) {
                             }
                             if (tops.isNotEmpty()) T(tops.joinToString(" · ") { it.c } + " ›", 12.sp, C.blue, maxLines = 1, modifier = Modifier.padding(top = 3.dp))
                             else T("No stock in the funnel", 12.sp, C.dim)
+                            why?.preview(name)?.let { T(it, 12.sp, C.dim, maxLines = 1, modifier = Modifier.padding(top = 3.dp)) }
                         }
                         Column(Modifier.width(140.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             listOf(r.r1m to C.teal, r.r3m to TierC.yellow).forEach { (v, c) ->
@@ -327,7 +330,7 @@ fun QuadrantListScreen(st: AppState, q: String, sectors: Boolean) {
 
 // ================================================================ h08 IPO DETAIL
 private fun ipoActionColor(a: String): Color = when (a) {
-    "APPLY" -> TierC.lightGreen; "WAIT" -> C.blue; "AVOID" -> TierC.lightRed; else -> C.white
+    "APPLY" -> TierC.lightGreen; "WAIT" -> C.grey; "AVOID" -> TierC.lightRed; else -> C.white
 }
 
 /** One IPO: call and expected gain, band to expected listing, issue and listing days, GMP path, subscription, rules, lot and issue facts. */
@@ -450,7 +453,7 @@ private fun IpoDays(i: IpoOpen, modifier: Modifier) {
     Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         days.takeLast(5).forEach { d ->
             val isToday = d == today; val last = d == i.lastDate
-            val edge = when { isToday && last -> C.red; isToday -> C.blue; else -> Color.Transparent }
+            val edge = when { isToday && last -> C.red; isToday -> C.amber; else -> Color.Transparent }  // today marker, not a tap: amber as on the calendar
             Column(Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(if (isToday && last) C.red.copy(alpha = 0.12f) else C.chip)
                 .border(1.5.dp, edge, RoundedCornerShape(10.dp)).padding(vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 T(lab(d), 12.sp, if (isToday) C.white else if (d < today) C.dim else C.grey, if (isToday) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1)

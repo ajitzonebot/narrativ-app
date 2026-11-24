@@ -34,7 +34,7 @@ import java.util.Locale
 private val inr = NumberFormat.getNumberInstance(Locale("en", "IN"))
 fun fmt(v: Double?, d: Int = 2): String = if (v == null) "–" else inr.apply { maximumFractionDigits = d; minimumFractionDigits = 0 }.format(v)
 fun pctStr(v: Double?): String = if (v == null) "–" else (if (v >= 0) "+" else "") + fmt(v, 1) + "%"
-fun pctColor(v: Double?): Color = if ((v ?: 0.0) >= 0) C.teal else C.red
+fun pctColor(v: Double?): Color = gainColor(v)  // gains green, never blue
 
 @Composable
 fun T(text: String, size: TextUnit = 14.sp, color: Color = C.white, weight: FontWeight = FontWeight.Normal,
@@ -56,26 +56,13 @@ fun CircleBtn(icon: ImageVector, tint: Color = C.white, accent: Boolean = false,
 
 @Composable
 fun Pill(text: String, fg: Color = C.grey, bg: Color = C.chip, size: TextUnit = 11.sp, modifier: Modifier = Modifier) {
-    Box(modifier.clip(RoundedCornerShape(12.dp)).background(bg).padding(horizontal = 8.dp, vertical = 3.dp)) {
+    Box(modifier.clip(RoundedCornerShape(S.inner)).background(bg).padding(horizontal = 8.dp, vertical = 3.dp)) {
         T(text, size, fg, FontWeight.SemiBold, maxLines = 1)
     }
 }
 
-fun statusColors(s: String): Pair<Color, Color> = when (s) {
-    "BUY ZONE", "delivered", "beat", "raised", "met" -> C.teal to C.teal.copy(alpha = 0.15f)
-    "WATCH", "PULLBACK", "partly", "on track", "open" -> C.blue to C.blue.copy(alpha = 0.15f)
-    "EXIT", "missed", "delayed", "off_track", "DROPPED", "due" -> C.red to C.red.copy(alpha = 0.15f)
-    else -> C.grey to C.chip
-}
-
 @Composable
-fun StatusPill(s: String, label: String? = null) {
-    val (fg, bg) = statusColors(s)
-    Pill(label ?: s.lowercase().replaceFirstChar { it.uppercase() }, fg, bg)
-}
-
-@Composable
-fun Card(modifier: Modifier = Modifier, color: Color = C.card, radius: Dp = 20.dp, pad: Dp = 14.dp,
+fun Card(modifier: Modifier = Modifier, color: Color = C.card, radius: Dp = S.card, pad: Dp = S.cardPad,
          onClick: (() -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {
     Column(
         modifier.clip(RoundedCornerShape(radius)).background(color)
@@ -113,35 +100,6 @@ fun VsChart(a: List<Double>, b: List<Double>, modifier: Modifier = Modifier) {
         drawPath(pb, C.dim, style = Stroke(width = 1.6.dp.toPx()))
         for (i in 1 until a.size) {
             drawLine(if (a[i] >= b[i]) TierC.darkGreen else TierC.red, Offset(x(i - 1), y(a[i - 1])), Offset(x(i), y(a[i])), 2.4.dp.toPx())
-        }
-    }
-}
-
-@Composable
-fun ScoreRing(score: Int, size: Dp = 42.dp) {
-    Box(Modifier.size(size).border(2.dp, C.blue, CircleShape), contentAlignment = Alignment.Center) {
-        T("$score", 15.sp, weight = FontWeight.Bold)
-    }
-}
-
-@Composable
-fun GaugeRing(pct: Int, size: Dp = 92.dp) {
-    Box(Modifier.size(size), contentAlignment = Alignment.Center) {
-        Canvas(Modifier.fillMaxSize().padding(6.dp)) {
-            drawArc(C.chip, 0f, 360f, false, style = Stroke(10.dp.toPx()))
-            drawArc(C.teal, -90f, 360f * pct / 100f, false, style = Stroke(10.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round))
-        }
-        T("$pct%", 20.sp, weight = FontWeight.Bold)
-    }
-}
-
-@Composable
-fun Meter(label: String, v: Int?, modifier: Modifier = Modifier) {
-    Column(modifier) {
-        T("$label ${v ?: "–"}", 11.sp, C.grey, maxLines = 1)
-        Spacer(Modifier.height(3.dp))
-        Box(Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)).background(C.chip)) {
-            Box(Modifier.fillMaxWidth(((v ?: 0) / 100f).coerceIn(0f, 1f)).fillMaxHeight().background(C.teal))
         }
     }
 }
@@ -189,6 +147,8 @@ object TierC {
     val lightRed = Color(0xFFF2908A)
     val red = Color(0xFFE5483B)
     val grey = Color(0xFF6B7075)
+    val lime = Color(0xFFC9E27C)    // verdict "Undervalued quality" (between light green and yellow)
+    val violet = Color(0xFFC3A6F5)  // verdict "Momentum play" (replaces the old cyan 0xFF5FD9E8, which read as tappable blue)
 }
 
 fun tierColor(t: Int): Color = when (t) {
@@ -209,7 +169,7 @@ fun P.levelColor(level: Int): Color = tierColor(tier(level))
 
 @Composable
 fun TierChip(text: String, color: Color, size: TextUnit = 11.sp) {
-    Box(Modifier.clip(RoundedCornerShape(10.dp)).background(color.copy(alpha = 0.16f)).border(1.dp, color.copy(alpha = 0.55f), RoundedCornerShape(10.dp))
+    Box(Modifier.clip(RoundedCornerShape(S.inner)).background(color.copy(alpha = 0.16f)).border(1.dp, color.copy(alpha = 0.55f), RoundedCornerShape(S.inner))
         .padding(horizontal = 8.dp, vertical = 2.dp), contentAlignment = Alignment.Center) {  // feedback #61: text centred in the pill
         T(text, size, color, FontWeight.SemiBold, maxLines = 1) }
 }
@@ -225,10 +185,11 @@ fun LevelDots(p: P, dot: Dp = 8.dp) {
 data class VerdictMeta(val name: String, val color: Color, val icon: ImageVector, val rule: String)
 
 val VERDICTS = listOf(
-    VerdictMeta("Prime candidate", C.teal, Icons.Rounded.Star, "Quality good+, management trustworthy+, fair or cheaper, outlook strong+"),
-    VerdictMeta("Early story", C.blue, Icons.Rounded.RocketLaunch, "Outlook strong+, quality average or turnaround"),
-    VerdictMeta("Undervalued quality", TierC.lightGreen, Icons.Rounded.Diamond, "Quality good+, undervalued or deep value"),
-    VerdictMeta("Momentum play", Color(0xFF5FD9E8), Icons.Rounded.Bolt, "Momentum strong+, quality average+, early or being discovered"),
+    // no blue (blue means tappable): best verdicts darkest green, then light green, lime, violet, amber, yellow, greys
+    VerdictMeta("Prime candidate", TierC.darkGreen, Icons.Rounded.Star, "Quality good+, management trustworthy+, fair or cheaper, outlook strong+"),
+    VerdictMeta("Early story", TierC.lightGreen, Icons.Rounded.RocketLaunch, "Outlook strong+, quality average or turnaround"),
+    VerdictMeta("Undervalued quality", TierC.lime, Icons.Rounded.Diamond, "Quality good+, undervalued or deep value"),
+    VerdictMeta("Momentum play", TierC.violet, Icons.Rounded.Bolt, "Momentum strong+, quality average+, early or being discovered"),
     VerdictMeta("Quality, priced in", C.amber, Icons.Rounded.Balance, "Quality good+, management trustworthy+, valuation rich"),
     VerdictMeta("Value watch", TierC.yellow, Icons.Rounded.LocalOffer, "Undervalued, quality average or below"),
     VerdictMeta("Watchlist", C.grey, Icons.Rounded.Visibility, "Passed the funnel; no stronger verdict yet"),
@@ -249,13 +210,13 @@ fun decisionColor(d: String?): Color = when (d) {
 fun DecisionChip(d: String?, size: TextUnit = 11.sp) {  // redesign: tinted pill, no border (mockup .dch)
     if (d == null) return
     val c = decisionColor(d)
-    Box(Modifier.clip(RoundedCornerShape(9.dp)).background(c.copy(alpha = 0.13f)).padding(horizontal = 8.dp, vertical = 2.dp), contentAlignment = Alignment.Center) {
+    Box(Modifier.clip(RoundedCornerShape(S.inner)).background(c.copy(alpha = 0.13f)).padding(horizontal = 8.dp, vertical = 2.dp), contentAlignment = Alignment.Center) {
         T(d, size, c, FontWeight.SemiBold, maxLines = 1)
     }
 }
 
 
-/** Icon + text line (replaces emoji/text symbols such as ⚠ ★ ●). */
+/** Icon + text line (replaces emoji and text symbols). */
 @Composable
 fun IconLine(icon: androidx.compose.ui.graphics.vector.ImageVector, color: Color, text: String, size: TextUnit = 13.sp, modifier: Modifier = Modifier) {
     Row(modifier, verticalAlignment = Alignment.Top) {
@@ -274,17 +235,6 @@ fun AppLogo(size: androidx.compose.ui.unit.Dp) {
     }
 }
 
-
-/** Claude's independent audit state for a Buy / Strong Buy. */
-@Composable
-fun VerifiedChip(state: String?) {
-    val (txt, col) = when (state) { "pass" -> "Verified" to TierC.darkGreen; "caution" -> "Audit: caution" to C.amber
-        "fail" -> "Audit: failed" to C.red; else -> "Verification pending" to C.grey }
-    Row(Modifier.clip(RoundedCornerShape(10.dp)).background(col.copy(alpha = 0.16f)).padding(horizontal = 8.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
-        androidx.compose.material3.Icon(if (state == "pass") Icons.Rounded.Verified else Icons.Rounded.HourglassTop, null, tint = col, modifier = Modifier.size(13.dp))
-        Spacer(Modifier.width(4.dp)); T(txt, 11.sp, col, FontWeight.SemiBold)
-    }
-}
 
 
 // ---------------------------------------------------------------- Claude review status (feedback #65)
@@ -305,7 +255,7 @@ fun reviewState(st: AppState, sym: String): ReviewState {
     return if (j >= 0) ReviewState(pos = -1, studied = studied) else ReviewState(studied = studied)
 }
 
-private val RESEARCH_SLOTS = listOf(4 * 60 + 5, 9 * 60 + 5, 14 * 60 + 5, 18 * 60 + 5, 23 * 60 + 5)
+val RESEARCH_SLOTS = listOf(4 * 60 + 5, 9 * 60 + 5, 14 * 60 + 5, 18 * 60 + 5, 23 * 60 + 5)
 
 /** Research run that should reach queue position [pos] at about 6 full reviews a run (an estimate). */
 fun expectedRun(pos: Int): String {
@@ -316,7 +266,7 @@ fun expectedRun(pos: Int): String {
     return "%s%02d:%02d run".format(if (day == 0) "today " else if (day == 1) "tomorrow " else "in $day days, ", slot / 60, slot % 60)
 }
 
-fun reviewColor(v: String?): Color = when (v) { "pass" -> TierC.darkGreen; "caution" -> C.amber; "fail" -> C.red; else -> C.grey }
+fun reviewColor(v: String?): Color = when (v) { "pass" -> TierC.lightGreen; "caution" -> C.amber; "fail" -> TierC.red; else -> C.grey }  // one colour per verdict, every screen
 
 /** Small marker beside the decision chip: reviewed (coloured by verdict), queued, or rules only. */
 @Composable
@@ -324,65 +274,8 @@ fun ReviewMark(st: AppState, sym: String) {
     val r = reviewState(st, sym)
     val (icon, col) = when {
         r.verdict != null -> Icons.Rounded.CheckCircle to reviewColor(r.verdict)
-        r.pos != 0 -> Icons.Rounded.HourglassTop to C.teal
+        r.pos != 0 -> Icons.Rounded.HourglassTop to C.muted
         else -> Icons.Rounded.RadioButtonUnchecked to C.dim
     }
     Icon(icon, null, tint = col, modifier = Modifier.padding(start = 4.dp).size(14.dp))
 }
-
-@Composable
-fun ReviewCard(st: AppState, sym: String, p: P?, det: Detail?) {
-    val r = reviewState(st, sym)
-    val a = st.research[sym]?.audit
-    Column(Modifier.fillMaxWidth().padding(top = 12.dp).clip(RoundedCornerShape(16.dp)).background(C.card).padding(14.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            T("CLAUDE'S REVIEW", 11.sp, C.grey, FontWeight.SemiBold, modifier = Modifier.weight(1f))
-            a?.date?.let { T(shortDate(it), 11.sp, C.grey) }
-        }
-        Column(Modifier.padding(top = 8.dp).fillMaxWidth().clip(RoundedCornerShape(14.dp)).border(1.dp, C.line, RoundedCornerShape(14.dp)).background(C.card2).padding(12.dp)) {
-            when {
-                a != null && r.verdict != null -> {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.CheckCircle, null, tint = reviewColor(r.verdict), modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp))
-                        T("Reviewed by Claude", 14.sp, modifier = Modifier.weight(1f))
-                        val vc = reviewColor(r.verdict)
-                        Box(Modifier.clip(RoundedCornerShape(10.dp)).background(vc.copy(alpha = 0.16f)).padding(horizontal = 10.dp, vertical = 3.dp)) {
-                            T(r.verdict.uppercase(), 12.sp, vc, FontWeight.Bold)
-                        }
-                    }
-                    a.summary?.let { T(it, 14.sp, modifier = Modifier.padding(top = 10.dp), lineHeight = 20.sp) }
-                    Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        ReviewTag("${a.checks.size} checks verified")
-                        ReviewTag("${a.failed} failed")
-                        st.research[sym]?.dataIssues?.size?.takeIf { it > 0 }?.let { ReviewTag("$it data issue${if (it > 1) "s" else ""}") }
-                    }
-                    T("Next review: after the next results filing", 12.sp, C.dim, modifier = Modifier.padding(top = 8.dp))
-                }
-                r.pos != 0 -> {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.HourglassTop, null, tint = C.teal, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp))
-                        T(if (r.pos > 0) "Waiting for Claude's full review" else "In Claude's research queue", 14.sp)
-                    }
-                    val cand = p?.cand ?: det?.decision?.candidate
-                    T(if (cand != null) "Rules say ${cand.uppercase()}. Shown as Hold until Claude checks the numbers against the filing."
-                      else "Claude will read the latest filings for this stock.", 13.sp, C.grey, lineHeight = 18.sp, modifier = Modifier.padding(top = 8.dp))
-                    if (r.pos > 0) Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        ReviewTag("Queue #${r.pos} of ${r.of}"); ReviewTag("Estimated: ${expectedRun(r.pos)}")
-                    }
-                }
-                else -> {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.RadioButtonUnchecked, null, tint = C.dim, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp))
-                        T(if (r.studied != null) "Researched by Claude ${r.studied}, no full review" else "Not studied by Claude", 14.sp)
-                    }
-                    T(if (r.studied != null) "Claude's notes (thesis, promises, flags) are in Research. A full review, which can confirm a Buy, runs when the rules rate it Buy."
-                      else "Rules only: this rating comes from filed numbers and prices. Claude reviews a stock when the rules rate it Buy.",
-                        13.sp, C.grey, lineHeight = 18.sp, modifier = Modifier.padding(top = 8.dp))
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ReviewTag(t: String) = Box(Modifier.clip(RoundedCornerShape(10.dp)).background(C.chip).padding(horizontal = 8.dp, vertical = 3.dp)) { T(t, 11.sp, C.white) }

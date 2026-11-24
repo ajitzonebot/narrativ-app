@@ -284,7 +284,7 @@ def _stage_run(name: str, model: str, todo: list[dict], cap: int, key: str, stor
             if ns_box[0] is None:
                 from narrativ.filings import NSESession
                 ns_box[0] = NSESession()
-            text, pages = packs._text(d["url"], ns_box[0])
+            text, pages, _src = packs.doc_text(d["url"], ns_box[0], d.get("kind"))  # follows a cover letter to the real document
             e = store.setdefault(d["url"], {"s": d["s"], "kind": d["kind"], "date": d["date"]})
             if not text or len(text.strip()) < 500:
                 e[name] = {"model": model, "at": str(datetime.now(IST).date()), "fails": 3, "error": "no text layer or not reachable"}

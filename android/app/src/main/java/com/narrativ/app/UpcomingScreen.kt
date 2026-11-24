@@ -29,8 +29,13 @@ import java.time.temporal.ChronoUnit
 data class Cp(val symbol: String, val name: String, val c: Checkpoint)
 
 private val CAL_TABS = listOf("Due", "Next 45 days", "Changes", "Removed")
-private val CP_TYPE = mapOf("results" to ("Results" to C.blue), "shareholding" to ("Shareholding" to C.blue), "must_go_right" to ("Must go right" to C.amber),
-    "kill_switch" to ("Kill switch" to TierC.lightRed), "promise" to ("Promise" to C.blue))
+// type tags are not tappable, so greys (blue is only for taps); amber / red keep their warning meaning
+private val CP_TYPE = mapOf("results" to ("Results" to C.muted), "shareholding" to ("Shareholding" to TierC.grey), "must_go_right" to ("Must go right" to C.amber),
+    "kill_switch" to ("Kill switch" to TierC.lightRed), "promise" to ("Promise" to C.dim))
+
+/** "Claude reviews 5 times a day: 04:05, 09:05, 14:05, 18:05, 23:05 IST", from the research schedule. */
+private fun researchScheduleText(): String =
+    "Claude reviews ${RESEARCH_SLOTS.size} times a day: " + RESEARCH_SLOTS.joinToString(", ") { "%02d:%02d".format(it / 60, it % 60) } + " IST"
 
 /** "Quarter ending 30 Sep 2026" instead of the raw "quarter ending 2026-09-30". */
 private fun cpWhat(c: Checkpoint): String {
@@ -60,7 +65,7 @@ fun UpcomingScreen(st: AppState) {
                             T("${due.size} due", 17.sp, weight = FontWeight.Bold, modifier = Modifier.weight(1f))
                             T("${next.size} more in the next 45 days", 12.sp, C.dim, maxLines = 1)
                         }
-                        if (due.isEmpty()) T("Nothing due. Claude reviews 5 times a day from 19:40 IST.", 13.sp, C.dim, modifier = Modifier.padding(top = 8.dp))
+                        if (due.isEmpty()) T("Nothing due. ${researchScheduleText()}.", 13.sp, C.dim, modifier = Modifier.padding(top = 8.dp))
                         else DueTimeline(due.map { it.c.due }, today, Modifier.padding(top = 10.dp).fillMaxWidth().height(86.dp))
                     }
                 }
@@ -134,9 +139,7 @@ fun UpcomingScreen(st: AppState) {
 
 @Composable
 private fun MoreCard(text: String, onClick: () -> Unit) {
-    Card(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth(), pad = 0.dp, onClick = onClick) {
-        Row(Modifier.fillMaxWidth().height(52.dp).padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) { T(text, 14.sp) }
-    }
+    MoreLink(text, Modifier.padding(horizontal = 18.dp, vertical = 4.dp), onClick = onClick)
 }
 
 /** Rows of a checkpoint list: code and type tag, what is due, date and how long ago / how soon. */
@@ -157,7 +160,7 @@ private fun CpList(st: AppState, rows: List<Cp>, today: LocalDate, overdueList: 
                 Column(Modifier.padding(start = 10.dp), horizontalAlignment = Alignment.End) {
                     T(shortDate(x.c.due), 13.sp, weight = FontWeight.SemiBold, maxLines = 1)
                     if (days != null) T(if (days > 0) "${days}d ago" else if (days == 0) "today" else "in ${-days}d", 12.sp,
-                        if (overdueList) C.amber else C.blue, maxLines = 1)
+                        if (overdueList || days == 0) C.amber else C.dim, maxLines = 1)
                 }
             }
             if (i < rows.lastIndex) HLineDivider(Modifier.padding(horizontal = 14.dp))
@@ -190,9 +193,9 @@ private fun DueTimeline(dates: List<String>, today: LocalDate, modifier: Modifie
             }
         }
         val tx = (days - 1) * bw + bw / 2
-        drawLine(C.blue, Offset(tx, 0f), Offset(tx, base), 1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 6f)))
+        drawLine(C.amber, Offset(tx, 0f), Offset(tx, base), 1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 6f)))
         chartText(tm, shortDate(start.toString()), 0f, size.height - 2.dp.toPx(), C.dim, 10.sp)
-        chartText(tm, "today", size.width, size.height - 2.dp.toPx(), C.blue, 10.sp, anchor = Anchor.End)
+        chartText(tm, "today", size.width, size.height - 2.dp.toPx(), C.amber, 10.sp, anchor = Anchor.End)
     }
 }
 
@@ -201,14 +204,14 @@ fun Text28(s: String) = T(s, 28.sp, C.white, FontWeight.Bold)
 
 @Composable
 fun CpRow(st: AppState, x: Cp, hot: Boolean) {
-    Row(Modifier.padding(horizontal = 16.dp, vertical = 5.dp).fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(C.card2)
+    Row(Modifier.padding(horizontal = 16.dp, vertical = 5.dp).fillMaxWidth().clip(RoundedCornerShape(S.card)).background(C.card2)
         .clickable { st.go(Screen.Stock(x.symbol)) }.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
         Tile(kindIcon(when (x.c.type) { "results" -> "results"; "shareholding" -> "holding"; "promise" -> "approval"; else -> "other" }),
             if (hot) C.tile else Brush.linearGradient(listOf(C.chip, C.card)), 40.dp, 22.dp)
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             T("${x.symbol.substringBeforeLast(".")} · ${x.c.what}", 14.sp, weight = FontWeight.Medium, maxLines = 2)
-            T("${x.c.due} · ${x.c.source ?: ""}", 12.sp, C.grey, maxLines = 1)
+            T(listOfNotNull(shortDate(x.c.due), x.c.source).joinToString(" · "), 12.sp, C.grey, maxLines = 1)
         }
     }
 }

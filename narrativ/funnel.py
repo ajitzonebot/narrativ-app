@@ -820,7 +820,8 @@ def momentum(t, df, rs_pct, ind_rank, bulk, Mx, an, nse=None):
     tier = 0 if score is None or cov < 0.6 else 1 if score >= 80 else 2 if score >= 65 else 3 if score >= 50 else 4 if score >= 35 else 5
     best = _first(items, 2)
     why = (t["stage"] if t else "") + (f" · {best['n'].lower()}" if best and best["id"] != "P1" else "") + (" · extended" if extended else "")
-    return _level("mom", items, tier, score, why.strip(" ·") or None, extended=extended or None, cov_pct=round(cov * 100))
+    return _level("mom", items, tier, score, why.strip(" ·") or None, extended=extended or None, cov_pct=round(cov * 100),
+                  rs_pct=round(float(rs_pct), 4) if t else None)
 
 
 # ------------------------------------------------------------------ L6 Discovery stage (no removals)
@@ -1133,7 +1134,7 @@ def setup(df, t, target):
     s50, s200 = float(c.rolling(50).mean().iloc[-1]), float(c.rolling(200).mean().iloc[-1])
     l20 = float(df["Low"].iloc[-20:].min())
     st = t["stage"]
-    out = {"sma50": round(s50, 2)}  # the setup's stop is the one exit level (no band stop, no chandelier trail)
+    out = {"sma50": round(s50, 2), "atr": round(atr, 2), "price": round(price, 2), "h55": round(h55, 2)}  # the setup's stop is the one exit level; atr / price / h55 let the app explain it
     lo_b, hi_b = sorted([e10, e21])
     if st == "Downtrend" or (price < s200 and st != "Basing"):
         return out | {"type": "No setup", "note": "No entry: trend broken (below the 200-day average)"}
@@ -1143,7 +1144,7 @@ def setup(df, t, target):
         # breakout level, else the exit level can sit above the entry (SATIN 254.55 with an exit level of 260.8)
         ref = min(price, lo)
         stop = max(ref - 1.5 * atr, ref * 0.92)
-        out |= {"type": "Breakout", "lo": lo, "hi": hi, "stop": stop, "note": "Buy on a close above the 55-day high, up to +5%"}
+        out |= {"type": "Breakout", "lo": lo, "hi": hi, "stop": stop, "ref": round(ref, 2), "note": "Buy on a close above the 55-day high, up to +5%"}
     elif st in ("Stage 2", "Extended") and lo_b * 0.99 <= price <= hi_b * 1.01:
         out |= {"type": "Pullback", "lo": lo_b, "hi": hi_b, "stop": s50 * 0.99, "note": "Pullback to the 10–21 day averages; stop on a close below the 50-day average"}
     elif (s200 < price < s50) or st == "Basing":
@@ -1161,6 +1162,7 @@ def setup(df, t, target):
         # the exit level must sit below the whole buy zone, or a buy at the zone low is already under it (TALBROAUTO Pullback:
         # zone 393.48-401.20 with the 50-day-average stop at 399.06, price 404.05): recompute it under the zone low
         out["stop"] = max(out["lo"] - 1.5 * atr, out["lo"] * 0.92)
+        out["stop_basis"] = "zone"  # app: "1.5 x the daily move under the buy zone's low"
         if out["type"] == "Pullback":
             out["note"] = "Pullback to the 10–21 day averages; stop on a close below the zone (the 50-day average sits inside it)"
     mid = (out["lo"] + out["hi"]) / 2
@@ -1485,8 +1487,15 @@ def integrity_items(th: dict) -> list[dict]:
     return out
 
 
+def code_triggers(L: dict) -> list[dict]:
+    """Live code triggers on the Outlook tab (T1-T15), except T4 (work in progress alone is not a forward driver)."""
+    return [x for x in ((L.get("out") or {}).get("triggers") or []) if x.get("id") != "T4"]
+
+
 def decision(L: dict, out_l, th: dict | None, scan: dict | None, setup: dict | None, price, ann: dict | None,
-             research_flags: dict | None = None, today=None, filed: str | None = None) -> dict:
+             research_flags: dict | None = None, today=None, filed: str | None = None, scored: bool = True,
+             call_since: str | None = None) -> dict:
+    """scored=False: too little filed data to score the stock ("Not enough data"); with no driver it stays Not rated."""
     today = today or _date.today()
     th = th or {}
     t = {k: L[k]["t"] for k in LEVELS}
@@ -1495,6 +1504,10 @@ def decision(L: dict, out_l, th: dict | None, scan: dict | None, setup: dict | N
     drivers = th.get("drivers") or []
     ps = _promise_stats(th)
     driver = bool(guidance or order_book or ps["open"] or drivers)
+    signals = code_triggers(L)
+    if not driver and signals:  # owner, 24 Nov 2026 (idea 1): a live code trigger counts as the forward driver
+        drivers = [{"kind": "signal", "text": f"{x['id']} {x.get('n') or ''}".strip()} for x in signals]
+        driver = True
     cred = credibility_w(th, today)
     cp = cred["pct"] if cred else None
     ups, cuts, reaff = _guidance_moves(th, today)
@@ -1514,7 +1527,7 @@ def decision(L: dict, out_l, th: dict | None, scan: dict | None, setup: dict | N
     extended = bool(L["mom"].get("extended"))
     lab = lambda k: f"{SHORT[k]}: {L[k]['name']}"
     good = lambda k, hi: t[k] != 0 and t[k] <= hi
-    info = {"credibility_w": cp, "ob_ratio": obr, "integrity": integ or None, "stage": stage}
+    info = {"credibility_w": cp, "ob_ratio": obr, "integrity": integ or None, "stage": stage, "call_since": call_since}
 
     def res(d, why, missing=()):
         return {"d": d, "why": why, "missing": list(missing), **{k: v for k, v in info.items() if v is not None}}
@@ -1545,6 +1558,9 @@ def decision(L: dict, out_l, th: dict | None, scan: dict | None, setup: dict | N
         return res("Sell", s_)
     # 1 Not rated (research-based rules below need a verified forward driver)
     if not driver:
+        if scored:  # owner, 24 Nov 2026 (idea 2): scored, nothing removed it, no trigger of any kind -> Hold
+            return res("Hold", ["No trigger yet: no forward driver and no live code trigger"] + [lab(k) for k in ("surv", "qual", "val", "mom") if t[k]],
+                       ["No verified forward driver yet (guidance, order book or dated promise): queued for research"])
         return res("Not rated", [lab(k) for k in ("qual", "val") if t[k]],
                    ["No verified forward driver yet (guidance, order book or dated promise): queued for research"])
     # positives
@@ -1581,7 +1597,7 @@ def decision(L: dict, out_l, th: dict | None, scan: dict | None, setup: dict | N
                    ["Research to verify each open integrity item against later filings"])
     soft = [f"Unreviewed flag: {k}" for k in OTHER_FLAGS if k in watch]
     trend_ok = stage not in ("Downtrend", None)
-    ver = verification(th.get("audit"), filed, today)
+    ver = verification(th.get("audit"), filed, today, call_since)
     info["verified"] = ver["state"]
 
     def gated(label, why_):
@@ -1652,18 +1668,28 @@ def audit_flags(Mx: dict, lender: bool) -> list[str]:
     return [t for _, t in audit_flag_items(Mx, lender)]
 
 
-def verification(audit: dict | None, filed: str | None, today) -> dict:
+def _ist_today() -> str:
+    from datetime import datetime, timedelta, timezone
+    return str((datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)).date())
+
+
+def verification(audit: dict | None, filed: str | None, today, call_since: str | None = None, now=None) -> dict:
     """State of Claude's independent audit: pass / caution / fail / pending (none, stale, dated in the future, results filed
     after it, or the research it judged changed since: `changed_after`, set by mark_changed from the audit stamps)."""
     if not audit or not audit.get("verdict"):
         return {"state": "pending", "why": "Not yet verified by an independent audit"}
     d = str(audit.get("date") or "")
-    if d[:10] > str(today)[:10]:  # a future date would never go stale
+    # `today` is the data date (last trading day); Claude dates a review by the calendar (IST), which runs ahead on the day
+    # after a trading day, at weekends and on holidays: only a date after the calendar day is a future date (24 Nov 2026)
+    clock = max(str(today)[:10], str(now or _ist_today())[:10])
+    if d[:10] > clock:  # a future date would never go stale
         return {"state": "pending", "why": f"Audit dated {d}, after today: not valid"}
     if _days(d, today) > AUDIT_DAYS or (filed and filed > d):
         return {"state": "pending", "why": f"Audit of {d} is out of date" + (" (new results filed)" if filed and filed > d else "")}
     if audit.get("changed_after"):
         return {"state": "pending", "why": f"Research changed after the audit of {d} ({', '.join(audit['changed_after'])}): needs a fresh review"}
+    if call_since and call_since > d[:10]:  # owner, 24 Nov 2026: the review must have seen the latest earnings call
+        return {"state": "pending", "why": f"The latest earnings call was available from {call_since}, after the audit of {d}: needs a fresh review"}
     return {"state": audit["verdict"], "date": d, "summary": audit.get("summary"), "issues": [i.get("text") for i in audit.get("issues") or []][:5]}
 
 
@@ -1798,6 +1824,19 @@ def cash_conversion(Mx: dict) -> tuple[float | None, int | None]:
 # showed the candidates it blocked (mostly growing companies tying cash up in stock and receivables) beat the Nifty more often
 # than those it passed; Claude's review checks receivables and earnings quality for the rest.
 R1_MIN = 0.0
+# R4: a dated trigger, or price strength in the top third of the universe (owner, 24 Nov 2026). The replay showed the
+# trigger-only rule held back stocks the market was already buying: Top 10 12 m win 72% vs 59% with this rule.
+R4_RS_MIN = 2 / 3
+
+
+def rs_pct_of(L: dict) -> float | None:
+    """Relative strength vs the universe (0-1) from the momentum level: stored `rs_pct`, else P2's points (out of 15)."""
+    mom = (L or {}).get("mom") or {}
+    if mom.get("rs_pct") is not None:
+        return float(mom["rs_pct"])
+    p2 = next((i for i in mom.get("items") or [] if i.get("id") == "P2"), None)
+    pts = (p2 or {}).get("pts")
+    return pts[0] / pts[1] if isinstance(pts, list) and len(pts) == 2 and pts[0] is not None and pts[1] else None
 
 
 def buy_gates(Mx: dict, lender: bool, L: dict, th: dict | None, today) -> list[str]:
@@ -1811,11 +1850,13 @@ def buy_gates(Mx: dict, lender: bool, L: dict, th: dict | None, today) -> list[s
                  + (f"; only {yrs} full years filed" if yrs and yrs < 3 else ""))
     if not lender and oi is not None and oi > 25 and not th.get("other_income_recurring"):
         g.append(f"R2 other income {oi:.0f}% of pre-tax profit (needs ≤ 25%, or Claude to verify it is recurring)")
-    live = [x for x in ((L.get("out") or {}).get("triggers") or []) if x.get("id") != "T4"]
+    live = code_triggers(L)
     horizon = str(today + timedelta(days=548))
     dated = [d for d in th.get("drivers") or [] if d.get("due") and d.get("due_verified") and str(today) <= str(d["due"]) <= horizon]
-    if not live and not dated:
-        g.append("R4 no dated trigger yet (order win, commissioning date, guidance raise, value unlock)")
+    rs = rs_pct_of(L)
+    if not live and not dated and not (rs is not None and rs >= R4_RS_MIN):
+        g.append("R4 no dated trigger yet (order win, commissioning date, guidance raise, value unlock) and relative strength "
+                 + (f"{rs * 100:.0f}th percentile (needs the top third)" if rs is not None else "unknown"))
     val, disc = L.get("val") or {}, L.get("disc") or {}
     if val.get("t") == 3 and disc.get("t") in (4, 5):
         g.append(f"R6 no re-rating leg: {str(val.get('name')).lower()} and {str(disc.get('name')).lower()}")

@@ -40,6 +40,12 @@ jobs:
           path: data/source_cache
           key: sources-${{ github.run_id }}
           restore-keys: sources-
+      - uses: actions/cache/restore@v4
+        if: steps.skip.outputs.skip != 'true'
+        with:
+          path: data/news_cache
+          key: news-${{ github.run_id }}
+          restore-keys: news-
       - name: Run funnel
         if: steps.skip.outputs.skip != 'true'
         env:

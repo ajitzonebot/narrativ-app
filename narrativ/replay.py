@@ -4,7 +4,7 @@ At each month end T it rebuilds what the pipeline would have seen on T, with not
   - filings: only quarters whose XBRL was filed on or before T (data/financials, `filed` per quarter)
   - prices: closes up to T (the exchange-close store, data/source_cache/prices.pkl)
 and runs the same functions as run.py: metrics, the seven levels, entry setup, price signals (T11), the Buy gates that code
-decides (R1 positive operating cash flow, R2 other income, R4 dated trigger from price/results signals, R6 re-rating leg), the
+decides (R1 positive operating cash flow, R2 other income, R4 dated trigger from price/results signals or RS top third, R6 re-rating leg), the
 readiness ranking and the Top 10 caps (portfolio.top10).
 
 What it cannot replay: Claude's review and research (guidance, order books, drivers, verdicts), shareholding, analyst
@@ -146,10 +146,12 @@ def _score(T: str) -> dict:
             "eligible": not out_l and good("surv", 3) and good("qual", 3),
             "mos": tt["val"] in (1, 2, 3),  # no research: credibility unknown, so valuation tier 1-3 (decision rule 6)
             "trend": stage not in ("Downtrend", None),
-            "R1": bool(exempt) or cc is None or cc > FN.R1_MIN, "R1_50": bool(exempt) or cc is None or cc >= 50, "R1_25": bool(exempt) or cc is None or cc >= 25, "R2": bool(exempt) or oi is None or oi <= 25, "R4": bool(trig), "R4u": bool(trig) or bool(up["U1"][0] or up["U2"][0] or up["U3"][0]),
+            "R1": bool(exempt) or cc is None or cc > FN.R1_MIN, "R1_50": bool(exempt) or cc is None or cc >= 50, "R1_25": bool(exempt) or cc is None or cc >= 25, "R2": bool(exempt) or oi is None or oi <= 25, "R4": bool(trig) or float(rs_all.get(s, 0.5)) >= FN.R4_RS_MIN, "R4_trig": bool(trig), "R4u": bool(trig) or bool(up["U1"][0] or up["U2"][0] or up["U3"][0]),
             "R6": not (tt["val"] == 3 and tt["disc"] in (4, 5)),
             "rs": float(rs_all.get(s, 0.5)) * 100,
             "near": max(0.0, min(100.0, (1 - (1 - pxl / hi) / 0.30) * 100)) if hi and pxl else 50.0,
+            # confirmed breakout (study_recent 24 Nov 2026): within 10% of the 52-week high + RS top third + results beat T11
+            "cb": bool(hi and pxl and pxl >= 0.9 * hi) and float(rs_all.get(s, 0.5)) >= 2 / 3 and any(x.get("id") == "T11" for x in trig),
             "vs": L["val"].get("s"), "pr": FN.priority(L),
             "setup": 0 if su.get("type") in ("Breakout", "Pullback", "Base") else 2 if L["mom"].get("extended") else 1,
             "liq1": (t.get("traded_value_cr") or 0) >= 1, "liq5": (t.get("traded_value_cr") or 0) >= 5,
@@ -215,6 +217,13 @@ VARIANTS["U1 or U2 or U3 counts as R4 trigger"] = (["eligible", "mos", "trend", 
 # R1 softer levels (owner, 23 Nov 2026: R1 blocks the most candidates; replay showed the blocked ones beat the passed ones)
 VARIANTS["R1 at 50% cash conversion (17-23 Nov 2026)"] = (["eligible", "mos", "trend", "R1_50", "R2", "R4", "R6"], BASE_W)
 VARIANTS["R1 at 25% cash conversion"] = (["eligible", "mos", "trend", "R1_25", "R2", "R4", "R6"], BASE_W)
+# owner 24 Nov 2026, from the winners study: confirmed-breakout ranking boost and a softer R4
+VARIANTS["rank: +10 confirmed breakout"] = (CUR, {**BASE_W, "_boost": {"cb": 10}})
+VARIANTS["rank: +20 confirmed breakout"] = (CUR, {**BASE_W, "_boost": {"cb": 20}})
+VARIANTS["rank: confirmed breakouts first"] = (CUR, {**BASE_W, "_boost": {"cb": 1000}})
+VARIANTS["rank: confirmed breakouts ahead of setup tiers"] = (CUR, {**BASE_W, "_cbfirst": 1})
+VARIANTS["R4 dated trigger only (until 24 Nov 2026)"] = (["eligible", "mos", "trend", "R1", "R2", "R4_trig", "R6"], BASE_W)
+VARIANTS["without R4, +20 confirmed breakout"] = (["eligible", "mos", "trend", "R1", "R2", "R6"], {**BASE_W, "_boost": {"cb": 20}})
 # stricter entry: average daily traded value of at least Rs 1 crore / Rs 5 crore (can you buy and sell it)
 for g, lab in (("liq1", "₹1 cr"), ("liq5", "₹5 cr")):
     VARIANTS[f"plus turnover ≥ {lab} a day"] = (["eligible", "mos", "trend", "R1", "R2", "R4", "R6", g], BASE_W)
@@ -231,7 +240,10 @@ def _pick(rows: dict, gates: list[str], w: dict) -> list[str]:
         r = rows[s]
         blend = sum(wt * (r[k] if r[k] is not None else 50) for k, wt in w.items() if not k.startswith("_")) + (5 if r["mb"] else 0)
         blend += sum(pts for u, pts in (w.get("_boost") or {}).items() if r.get(u))
-        return (0 if w.get("_nosetup") else r["setup"], -blend)
+        tier = 0 if w.get("_nosetup") else r["setup"]
+        if w.get("_cbfirst") and r.get("cb"):
+            tier = -1  # confirmed breakouts ahead of every setup tier
+        return (tier, -blend)
     ranked = sorted(cand, key=key)
     out = [{"s": s, "dc": "Buy", "vf": "pass", "rk": i + 1, "i": rows[s]["i"], "sec": rows[s]["sec"], "mc": rows[s]["mc"]}
            for i, s in enumerate(ranked)]

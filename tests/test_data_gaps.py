@@ -59,8 +59,10 @@ def test_decision_label_stays_not_rated():
     for k in FN.LEVELS:
         L[k].update({"name": "x", "why": None})
     L["mom"]["items"] = [FN.it("P1", "Stage", 1, "Stage 2")]
+    d = FN.decision(L, None, {}, None, None, 100.0, None, today=date(2026, 11, 20), scored=False)
+    assert d["d"] == "Not rated"  # too little filed data: stays Not rated
     d = FN.decision(L, None, {}, None, None, 100.0, None, today=date(2026, 11, 20))
-    assert d["d"] == "Not rated"
+    assert d["d"] == "Hold" and d["why"][0].startswith("No trigger yet")  # owner, 24 Nov 2026 (idea 2)
 
 
 # ---------------------------------------------------------------- 2. Discovery score

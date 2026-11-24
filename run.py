@@ -2,6 +2,7 @@
 import argparse
 import json
 import math
+import re
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -400,6 +401,37 @@ def main(limit: int | None) -> None:
         print(f"[bseann] refresh failed: {e}")
         bse_ann = bseann._load()
     annc = {s: ANN.checks(ann_st, s, today, bse_ann) for s in syms}
+    # credit-rating actions the agencies upload to NSE (narrativ/ratings.py): A5 from the agencies' own filings
+    try:
+        from narrativ import ratings as RT
+        rat = RT.per_stock(RT.refresh(today), today)
+        n_a5 = 0
+        for s in syms:
+            a = RT.a5(rat.get(s))
+            if a and annc.get(s) is not None and (a[0] == 1 or (annc[s].get("A5") or (None,))[0] != 1):
+                n_a5 += annc[s].get("A5") != a
+                annc[s]["A5"] = a
+        H.source("credit ratings (NSE)", stocks=len(rat), downgrades_12m=sum(1 for v in rat.values() if v.get("downgrade")),
+                 upgrades_12m=sum(1 for v in rat.values() if v.get("upgrades")), negative_outlook=sum(1 for v in rat.values() if v.get("negative")),
+                 a5_from_agencies=n_a5)
+    except Exception as e:  # noqa: BLE001
+        print(f"[ratings] failed: {e}")
+        rat = {}
+    # insolvency public announcements (narrativ/ibbi.py): a listed company as the debtor fails A4; as the applicant, shown
+    try:
+        from narrativ import ibbi as IB
+        name_col = "longName" if "longName" in s0i.columns else None
+        names = {s: (s0i.loc[s, name_col] if name_col else None) or (mem.get(s) or {}).get("name") or "" for s in syms}
+        ins = IB.match(IB.refresh(), names, today)
+        for s, m in ins.items():
+            a = IB.a4(m)
+            if a and annc.get(s) is not None:
+                annc[s]["A4"] = a
+        H.source("insolvency notices (IBBI)", stocks=len(ins), as_debtor=sum(1 for v in ins.values() if v["as_debtor"]),
+                 as_applicant=sum(1 for v in ins.values() if v["as_applicant"]))
+    except Exception as e:  # noqa: BLE001
+        print(f"[ibbi] failed: {e}")
+        ins = {}
     print(f"[run] announcement checks for {sum(1 for v in annc.values() if v)} of {len(syms)} (BSE-only: {sum(1 for s in bo_codes if annc.get(s))} of {len(bo_codes)})")
 
     def ann_rows(s):
@@ -488,8 +520,30 @@ def main(limit: int | None) -> None:
         H.source("data issues", open=reg["open"], systemic_open=reg["open_systemic"], fixed=reg["fixed"])
     except Exception as e:  # noqa: BLE001
         print(f"[issues] failed: {e}")
+    # ---------- Latest earnings call (narrativ/latest_call.py; owner, 24 Nov 2026) ----------
+    # a review must have seen the call for the latest results quarter: exchange / company transcript, else AlphaStreet's
+    from narrativ import alphastreet as AS, latest_call as LC
+    calls, call_pre = {}, {}
+
+    def latest(s, filings):
+        try:
+            return LC.latest_call(s, (mx.get(s) or {}).get("last_quarter"), (mx.get(s) or {}).get("filed"), ann_st, filings, today,
+                                  AS.calls(s, today))
+        except Exception as e:  # noqa: BLE001
+            print(f"[calls] {s}: {type(e).__name__}: {e}")
+            return None
+
+    def call_of(s):  # after the exchange filings (ex) are loaded: NSE + BSE transcripts + AlphaStreet (its list is cached for the day)
+        if s not in calls:
+            calls[s] = latest(s, ex)
+        return calls[s]
+    for s in syms:  # stocks with a review: did the review see the latest call? (NSE transcripts + AlphaStreet; ex is not loaded yet)
+        if ((theses.get(s) or {}).get("audit") or {}).get("verdict"):
+            call_pre[s] = latest(s, {})
+    print(f"[calls] reviewed stocks: {len(call_pre)}, latest call found {sum(1 for c in call_pre.values() if c and c['state'] == 'found')}")
     dec = {s: FN.decision(ev[s]["L"], ev[s]["out"], theses.get(s), (theses.get(s) or {}).get("scan"), ev[s]["setup"], price_of(s), annc.get(s), today=today,
-                          filed=(mx.get(s) or {}).get("filed"))
+                          filed=(mx.get(s) or {}).get("filed"), scored=ev[s]["vd"] != "Not enough data",
+                          call_since=(call_pre.get(s) or {}).get("since"))
            for s in syms}
     # ---------- Open data issues and Buy gates (RULES.md; FN.apply_buy_rules, shared with republish.py) ----------
     gate_n = {}
@@ -555,7 +609,8 @@ def main(limit: int | None) -> None:
         src_ev = (ex.get(s) or {}).get("events") or ANN.recent_events(bse_ann if s.endswith(".BO") else ann_st, s)
         recent = (today - timedelta(days=7)).isoformat()  # first sight of a stock's history must not flood alerts
         # stored events take the current rules (a rule fix reaches filings already kept); one that turns red alerts like a new one
-        new_events += [(s, x) for x in EV.retype(rec.get("events", []), src_ev, str(today)) if (x.get("date") or "") >= recent]
+        all_ev = (ex.get(s) or {}).get("events") or ANN.recent_events(bse_ann if s.endswith(".BO") else ann_st, s, limit=None, info=True)
+        new_events += [(s, x) for x in EV.retype(rec.get("events", []), all_ev, str(today)) if (x.get("date") or "") >= recent]
         fresh = [ev for ev in src_ev if (ev.get("url") or f"{ev.get('date')}|{ev.get('text')}") not in known]
         if fresh:
             rec["events"] = sorted(rec.get("events", []) + fresh, key=lambda e: e.get("date") or "", reverse=True)[:80]
@@ -655,7 +710,25 @@ def main(limit: int | None) -> None:
     def researched_on(th):
         return max(x for x in (th.get("updated"), (th.get("scan") or {}).get("date"), (th.get("scan_raw") or {}).get("date"), "2000-01-01") if x)[:10]
 
-    for s in to_audit:
+    waits, ns_w = [], [None]
+
+    def intimation_text(url):  # the call-schedule letter (short PDF, cached by packs._text)
+        try:
+            from narrativ.filings import NSESession
+            ns_w[0] = ns_w[0] or NSESession()
+            return PK_text(url, ns_w[0])[0]
+        except Exception as e:  # noqa: BLE001
+            print(f"[calls] intimation {url[-40:]}: {str(e)[:80]}")
+            return None
+    from narrativ.packs import _text as PK_text
+    for s in to_audit:  # idea 2: results due soon, a scheduled call, or results out and the call not yet: review after it
+        rd = (cal.get(s) or {}).get("date")
+        sc = LC.scheduled_call(s, ann_st, today, intimation_text) if (calls.get(s) or call_of(s) or {}).get("state") != "found" else None
+        why = LC.waiting(call_of(s), today, rd, (sc or {}).get("date"))
+        if why:
+            waits.append(s)
+            dec[s]["missing"] = [why] + list(dec[s].get("missing") or [])
+            continue
         q(s, f"rules say {dec[s]['candidate']}: full review (verify every number, connect the dots, verdict) before it is shown as buyable",
           "review", {"checks": aflags[s]})
     # queue hygiene (narrativ/overdue.py): overdue kill switches / must-go-right items / promises go first among the rechecks,
@@ -772,10 +845,18 @@ def main(limit: int | None) -> None:
     if not limit:
         try:
             from narrativ import packs
-            packs.build(queue, today, ann_st, ex, dec, ev, mx, annc, theses, mem, MX.val, aflags)
+            for x in queue:  # every pack says whether the latest call is in it (idea 1)
+                call_of(x["symbol"])
+            packs.build(queue, today, ann_st, ex, dec, ev, mx, annc, theses, mem, MX.val, aflags, calls=calls)
             packs.doc_index(syms, ann_st, ex, today, rank_of, queue)  # what the free readers read next (narrativ/reader.py)
             pk = [json.loads(f.read_text()) for f in (OUT / "packs").glob("*.json")]
             dd = [d for x in pk for d in x.get("documents", [])]
+            lc = [x.get("latest_call") or {} for x in pk if x.get("task") in ("review", "audit")]
+            H.source("latest call in review packs", reviews=len(lc), in_pack=sum(1 for c in lc if c.get("in_pack")),
+                     from_alphastreet=sum(1 for c in lc if c.get("fallback") == "alphastreet"),
+                     found_not_readable=sum(1 for c in lc if c.get("state") == "found" and not c.get("in_pack")),
+                     missing=sum(1 for c in lc if c.get("state") == "missing"), no_filed_quarter=sum(1 for x in pk if x.get("task") in ("review", "audit") and not x.get("latest_call")),
+                     waiting=len(waits), stale_reviews=sum(1 for s in syms if any("latest earnings call was available" in str(m) for m in dec[s].get("missing") or [])))
             H.source("research packs", packs=len(pk), with_transcript=sum(1 for x in pk if any(d.get("kind") == "transcript" for d in x.get("documents", []))),
                      no_call=sum(1 for x in pk if x.get("no_call_note")), documents=len(dd),
                      poor_text=sum(1 for d in dd if (d.get("quality") or {}).get("grade") == "poor"),
@@ -789,6 +870,14 @@ def main(limit: int | None) -> None:
     except Exception as e:  # noqa: BLE001
         print(f"[run] mood failed: {e}")
         md = {}
+    try:  # foreign investors' equity flows with history since 2002 (narrativ/nsdl.py): shown with the mood, not scored yet
+        from narrativ import nsdl as NS
+        fp = NS.summary(NS.refresh(today), today)
+        if fp and isinstance(md, dict):
+            md["fpi_nsdl"] = fp
+        H.source("FPI flows (NSDL)", months=(fp or {}).get("months"), days=(fp or {}).get("days"), last_month=(fp or {}).get("month"))
+    except Exception as e:  # noqa: BLE001
+        print(f"[nsdl] failed: {e}")
     nifty_ok = bool(len(bench_close) > 200 and bench_close.iloc[-1] > bench_close.rolling(200).mean().iloc[-1])
     breadth = float(sum(1 for t in tech.values() if (t.get("dist200_pct") or 0) > 0) / len(tech)) if tech else 0.0  # own prices
     regime = "RISK ON" if nifty_ok and breadth >= 0.5 else "CAUTION" if nifty_ok or breadth >= 0.4 else "RISK OFF"
@@ -848,6 +937,8 @@ def main(limit: int | None) -> None:
         else:
             row["why"] = next((lv[k].get("w") for k in ("out", "qual", "val", "mom") if lv[k].get("w") and lv[k]["t"]), None)
             row["su"] = e["setup"]["type"]
+            if str(e["setup"].get("note") or "").startswith("No entry: trend broken"):
+                row["tb"] = 1  # app: "Avoid · trend broken" in lists, same as the Plan card
             row["bt"] = e["L"]["val"].get("type")
             if e["an"]:
                 row["up"] = e["an"]["upside"]
@@ -906,13 +997,61 @@ def main(limit: int | None) -> None:
             if k not in seen:
                 seen.add(k); out.append(x)
         return out
+    try:  # commodity prices that move each industry (narrativ/commodities.py): context on the dossier, not a rule
+        from narrativ import commodities as CM
+        cm = CM.refresh(today)
+        H.source("commodity prices", month=(cm or {}).get("month"), series=len((cm or {}).get("series") or {}),
+                 industries=len((cm or {}).get("industries") or {}), missing=len((cm or {}).get("missing_series") or []))
+    except Exception as e:  # noqa: BLE001
+        print(f"[commodities] failed: {e}")
+        CM, cm = None, None
+    basic_of = s0i["basic_industry"].to_dict() if "basic_industry" in s0i.columns else {}
+    try:  # the app's 'Latest call' card (AlphaBrief of the latest call): queue, Buys and candidates daily, the rest in turn
+        cards = AS.refresh_cards([x["symbol"] for x in queue] + [s for s in syms if dec[s].get("d") in ("Buy", "Strong Buy") or dec[s].get("candidate")],
+                                 [s for s in sorted(syms, key=lambda s: rank_of.get(s, 10 ** 9)) if s.endswith(".NS")], today)
+        H.source("call cards (AlphaStreet)", stored=len(cards))
+    except Exception as e:  # noqa: BLE001
+        print(f"[alphastreet] cards failed: {e}")
+        cards = {}
+    try:  # news headlines (publisher RSS, collected every 2 hours by news.yml) and the industry packs for Claude's reasons
+        from narrativ import news as NW
+        since30 = str(today - timedelta(days=30))
+        facts = {}
+        for ind_, r_ in rot_ind.items():
+            if r_.get("q") not in ("Leading", "Improving"):
+                continue
+            mem_ = [x for x in syms if ind_of.get(x) == ind_]
+            grow = [x for x in mem_ if (mx[x].get("rev_yoy_pct") or {}).get("v") is not None]
+            orders, urls = [], []
+            for x in mem_:
+                try:
+                    for e_ in ANN.recent_events(bse_ann if x.endswith(".BO") else ann_st, x, limit=None):
+                        if str(e_.get("date") or "") >= since30 and re.search(r"order|contract|award", str(e_.get("type") or ""), re.I):
+                            orders.append(x); urls.append(e_.get("url"))
+                            break
+                except Exception:  # noqa: BLE001
+                    pass
+            ups = [x for x in mem_ if any(a.get("action") == "Upgrade" and str(a.get("date") or "") >= since30 for a in (rat.get(x) or {}).get("actions") or [])]
+            comm = {}
+            for x in mem_:
+                for c_ in (CM.for_industry(cm, basic_of.get(x)) if CM else None) or []:
+                    comm[c_["series"]] = c_
+            facts[ind_] = {"members": len(mem_), "rev_growth_over_10pct": sum(1 for x in grow if mx[x]["rev_yoy_pct"]["v"] > 10), "rev_reported": len(grow),
+                           "above_200_day": sum(1 for x in mem_ if ((tech.get(x) or {}).get("dist200_pct") or -1) > 0),
+                           "order_wins_30d": sorted(set(orders)), "rating_upgrades_30d": ups, "commodities": list(comm.values()), "urls": [u for u in urls if u]}
+        news_of = NW.build([{"s": p_["s"], "n": p_.get("n"), "i": p_.get("i")} for p_ in picks], {"industries": rot_ind}, None, today, facts)
+        H.source("news headlines", stocks=len(news_of), headlines=sum(len(v) for v in news_of.values()), industry_packs=len(facts))
+    except Exception as e:  # noqa: BLE001
+        print(f"[news] failed: {e}")
+        news_of = {}
     for s in syms:
         if s not in detail_syms:
             continue
         e, Mx, f, t = ev[s], mx[s], fund.get(s) or {}, tech.get(s) or {}
         bd = (bulk.get(s) or [])[:5]
         det = {"metrics": Mx, "analyst": e["an"], "broker_targets": named_of.get(s), "levels": e["L"], "verdict": e["vd"], "decision": dec[s], "audit_flags": aflags.get(s) or None,
-               "conviction": conv.get(s),
+               "conviction": conv.get(s), "commodity": CM.for_industry(cm, basic_of.get(s)) if CM else None,
+               "ratings": rat.get(s), "insolvency": ins.get(s), "latest_call_card": cards.get(s), "news": news_of.get(s),
                "statement": FN.statement(e["vd"], e["L"]) if not e["out"] else f"Removed at L{e['out'][0]} {FN.LEVEL_NAMES[FN.LEVELS[e['out'][0] - 1]]}: {e['out'][1]}.",
                "standouts": standouts(e["L"]), "setup": e["setup"], "hist": [{k: (round(x, 2) if isinstance(x, float) else x) for k, x in h.items()} for h in e["hist"]],
                "scan": scan_state(s, theses.get(s) or {}, today, queued, (mem.get(s) or {}).get("checkpoints", [])),

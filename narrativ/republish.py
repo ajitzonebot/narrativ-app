@@ -47,7 +47,7 @@ def _verify(dec: dict, v: dict, filed: str | None, today) -> dict | None:
     label = dec.get("candidate") or (dec.get("d") if dec.get("d") in BUY else None)
     if not label:
         return None  # rules did not say Buy: the review informs, it does not change the rating
-    ver = FN.verification(v.get("audit"), filed, today)
+    ver = FN.verification(v.get("audit"), filed, today, dec.get("call_since"))  # same latest-call rule as the daily run
     why = [w for w in dec.get("why") or [] if not w.startswith(("Rules say", "Verified by Claude", "Independent audit", "Audit issue"))]
     if v.get("data_issues"):
         return {**dec, "d": "Hold", "candidate": label, "verified": ver["state"],

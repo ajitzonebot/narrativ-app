@@ -1,0 +1,45 @@
+name: sim
+
+# One-off rule simulations on today's published data (no downloads, no rule changes). Owner-approved studies only.
+on:
+  workflow_dispatch:
+    inputs:
+      module: { description: "Simulation module (narrativ.<name>)", default: "sim_notrated" }
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sim
+  cancel-in-progress: false
+
+jobs:
+  sim:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Simulate
+        env:
+          PYTHONUNBUFFERED: "1"
+          MOD: ${{ inputs.module }}
+        run: |
+          [[ "$MOD" =~ ^sim_[a-z0-9_]+$ ]] || { echo "module must be sim_<name>"; exit 1; }
+          python -m "narrativ.$MOD"
+      - name: Commit
+        env:
+          MOD: ${{ inputs.module }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/data/sim_*.json docs/research/sim_*.md
+          git diff --cached --quiet && exit 0
+          git commit -m "data: sim $MOD $(TZ=Asia/Kolkata date +%F)"
+          bash scripts/push_retry.sh

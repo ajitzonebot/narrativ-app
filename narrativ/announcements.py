@@ -34,10 +34,10 @@ _PR = re.compile(r"press release|media release|launch|product|partnership|soluti
                  r"sought clarification|clarification", re.I)
 _NIL = re.compile(r"\bnil\b|no default|not applicable|non-?applicab|no such", re.I)
 X = {
-    "A2": re.compile(r"default(s)?\s+(on|in)\s+(the\s+)?(re)?payment|default.{0,40}(loan|borrowing|debenture|\bncd|interest|principal|bank)|"
+    "A2": re.compile(r"(?<!issuer )default(s)?\s+(on|in)\s+(the\s+)?(re)?payment|(?<!issuer )default(?!\s+rating).{0,40}(loan|borrowing|debenture|\bncd|interest|principal|bank)|"
                      r"delay(ed)?\s+in\s+(payment|servicing).{0,40}(interest|principal|loan|debenture)|non-?payment of (interest|principal)", re.I),
     "A4": re.compile(r"corporate insolvency resolution process|\bcirp\b|interim resolution professional|liquidat|winding up|insolvency.{0,40}admit|admit.{0,40}insolvency", re.I),
-    "A5": re.compile(r"downgrad|rating.{0,40}(withdrawn|suspended)|\bissuer not cooperating\b|credit watch.{0,20}negative", re.I),
+    "A5": re.compile(r"(?<!esg )(?<!esg rating )downgrad|rating.{0,40}(withdrawn|suspended)|\bissuer not cooperating\b|credit watch.{0,20}negative|outlook.{0,30}negative", re.I),
     "G1": re.compile(r"(from|by|of)\s+(the\s+)?(sebi|securities and exchange board|reserve bank|rbi|stock exchanges?|nse|bse|national stock exchange)\b|"
                      r"\b(sebi|rbi|nse|bse)\b.{0,30}(order|penalt|show cause|adjudicat|fine)", re.I),
     "G1cat": re.compile(r"action\(s\) (taken|initiated)|orders? passed|show cause|adjudicat|penalt", re.I),
@@ -53,6 +53,98 @@ DEV = re.compile(r"statement of deviation|deviation\s*(or|/|&)\s*variation|monit
 _ORDER = re.compile(events._ORD + r"|contract|letter of award|\bloa\b|letter of intent|inspection|\b(oai|vai|nai|eir)\b|form[- ]?483|"
                     r"warning letter|import alert", re.I)
 _KEEP_OLD = re.compile("|".join(p.pattern for k, p in X.items() if k != "G1"), re.I)
+
+
+# ---------- NSE "Resignation of Director/KMP/SMP" filings (owner, 24 Nov 2026) ----------
+# The subject never names the role; the attachment (<SYM>_ROID_<n>_KMP_Doc.zip) holds SEBI's "Changes in Management" XBRL
+# form with each person's category (Director / KMP / Senior Management / Compliance Officer), designation and how they left.
+# The row is rewritten to say it ("Resignation of Chief Financial Officer (Key Managerial Personnel)"), so the CEO / CFO exit
+# checks (G4, C7) and the event typing see the role. Cached per url; at most ROID_PER_RUN new attachments a run.
+ROID_CACHE = Path("data/source_cache/roid")
+ROID_PER_RUN = 60
+ROID_CAT = "Change in management (NSE form)"
+_HOW = {"resignation": "Resignation of", "superannuation or retirement": "Retirement of", "retirement": "Retirement of",
+        "death": "Demise of", "removal": "Removal of", "disqualification": "Disqualification of"}
+_VAGUE = {"", "resignation", "cessation", "appointment", "change in designation", "na", "not applicable"}
+
+
+def roid_people(xml: str) -> list[dict]:
+    """SEBI Changes-in-Management XBRL -> [{how, category, designation, reason}] (reason: the form's brief reason, if any)."""
+    tags = re.findall(r"<in-capmkt(?:-ent)?:(\w+)[^>]*>([^<]{1,300})</", xml)
+    people, cur, reasons = [], None, []
+    for tag, val in tags:
+        val = " ".join(val.split())
+        if tag == "TypeOfChange":
+            cur = {"type": val}
+            people.append(cur)
+        elif cur is not None and tag == "CategoryOfCessation":
+            cur["how"] = val
+        elif cur is not None and tag == "CategoryForChange":
+            cur["category"] = val
+        elif cur is not None and tag == "DesignationOfDesignatedPerson":
+            cur["designation"] = val
+        elif tag == "ReasonOfResignationInBrief":
+            reasons.append(val)
+    out = []
+    for p in people:
+        if str(p.get("type", "")).lower() != "cessation":
+            continue
+        des = p.get("designation") or ""
+        out.append({"how": p.get("how") or "Cessation", "category": p.get("category") or "",
+                    "designation": "" if des.lower() in _VAGUE else des})
+    res = [p for p in out if p["how"].lower() == "resignation"]
+    if reasons and res:  # the brief reason is given for resignations
+        res[0]["reason"] = reasons[0]
+    return out
+
+
+def roid_text(people: list[dict]) -> str:
+    parts = []
+    for p in people:
+        role = p["designation"] or p["category"] or "director / KMP"
+        how = _HOW.get(p["how"].lower(), f"{p['how']} of")
+        parts.append(f"{how} {role}" + (f" ({p['category']})" if p["designation"] and p["category"] else ""))
+    r = next((p["reason"] for p in people if p.get("reason")), None)
+    return "; ".join(parts) + (f". Reason: {r}" if r else "")
+
+
+def roid_fetch(url: str, ns) -> str | None:
+    """Readable summary of a ROID attachment (cached), or None when it cannot be read."""
+    import hashlib
+    import io
+    import zipfile
+    f = ROID_CACHE / (hashlib.sha1(url.encode()).hexdigest() + ".txt")
+    if f.exists():
+        return f.read_text() or None
+    try:
+        r = ns.s.get(url, timeout=60)
+        z = zipfile.ZipFile(io.BytesIO(r.content))
+        xml = next((z.read(n).decode("utf-8", "replace") for n in z.namelist() if n.lower().endswith(".xml")), "")
+        t = roid_text(roid_people(xml))
+    except Exception as e:  # noqa: BLE001
+        print(f"[ann] ROID {url[-40:]}: {str(e)[:80]}")
+        return None
+    ROID_CACHE.mkdir(parents=True, exist_ok=True)
+    f.write_text(t)
+    return t or None
+
+
+def _roid_rows(st: dict, ns, today: date) -> int:
+    """Rewrite stored ROID rows (last RECENT_DAYS + 24 months kept by _KEEP_OLD afterwards) with the role from the form."""
+    n, since = 0, (today - timedelta(days=31 * MONTHS)).isoformat()
+    for rows in st["rows"].values():
+        for r in rows:
+            if r[1] == ROID_CAT or "_ROID_" not in str(r[3] or "") or r[0] < since:
+                continue
+            cached = (ROID_CACHE / (__import__("hashlib").sha1(str(r[3]).encode()).hexdigest() + ".txt")).exists()
+            if not cached and n >= ROID_PER_RUN:
+                continue
+            ns = ns or NSESession()
+            t = roid_fetch(r[3], ns)
+            n += 0 if cached else 1
+            if t:
+                r[1], r[2] = ROID_CAT, t[:600]
+    return n
 
 
 def _load() -> dict:
@@ -166,6 +258,8 @@ def refresh(today: date, max_minutes: float = 15) -> dict:
             st["last"] = today.isoformat()
     for sym in st["rows"]:
         st["rows"][sym].sort(key=lambda r: r[0], reverse=True)
+    if time.time() - t0 < max_minutes * 60:
+        print(f"[ann] ROID forms read: {_roid_rows(st, ns, today)}")
     # drop rows older than the window and long-past recent detail
     cut, cut_recent = (today - timedelta(days=31 * MONTHS)).isoformat(), (today - timedelta(days=RECENT_DAYS)).isoformat()
     st["rows"] = {s: [r for r in rs if r[0] >= cut and (r[0] >= cut_recent or _KEEP_OLD.search(f"{r[1]} {r[2]}") or DEV.search(f"{r[1]} {r[2]}") or (len(r) > 5 and r[5] in ("Transcript", "Investor presentation")))] for s, rs in st["rows"].items()}
@@ -240,11 +334,12 @@ def checks(st: dict, sym: str, today: date, bse: dict | None = None) -> dict | N
     return res
 
 
-def recent_events(st: dict, sym: str, limit: int = 20) -> list[dict]:
-    """Red and green events (info is left out to keep memory small) for any covered company, newest first."""
+def recent_events(st: dict, sym: str, limit: int | None = 20, info: bool = False) -> list[dict]:
+    """Red and green events (info is left out to keep memory small) for any covered company, newest first.
+    info=True: every typed row (used to re-type stored events: a red that a rule fix turns into info must be found)."""
     rows = st["rows"].get(sym, [])
     evs = events.from_announcements([{"date": d, "text": txt or cat, "category": cat, "url": url} for d, cat, txt, url, *_ in rows])
-    return [e for e in evs if e["sev"] != "info"][:limit]
+    return [e for e in evs if info or e["sev"] != "info"][:limit]
 
 
 if __name__ == "__main__":  # Actions smoke test: python -m narrativ.announcements SYM...

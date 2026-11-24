@@ -91,6 +91,23 @@ fun CollapseCard(title: String, right: String = "", modifier: Modifier = Modifie
 @Composable
 fun TypeTag(text: String, color: Color) = StatusChip(text, color = color, minWidth = 0.dp)
 
+/** A load that has finished: [v] is null when it failed or found nothing. A null Fetched means still loading. */
+data class Fetched<T>(val v: T?)
+
+/** Placeholder card while a screen's data loads (grey bars in the shape of a figure card). */
+@Composable
+fun LoadingCard(lines: Int = 3) {
+    Card(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth(), pad = 16.dp) {
+        Skel(120.dp, 12.dp)
+        Skel(160.dp, 30.dp, Modifier.padding(top = 10.dp))
+        repeat(lines) { Skel(null, 14.dp, Modifier.padding(top = 10.dp)) }
+    }
+}
+
+/** Grey placeholder lines inside a card section while it loads. */
+@Composable
+fun SkelLines(n: Int = 3) = Column { repeat(n) { Skel(null, 14.dp, Modifier.padding(vertical = 5.dp)) } }
+
 // ---------------------------------------------------------------- extra fields of calls.json / health.json / data_issues.json
 @Serializable data class MatStat(val n: Int = 0, @SerialName("avg_pct") val avgPct: Double? = null, @SerialName("hit_pct") val hitPct: Double? = null,
                                  @SerialName("avg_vs_nifty") val avgVsNifty: Double? = null)
@@ -106,22 +123,24 @@ private suspend inline fun <reified A : Any, reified B : Any> Repo.get2(path: St
     text(path)?.let { t -> runCatching { json.decodeFromString<A>(t) to json.decodeFromString<B>(t) }.getOrNull() }
 
 // ---------------------------------------------------------------- a03 Track record
-private val MIX_GOAL = listOf(Triple("Multibagger", 2, TierC.lightGreen), Triple("Beat Nifty", 3, TierC.darkGreen),
-    Triple("Near Nifty", 3, C.dim), Triple("Behind Nifty", 2, TierC.lightRed))
+/** Outcome buckets, better = darker green (Home's How-we-know bar uses the same names and colours). */
+private val MIX_GOAL = listOf(Triple("Multibagger", 2, TierC.darkGreen), Triple("Beat Nifty", 3, TierC.lightGreen),
+    Triple("Near Nifty", 3, C.grey), Triple("Behind Nifty", 2, TierC.lightRed))
 
 @Composable
 fun TrackRecordScreen(st: AppState) {
-    val cf by produceState<CallsFile?>(null) { value = st.repo.get<CallsFile>("data/calls.json") }
+    val cf by produceState<Fetched<CallsFile>?>(null) { value = Fetched(st.repo.get<CallsFile>("data/calls.json")) }
     val mat by produceState<CallsMat?>(null) { value = st.repo.get<CallsMat>("data/calls.json") }
-    val c = cf
+    val c = cf?.v
     val v = c?.calls.orEmpty().filter { it.kind == "verified" }
-    AccScreen(st, "Track record", if (v.isEmpty()) "Verified Buys vs Nifty" else "Verified Buys since ${shortDate(v.minOf { it.date })}", "Track record") {
-        if (c == null) { item { Empty("Loading…") }; return@AccScreen }
+    AccScreen(st, "Track record", if (v.isEmpty()) "Verified Buys vs Nifty" else "Verified Buys since ${skDay(v.minOf { it.date })}", "Track record") {
+        if (cf == null) { item { LoadingCard() }; item { LoadingCard(4) }; return@AccScreen }
+        if (c == null) { item { Empty("The track record loads with an internet connection.") }; return@AccScreen }
         val sm = c.summary.now
         item {
             Card(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth(), pad = 16.dp) {
-                T("AVERAGE VS NIFTY, PER BUY", 11.sp, C.dim)
-                T(sg(sm?.avgVsNifty), 36.sp, plColor(sm?.avgVsNifty), FontWeight.ExtraBold, modifier = Modifier.padding(top = 2.dp, bottom = 12.dp))
+                T("Average vs Nifty, per Buy", LABEL, C.dim)
+                T(vsNifty(sm?.avgVsNifty), 36.sp, plColor(sm?.avgVsNifty), FontWeight.ExtraBold, modifier = Modifier.padding(top = 2.dp, bottom = 12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Cell("Verified Buys", "${v.size}", Modifier.weight(1f))
                     Cell("Avg return", sg(sm?.avgPct), Modifier.weight(1f), plColor(sm?.avgPct))
@@ -138,7 +157,7 @@ fun TrackRecordScreen(st: AppState) {
                         val s = ms[k]
                         Row(Modifier.clip(RoundedCornerShape(8.dp)).background(C.sheet).padding(horizontal = 8.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                             T(k.uppercase(), 12.sp, C.dim)
-                            T(if (s != null && s.n > 0) sg(s.avgVsNifty, 1) else "—", 12.sp, if (s != null && s.n > 0) plColor(s.avgVsNifty) else C.white, FontWeight.Medium)
+                            T(if (s != null && s.n > 0) vsNifty(s.avgVsNifty) else "–", 12.sp, if (s != null && s.n > 0) plColor(s.avgVsNifty) else C.white, FontWeight.Medium)
                         }
                     }
                 }
@@ -210,12 +229,12 @@ private fun OnePortfolioCard(p: CallPortfolio?) {
     }
 }
 
-private fun vsNifty(c: CallRec): Double? = if (c.ended != null) c.toEndVsNifty else c.nowVsNifty
+private fun callVs(c: CallRec): Double? = if (c.ended != null) c.toEndVsNifty else c.nowVsNifty
 
 @Composable
 private fun EveryBuyCard(st: AppState, v: List<CallRec>) {
-    val sorted = v.sortedWith(compareBy<CallRec> { vsNifty(it) == null }.thenByDescending { vsNifty(it) ?: 0.0 })
-    val mx = sorted.mapNotNull { vsNifty(it)?.let { x -> abs(x) } }.maxOrNull()?.takeIf { it > 0 } ?: 1.0
+    val sorted = v.sortedWith(compareBy<CallRec> { callVs(it) == null }.thenByDescending { callVs(it) ?: 0.0 })
+    val mx = sorted.mapNotNull { callVs(it)?.let { x -> abs(x) } }.maxOrNull()?.takeIf { it > 0 } ?: 1.0
     var all by remember { mutableStateOf(false) }
     val shown = if (all) sorted else sorted.take(15)
     Card(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth(), pad = 16.dp) {
@@ -243,12 +262,12 @@ private fun EveryBuyCard(st: AppState, v: List<CallRec>) {
 @Composable
 private fun BuyRow(c: CallRec, mx: Double, onClick: () -> Unit) {
     val closed = c.ended != null
-    val v = vsNifty(c)
+    val v = callVs(c)
     val col = plColor(v)
     Row(Modifier.fillMaxWidth().clickable(onClick = onClick).defaultMinSize(minHeight = 46.dp).padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.width(100.dp)) {
             T(c.symbol.substringBeforeLast("."), 13.sp, weight = FontWeight.SemiBold, maxLines = 1)
-            T(shortDate(c.date) + if (closed) " · closed" else "", 10.5.sp, C.dim, maxLines = 1)
+            T(skDay(c.date) + if (closed) " · closed" else "", 10.5.sp, C.dim, maxLines = 1)
         }
         Box(Modifier.weight(1f).height(20.dp)) {
             Canvas(Modifier.fillMaxSize()) {
@@ -268,7 +287,7 @@ private fun BuyRow(c: CallRec, mx: Double, onClick: () -> Unit) {
                 Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.CenterStart) { T("day 0", 11.sp, C.dim, modifier = Modifier.padding(start = 6.dp)) }
             }
         }
-        T(if (v == null) "—" else sg(v, 2, ""), 13.sp, col, FontWeight.SemiBold, modifier = Modifier.width(56.dp), maxLines = 1, align = TextAlign.End)
+        T(if (v == null) "–" else sg(v, 2, ""), 13.sp, col, FontWeight.SemiBold, modifier = Modifier.width(56.dp), maxLines = 1, align = TextAlign.End)
     }
 }
 
@@ -279,10 +298,12 @@ private data class SrcRow(val name: String, val figure: String, val pct: Double?
 
 @Composable
 fun DataPipelineScreen(st: AppState) {
-    val hh by produceState<Pair<Health, HealthU>?>(null) { value = st.repo.get2<Health, HealthU>("data/health.json") }
-    val ii by produceState<Pair<IssuesFile, IssuesU>?>(null) { value = st.repo.get2<IssuesFile, IssuesU>("data/data_issues.json") }
-    val sched by produceState<Schedule?>(null) { value = st.repo.get<Schedule>("data/schedule.json") }
-    val runs by produceState<List<RunRec>?>(null) { value = st.repo.get<List<RunRec>>("data/runs.json") }
+    // Fetched: null while loading (placeholders), Fetched(null) when the file is missing or offline (empty text)
+    val hhF by produceState<Fetched<Pair<Health, HealthU>>?>(null) { value = Fetched(st.repo.get2<Health, HealthU>("data/health.json")) }
+    val iiF by produceState<Fetched<Pair<IssuesFile, IssuesU>>?>(null) { value = Fetched(st.repo.get2<IssuesFile, IssuesU>("data/data_issues.json")) }
+    val schedF by produceState<Fetched<Schedule>?>(null) { value = Fetched(st.repo.get<Schedule>("data/schedule.json")) }
+    val runsF by produceState<Fetched<List<RunRec>>?>(null) { value = Fetched(st.repo.get<List<RunRec>>("data/runs.json")) }
+    val hh = hhF?.v; val ii = iiF?.v; val sched = schedF?.v; val runs = runsF?.v
     val scope = rememberCoroutineScope()
     val today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kolkata")).toString()
     AccScreen(st, "Data and pipeline", null, "Data") {
@@ -292,8 +313,9 @@ fun DataPipelineScreen(st: AppState) {
             Card(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth(), pad = 16.dp) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        T("LAST RUN", 11.sp, C.dim)
-                        T(if (h != null) "${istTime(h.finished)} IST" else "Data of ${shortDate(st.picks?.date)}", 20.sp, weight = FontWeight.Bold, maxLines = 1)
+                        T("Last run", LABEL, C.dim)
+                        if (hhF == null) Skel(130.dp, 22.dp, Modifier.padding(top = 2.dp))
+                        else T(if (h != null) "${istTime(h.finished)} IST" else "Data of ${shortDate(st.picks?.date)}", 20.sp, weight = FontWeight.Bold, maxLines = 1)
                     }
                     HeaderPill(Icons.Rounded.Refresh, "Check for data") {
                         scope.launch {
@@ -324,14 +346,15 @@ fun DataPipelineScreen(st: AppState) {
                     Bars(mins, Modifier.padding(top = 6.dp).fillMaxWidth().height(92.dp),
                         labels = rs.mapIndexed { i, r -> if (i == 0) shortDate(r.date) else if (i == rs.lastIndex) "latest" else "" },
                         valueFmt = { x -> if (x == mins.last()) fmt(x, 1) else "" },
-                        colors = rs.map { if (it.problems >= 2) C.amber else C.teal }, highlightLast = true, base = 0.0)
+                        colors = rs.map { if (it.problems >= 2) C.amber else C.grey }, highlightLast = true, base = 0.0)
                 }
             }
         }
         val s = sched
         item {
             CollapseCard("Today's schedule", if (s == null) "" else "${s.jobs.size} jobs · next 17:10") {
-                if (s == null) T("The schedule appears after the next daily run.", 13.sp, C.dim) else {
+                if (schedF == null) SkelLines(4)
+                else if (s == null) T("The schedule appears after the next daily run.", 13.sp, C.dim) else {
                     s.note?.let { T(it, 11.sp, C.dim, lineHeight = 15.sp, modifier = Modifier.padding(bottom = 6.dp)) }
                     val reviewsToday = st.research.values.count { it.updated == today }
                     s.jobs.forEach { j ->
@@ -352,8 +375,9 @@ fun DataPipelineScreen(st: AppState) {
         item { SecHead("Sources", "coverage of the universe") }
         item {
             Card(Modifier.padding(horizontal = 16.dp, vertical = 4.dp).fillMaxWidth(), pad = 0.dp) {
-                val rows = if (hh == null) emptyList() else sourceRows(hh!!.first, hh!!.second)
-                if (rows.isEmpty()) Box(Modifier.padding(14.dp)) { T("Source coverage appears after the next daily run.", 13.sp, C.dim) }
+                val rows = if (hh == null) emptyList() else sourceRows(hh.first, hh.second)
+                if (hhF == null) Box(Modifier.padding(14.dp)) { SkelLines(5) }
+                else if (rows.isEmpty()) Box(Modifier.padding(14.dp)) { T("Source coverage appears after the next daily run.", 13.sp, C.dim) }
                 rows.forEachIndexed { i, r ->
                     Row(Modifier.fillMaxWidth().defaultMinSize(minHeight = 44.dp).padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
                         T(r.name, 14.sp, maxLines = 1, modifier = Modifier.width(112.dp))
@@ -371,7 +395,8 @@ fun DataPipelineScreen(st: AppState) {
         item {
             val iss = ii
             CollapseCard("Data issues", if (iss == null) "" else "${iss.first.open} open · ${iss.second.corrected} corrected") {
-                if (iss == null || iss.first.issues.isEmpty()) T("No data issue logged yet. Audits add them as they find wrong numbers.", 13.sp, C.dim)
+                if (iiF == null) SkelLines(3)
+                else if (iss == null || iss.first.issues.isEmpty()) T("No data issue logged yet. Audits add them as they find wrong numbers.", 13.sp, C.dim)
                 else {
                     T("${iss.first.open} open (${iss.first.openSystemic} systemic) · ${iss.first.fixed} fixed", 13.sp, weight = FontWeight.SemiBold)
                     iss.first.issues.values.sortedWith(compareBy<DataIssue> { it.status != "open" }.thenByDescending { it.firstSeen }).take(30).forEach { d ->
@@ -379,7 +404,7 @@ fun DataPipelineScreen(st: AppState) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 T(d.symbol.substringBeforeLast("."), 13.sp, weight = FontWeight.SemiBold)
                                 TypeTag(d.scope, if (d.scope == "systemic") C.amber else C.grey)
-                                T(if (d.status == "fixed") "fixed ${d.fixedOn ?: ""}" else d.status, 11.sp, if (d.status == "fixed") TierC.lightGreen else TierC.lightRed)
+                                T(if (d.status == "fixed") "fixed" + (d.fixedOn?.let { " " + skDay(it) } ?: "") else d.status, 11.sp, if (d.status == "fixed") TierC.lightGreen else TierC.lightRed)
                             }
                             T("${d.field}: app ${d.app ?: "–"} → filed ${d.found ?: "–"}", 12.sp, C.dim)
                             d.cause?.let { T(it.replaceFirstChar { c -> c.uppercase() }, 12.sp) }
@@ -389,9 +414,10 @@ fun DataPipelineScreen(st: AppState) {
             }
         }
         item {
-            CollapseCard("Last runs", "${runs?.size ?: 0} runs") {
+            CollapseCard("Last runs", if (runsF == null) "" else "${runs?.size ?: 0} runs") {
                 val rs = runs
-                if (rs.isNullOrEmpty()) T("Run history appears after the next daily run.", 13.sp, C.dim)
+                if (runsF == null) SkelLines(4)
+                else if (rs.isNullOrEmpty()) T("Run history appears after the next daily run.", 13.sp, C.dim)
                 else rs.forEach { x ->
                     Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
                         T("${shortDate(x.date)} · finished ${istTime(x.finished)}", 13.sp, modifier = Modifier.weight(1f), maxLines = 1)
@@ -403,26 +429,27 @@ fun DataPipelineScreen(st: AppState) {
         }
         item {
             CollapseCard("Details", "Stages · log · coverage") {
+                if (hhF == null) { SkelLines(4); return@CollapseCard }
                 if (h == null) { T("Pipeline health appears after the next daily run.", 13.sp, C.dim); return@CollapseCard }
-                T("STAGES · MINUTES IN THE LAST RUN", 11.sp, C.dim, FontWeight.Bold)
+                T("Stages · minutes in the last run", LABEL, C.dim, FontWeight.SemiBold)
                 val total = h.stages.sumOf { it.getOrNull(1)?.content?.toDoubleOrNull() ?: 0.0 }.coerceAtLeast(1.0)
                 h.stages.forEach { sg0 ->
                     val name = sg0.getOrNull(0)?.content ?: ""; val sec = sg0.getOrNull(1)?.content?.toDoubleOrNull() ?: 0.0
                     Column(Modifier.padding(vertical = 4.dp)) {
                         Row { T(name.replaceFirstChar { it.uppercase() }, 13.sp, modifier = Modifier.weight(1f)); T("${fmt(sec / 60, 1)} min", 13.sp, C.dim) }
-                        ProgBar((sec / total).toFloat(), C.teal, Modifier.padding(top = 3.dp).fillMaxWidth(), height = 4.dp)
+                        ProgBar((sec / total).toFloat(), C.grey, Modifier.padding(top = 3.dp).fillMaxWidth(), height = 4.dp)
                     }
                 }
-                T("LOG · ${if (h.problems.isEmpty()) "no problems in the last run" else "lines flagged in the last run"}", 11.sp, C.dim, FontWeight.Bold, Modifier.padding(top = 12.dp))
+                T("Log · ${if (h.problems.isEmpty()) "no problems in the last run" else "lines flagged in the last run"}", LABEL, C.dim, FontWeight.SemiBold, Modifier.padding(top = 12.dp))
                 h.problems.take(40).forEach { T(it, 12.sp, C.amber, lineHeight = 16.sp, modifier = Modifier.padding(vertical = 3.dp)) }
-                T("STORES AFTER THE LAST RUN", 11.sp, C.dim, FontWeight.Bold, Modifier.padding(top = 12.dp))
+                T("Stores after the last run", LABEL, C.dim, FontWeight.SemiBold, Modifier.padding(top = 12.dp))
                 h.sources.forEach { (k, m) ->
                     Column(Modifier.padding(vertical = 4.dp)) {
                         T(k.replaceFirstChar { it.uppercase() }, 13.sp, weight = FontWeight.SemiBold)
                         T(m.entries.joinToString(" · ") { (a, b) -> "${a.replace('_', ' ')} ${b.content}" }, 12.sp, C.dim)
                     }
                 }
-                T("CHECK COVERAGE · STOCKS WITH DATA", 11.sp, C.dim, FontWeight.Bold, Modifier.padding(top = 12.dp))
+                T("Check coverage · stocks with data", LABEL, C.dim, FontWeight.SemiBold, Modifier.padding(top = 12.dp))
                 LEVELS.forEachIndexed { i, lk ->
                     val rows = h.checks.filter { it.level == lk }
                     if (rows.isNotEmpty()) {
@@ -437,7 +464,7 @@ fun DataPipelineScreen(st: AppState) {
                         }
                     }
                 }
-                T("WHERE EACH NUMBER COMES FROM", 11.sp, C.dim, FontWeight.Bold, Modifier.padding(top = 12.dp))
+                T("Where each number comes from", LABEL, C.dim, FontWeight.SemiBold, Modifier.padding(top = 12.dp))
                 SOURCES.forEach { x ->
                     var open by remember { mutableStateOf(false) }
                     Column(Modifier.fillMaxWidth().clickable { open = !open }.padding(vertical = 6.dp)) {
@@ -479,7 +506,7 @@ private fun sourceRows(h: Health, u: HealthU): List<SrcRow> {
 
 // ---------------------------------------------------------------- a07 Research queue
 /** Queue task -> colour (task names and meanings are in QUEUE_TASKS). */
-private val TASK_COLOR = mapOf("review" to TierC.lightGreen, "review_flag" to C.amber, "recheck" to C.blue, "enrich" to C.muted)
+private val TASK_COLOR = mapOf("review" to TierC.lightGreen, "review_flag" to C.amber, "recheck" to C.grey, "enrich" to C.muted)
 fun queueTaskColor(task: String?): Color = TASK_COLOR[task] ?: C.dim
 fun queueTaskName(task: String?): String = (QUEUE_TASKS[task] ?: QUEUE_TASKS.getValue("scan")).first
 
@@ -502,25 +529,22 @@ fun ResearchQueueScreen(st: AppState) {
             Card(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth(), pad = 0.dp) {
                 shown.forEachIndexed { n, it ->
                     val p = st.pick(it.symbol); val col = queueTaskColor(it.task)
+                    // one count everywhere: a full review says "Review N of M" (its place among pending reviews, as on the stock page);
+                    // other tasks keep their own name, with no competing number
+                    val label = (if (it.task == "review") queueLabel(st, it.symbol) else null) ?: queueTaskName(it.task)
                     Row(Modifier.fillMaxWidth().clickable { st.go(Screen.Stock(it.symbol)) }.defaultMinSize(minHeight = 52.dp).padding(horizontal = 14.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically) {
-                        T("${n + 1}", 13.sp, C.dim, modifier = Modifier.width(26.dp), align = TextAlign.End)
-                        Box(Modifier.padding(horizontal = 10.dp).size(3.dp, 30.dp).clip(RoundedCornerShape(2.dp)).background(col))
+                        Box(Modifier.padding(end = 12.dp).size(3.dp, 30.dp).clip(RoundedCornerShape(2.dp)).background(col))
                         Column(Modifier.weight(1f)) {
                             T(it.symbol.substringBeforeLast("."), 15.sp, weight = FontWeight.SemiBold, maxLines = 1)
                             T((it.reason ?: p?.n ?: "").substringBefore(":"), 12.sp, C.dim, maxLines = 1)
                         }
-                        T(queueTaskName(it.task), 12.sp, col, FontWeight.SemiBold, maxLines = 1)
+                        T(label, 12.sp, col, FontWeight.SemiBold, maxLines = 1, modifier = Modifier.padding(start = 8.dp))
                     }
                     if (n < shown.lastIndex) HLineDivider(Modifier.padding(horizontal = 14.dp))
                 }
-            }
-        }
-        if (q.items.size > 12) item {
-            Card(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth(), pad = 0.dp, onClick = { all = !all }) {
-                Row(Modifier.fillMaxWidth().height(52.dp).padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                    T(if (all) "Show first 12" else "${q.items.size - 12} more", 14.sp, modifier = Modifier.weight(1f))
-                    T("ranks 13 to ${q.items.size}", 12.sp, C.dim)
+                if (q.items.size > 12) Box(Modifier.padding(start = 14.dp, end = 14.dp, bottom = 10.dp)) {
+                    MoreLink(if (all) "Show first 12" else "${q.items.size - 12} more stocks") { all = !all }
                 }
             }
         }
@@ -537,16 +561,17 @@ fun ResearchQueueScreen(st: AppState) {
 }
 
 // ---------------------------------------------------------------- a09 Version and release notes
-private fun changeTag(type: String): Pair<String, Color> = when (type) {
-    "new" -> "NEW" to C.blue; "change", "imp", "improved" -> "CHANGED" to C.muted; "fix" -> "FIX" to C.dim; else -> type.uppercase() to C.dim
+/** Release-note tag: one word, sentence case, the same grey chip everywhere (tags are not tappable, so never blue). */
+fun changeTag(type: String): String = when (type) {
+    "new" -> "New"; "change", "changed" -> "Changed"; "imp", "improved" -> "Improved"; "fix" -> "Fix"; else -> type.replaceFirstChar { it.uppercase() }
 }
 
+/** One change in release notes (Release notes screen, older releases, update dialog). */
 @Composable
-private fun ChangeLine(c: Change) {
-    val (t, col) = changeTag(c.type)
+fun ChangeLine(c: Change) {
     Row(Modifier.padding(vertical = 7.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        Box(Modifier.width(70.dp).clip(RoundedCornerShape(6.dp)).background(col.copy(alpha = 0.12f)).padding(vertical = 3.dp), contentAlignment = Alignment.Center) {
-            T(t, 10.sp, col, FontWeight.Bold, maxLines = 1)
+        Box(Modifier.width(70.dp).clip(RoundedCornerShape(S.inner)).background(C.chip).padding(vertical = 3.dp), contentAlignment = Alignment.Center) {
+            T(changeTag(c.type), 11.sp, C.muted, FontWeight.SemiBold, maxLines = 1)
         }
         T(c.text, 14.sp, lineHeight = 19.sp, modifier = Modifier.weight(1f))
     }
@@ -560,7 +585,7 @@ private fun ChangeBars(rs: List<Release>, modifier: Modifier = Modifier.size(70.
         val mx = rs.maxOf { it.changes.size }.coerceAtLeast(1); val bw = size.width / rs.size
         rs.reversed().forEachIndexed { i, r ->
             val h = (r.changes.size.toFloat() / mx * size.height).coerceAtLeast(2.dp.toPx())
-            drawRoundRect(C.teal.copy(alpha = 0.7f), Offset(i * bw + 1.dp.toPx(), size.height - h), Size(bw - 3.dp.toPx(), h), CornerRadius(2.dp.toPx()))
+            drawRoundRect(C.grey.copy(alpha = 0.7f), Offset(i * bw + 1.dp.toPx(), size.height - h), Size(bw - 3.dp.toPx(), h), CornerRadius(2.dp.toPx()))
         }
     }
 }
@@ -571,7 +596,12 @@ fun ReleaseNotesScreen(st: AppState) {
     val scope = rememberCoroutineScope()
     var allNew by remember { mutableStateOf(false) }
     var older by remember { mutableStateOf(false) }
-    AccScreen(st, "Version", null, "Version") {
+    // version.json normally comes with the app's load; if it is not here yet, fetch it once so loading and offline differ
+    val tried by produceState(st.version != null) {
+        if (st.version == null) st.repo.get<VersionInfo>("app/version.json")?.let { st.version = it }
+        value = true
+    }
+    AccScreen(st, "Release notes", null, "Release notes") {
         val newer = (v?.versionCode ?: 0) > BuildConfig.VERSION_CODE
         val rel = v?.changelog?.firstOrNull { it.version == BuildConfig.VERSION_NAME } ?: v?.changelog?.firstOrNull()
         item {
@@ -579,25 +609,26 @@ fun ReleaseNotesScreen(st: AppState) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         T("v${BuildConfig.VERSION_NAME}", 26.sp, weight = FontWeight.ExtraBold)
-                        T("installed" + (v?.changelog?.firstOrNull { it.version == BuildConfig.VERSION_NAME }?.let { " · released ${shortDate(it.date)}" } ?: ""), 12.sp, C.dim)
+                        T("installed" + (v?.changelog?.firstOrNull { it.version == BuildConfig.VERSION_NAME }?.let { " · released ${skDay(it.date)}" } ?: ""), 12.sp, C.dim)
                     }
-                    val col = if (newer) C.blue else TierC.lightGreen
+                    val col = if (newer) C.amber else TierC.lightGreen
                     Row(Modifier.clip(RoundedCornerShape(12.dp)).background(col.copy(alpha = 0.13f)).padding(horizontal = 10.dp, vertical = 5.dp),
                         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         StatusDot(col); T(if (newer) "Update available" else "Up to date", 12.sp, col, FontWeight.SemiBold, maxLines = 1)
                     }
                 }
-                Box(Modifier.padding(top = 14.dp).fillMaxWidth().height(44.dp).clip(RoundedCornerShape(22.dp)).background(C.teal).clickable {
+                PrimaryButton(if (newer) "Install v${v?.versionName}" else "Check for updates", Modifier.padding(top = 14.dp).fillMaxWidth()) {
                     if (newer) st.showUpdate = true
                     else scope.launch { st.repo.get<VersionInfo>("app/version.json")?.let { st.version = it; if (it.versionCode > BuildConfig.VERSION_CODE) st.showUpdate = true else st.toast = "Up to date" } }
-                }, contentAlignment = Alignment.Center) { T(if (newer) "Install v${v?.versionName}" else "Check for updates", 15.sp, C.white, FontWeight.SemiBold) }
+                }
             }
         }
+        if (v == null && !tried) { item { LoadingCard(5) }; return@AccScreen }
         if (v == null || rel == null) { item { Empty("Release notes load with an internet connection.") }; return@AccScreen }
         item {
             val cnt = rel.changes.groupingBy { it.type }.eachCount().entries.sortedByDescending { it.value }
             SecHead("What's new in v${rel.version}", cnt.joinToString(" · ") { (k, n) ->
-                n.toString() + " " + when (k) { "new" -> "new"; "fix" -> if (n > 1) "fixes" else "fix"; "change" -> "changed"; else -> k } })
+                n.toString() + " " + when (k) { "new" -> "new"; "fix" -> if (n > 1) "fixes" else "fix"; "change", "changed" -> "changed"; "imp", "improved" -> "improved"; else -> k } })
         }
         item {
             val shown = if (allNew) rel.changes else rel.changes.take(5)
@@ -624,16 +655,17 @@ fun ReleaseNotesScreen(st: AppState) {
 // ---------------------------------------------------------------- a10 Feedback list
 @Composable
 fun FeedbackScreen(st: AppState) {
-    val data by produceState<Pair<List<FbItem>, Pair<Int, Int>>?>(null) {
-        value = st.repo.apiGet("feedback/stats")?.let { o ->
+    val data by produceState<Fetched<Pair<List<FbItem>, Pair<Int, Int>>>?>(null) {
+        value = Fetched(st.repo.apiGet("feedback/stats")?.let { o ->
             val items = runCatching { json.decodeFromJsonElement(kotlinx.serialization.builtins.ListSerializer(FbItem.serializer()), o["items"]!!) }.getOrDefault(emptyList())
             items to ((o["open"]?.toString()?.toIntOrNull() ?: 0) to (o["closed"]?.toString()?.toIntOrNull() ?: 0))
-        }
+        })
     }
     var state by remember { mutableStateOf("open") }
     var type by remember { mutableStateOf<String?>(null) }
     AccScreen(st, "Feedback", null, "Feedback", actions = { HeaderPill(Icons.Rounded.Add, "New") { st.openFeedback("Feedback") } }) {
-        val d = data
+        if (data == null) { item { LoadingCard(1) }; item { LoadingCard(2) }; return@AccScreen }
+        val d = data?.v
         if (d == null) { item { Empty("Feedback loads with an internet connection.") }; return@AccScreen }
         item {
             val (open, closed) = d.second
@@ -648,7 +680,7 @@ fun FeedbackScreen(st: AppState) {
                         }
                     }
                 }
-                SegmentedBar(listOf(Segment(open.toDouble(), C.teal), Segment(closed.toDouble(), Color.White.copy(alpha = 0.2f))),
+                SegmentedBar(listOf(Segment(open.toDouble(), C.muted), Segment(closed.toDouble(), Color.White.copy(alpha = 0.2f))),
                     Modifier.padding(top = 10.dp).fillMaxWidth(), height = 10.dp, gap = 3.dp, legend = SegLegend.None)
             }
         }
@@ -665,8 +697,8 @@ fun FeedbackScreen(st: AppState) {
             item {
                 Card(Modifier.padding(horizontal = 16.dp, vertical = 4.dp).fillMaxWidth(), pad = 14.dp) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        TypeTag(f.type, if (f.type == "Bug") TierC.lightRed else C.blue)
-                        T("#${f.n} · ${f.date}", 11.sp, C.dim, modifier = Modifier.weight(1f), align = TextAlign.End)
+                        TypeTag(f.type, if (f.type == "Bug") TierC.lightRed else C.grey)
+                        T("#${f.n} · ${skDay(f.date)}", 11.sp, C.dim, modifier = Modifier.weight(1f), align = TextAlign.End)
                     }
                     T(f.text.replaceFirstChar { it.uppercase() }, 14.sp, lineHeight = 19.sp, maxLines = 4, modifier = Modifier.padding(top = 8.dp))
                     if (f.screen.isNotBlank()) T(f.screen, 11.sp, C.dim, modifier = Modifier.padding(top = 4.dp))

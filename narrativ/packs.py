@@ -95,6 +95,10 @@ def new_documents(filings: list[dict] | None, since: str | None, text_of=cached_
 
 
 def _text(url: str, ns) -> tuple[str | None, int | None]:
+    if url.startswith("https://api.alphastreet.co.in/"):  # AlphaStreet transcript (JSON -> text, cached by narrativ.alphastreet)
+        from .alphastreet import text as as_text
+        t = as_text(url)
+        return (t, None) if t else (None, None)
     TXT.mkdir(parents=True, exist_ok=True)
     f = TXT / (hashlib.sha1(url.encode()).hexdigest() + ".txt")
     if f.exists():
@@ -125,6 +129,57 @@ def _pdf_bytes(url: str, ns) -> bytes | None:
     if r.status_code == 404 and "/AttachLive/" in url:  # BSE moves older attachments to its archive folder
         r = rq.get(url.replace("/AttachLive/", "/AttachHis/"), headers=bh, timeout=60)
     return r.content if r.ok and r.content.startswith(b"%PDF") else None
+
+
+# ---------- Cover letters that point to the real document on the company's website (owner, 24 Nov 2026) ----------
+# Some companies file only a one-page letter ("the transcript is available at <link>"): follow the link to the PDF.
+LINK = re.compile(r"(?:https?://|www\.)[^\s<>()\"']+", re.I)
+EXCHANGE = re.compile(r"nseindia\.|bseindia\.", re.I)
+DOC_WORDS = re.compile(r"transcript|presentation|concall|con-call|earnings|investor", re.I)
+
+
+def letter_links(url: str, ns, txt: str | None) -> list[str]:
+    """Links in a cover letter (PDF link annotations, then web addresses in its text), PDFs and document-like names first."""
+    f = TXT / (hashlib.sha1(url.encode()).hexdigest() + ".links")
+    if f.exists():
+        return json.loads(f.read_text())
+    found = []
+    try:
+        pdf = _pdf_bytes(url, ns)
+        if pdf:
+            from pypdf import PdfReader
+            for pg in PdfReader(io.BytesIO(pdf)).pages:
+                for a in pg.get("/Annots") or []:
+                    act = a.get_object().get("/A")
+                    u = act.get_object().get("/URI") if act is not None else None
+                    if u:
+                        found.append(str(u))
+    except Exception as e:  # noqa: BLE001
+        print(f"[packs] links {url[-50:]}: {str(e)[:80]}")
+    found += [u for u in LINK.findall(txt or "")]
+    out = []
+    for u in found:
+        u = u.strip().rstrip(".,;:")
+        u = "https://" + u if u.lower().startswith("www.") else u
+        if u.lower().startswith("http") and not EXCHANGE.search(u) and u not in out:
+            out.append(u)
+    out.sort(key=lambda u: (not u.lower().split("?")[0].endswith(".pdf"), not DOC_WORDS.search(u)))
+    TXT.mkdir(parents=True, exist_ok=True)
+    f.write_text(json.dumps(out[:5]))
+    return out[:5]
+
+
+def doc_text(url: str, ns, kind: str | None = None) -> tuple[str | None, int | None, str]:
+    """Text of a filed transcript / presentation. When the filing is only a cover letter, follow its link (up to 3) to the
+    real document; returns (text, pages, url the text came from)."""
+    txt, pages = _text(url, ns)
+    if kind not in ("transcript", "presentation") or not txt or not thin_text(txt):
+        return txt, pages, url
+    for u in letter_links(url, ns, txt)[:3]:
+        t2, p2 = _text(u, ns)
+        if t2 and not thin_text(t2):
+            return t2, p2, u
+    return txt, pages, url
 
 
 def _docling_only(url: str, pages: int | None = None) -> tuple[str | None, int | None]:
@@ -226,6 +281,61 @@ def _docs_for(sym: str, ann_st: dict, ex: dict, today: date, transcripts: int = 
     return out
 
 
+def _latest_call_docs(call: dict, docs: list, review: bool, time_left: bool) -> dict:
+    """Idea 1 + AlphaStreet fallback (owner, 24 Nov 2026): when the pack has no transcript of the latest call from the
+    exchange or the company, add AlphaStreet's (labelled), and its AlphaBrief as leads for a review. -> call + in_pack."""
+    from .latest_call import EARLY_DAYS, summary
+    lo = str(date.fromisoformat(call["results_filed"]) - timedelta(days=EARLY_DAYS))
+    have = any(d.get("kind") == "transcript" and d.get("has_text") and str(d.get("date") or "") >= lo for d in docs)
+    src = next((x for x in call.get("sources") or [] if x["src"] == "alphastreet"), None)
+    out = {**call}
+    if src and not have and time_left:
+        txt, _ = _text(src["url"], None)
+        if txt:
+            d = {"kind": "transcript", "date": src["date"], "title": f"{call['quarter']} earnings call (AlphaStreet transcription)",
+                 "url": src["url"], "source": "AlphaStreet India: third-party transcription of the call, not the company's own transcript",
+                 "has_text": True, "quality": quality(txt, None), "excerpts": excerpts(txt),
+                 "note": "quote with this url (the verifier reads the same text); prefer the company's own transcript once it is filed"}
+            if review:
+                for x in docs:
+                    x.pop("full_text", None)  # the latest call gets the whole-call slot
+                d["full_text"] = full_transcript(txt)
+            attach_reader(d)
+            docs.insert(0, d)
+            have = True
+            out["fallback"] = "alphastreet"
+    if review and len(call.get("recent") or []) > 1 and time_left:
+        # the previous quarter's call (owner, 24 Nov 2026): AlphaStreet has briefs for the latest call only, so Claude compares
+        # quarters from the transcripts; added when no exchange / company transcript within 10 days of that call is in the pack
+        prev = call["recent"][1]
+        pd_ = date.fromisoformat(prev["date"])
+        near = any(d.get("kind") == "transcript" and d.get("has_text") and d.get("date")
+                   and abs((date.fromisoformat(str(d["date"])[:10]) - pd_).days) <= 10 for d in docs)
+        if not near:
+            from .alphastreet import transcript_url
+            u = transcript_url(prev["id"])
+            txt, _ = _text(u, None)
+            if txt:
+                docs.append({"kind": "transcript", "date": prev["date"], "title": f"{prev['call']} earnings call (AlphaStreet transcription, previous quarter)",
+                             "url": u, "source": "AlphaStreet India: third-party transcription of the call, not the company's own transcript",
+                             "has_text": True, "quality": quality(txt, None), "excerpts": excerpts(txt),
+                             "note": "previous quarter: compare what management said then with the latest call; quote with this url"})
+                out["previous_call"] = prev["call"]
+    if review and call.get("recent"):  # AlphaBriefs of the last calls (latest first): how the story moved quarter to quarter
+        from .alphastreet import brief
+        bs = []
+        for c in call["recent"]:
+            b = brief(c["id"])
+            if b:
+                bs.append({**b, "call": c["call"], "date": c["date"]})
+        if bs:
+            out["brief"] = {"briefs": bs, "use": "AI-written by AlphaStreet: leads only. Confirm anything you use in the transcript and quote it "
+                            "verbatim; never copy its numbers. Compare quarters: what management promised before and what it says now"}
+    out["in_pack"] = have
+    out["summary"] = summary(call) + ("" if have or call["state"] == "missing" else "; not readable here: open the source")
+    return out
+
+
 def quality(text: str, pages: int | None) -> dict:
     """Extraction quality: characters per page and share of letters. Scanned or garbled PDFs score 'poor'."""
     t = text or ""
@@ -281,7 +391,8 @@ def machine_checks(Mx: dict) -> tuple[list[dict], list[str]]:
 
 
 def build(queue: list[dict], today: date, ann_st: dict, ex: dict, dec: dict, ev: dict, mx: dict, annc: dict, theses: dict,
-          mem: dict, val, aflags: dict | None = None, max_minutes: float = 12) -> dict:
+          mem: dict, val, aflags: dict | None = None, max_minutes: float = 12, calls: dict | None = None) -> dict:
+    """calls: {symbol: narrativ.latest_call.latest_call(...)}: the latest earnings call and where it is available."""
     from .filings import NSESession
     OUT.mkdir(parents=True, exist_ok=True)
     want = {q["symbol"] for q in queue}
@@ -314,11 +425,17 @@ def build(queue: list[dict], today: date, ann_st: dict, ex: dict, dec: dict, ev:
                 docs.append(rd)
             for d in _docs_for(s, ann_st, ex, today):
                 ns = ns or NSESession()
-                txt, pages = _text(d["url"], ns)
+                txt, pages, src = doc_text(d["url"], ns, d["kind"])
                 n_docs += 1
+                if src != d["url"]:  # the filing was a cover letter: the document is on the company's website
+                    d.update({"filing": d["url"], "url": src,
+                              "source_note": "the exchange filing is a cover letter; this is the document it links to: quote with this url"})
                 if txt and d["kind"] in ("transcript", "presentation") and thin_text(txt):
+                    links = letter_links(d["url"], ns, txt)
                     thin.append({"date": d.get("date"), "title": d.get("title"), "url": d["url"],
-                                 "why": "cover letter / audio link / intimation only: not a new document"})
+                                 "why": "cover letter / audio link / intimation only: not a new document"
+                                 + ("; it points to the links below (not a PDF we could read): open them if the document matters" if links else ""),
+                                 **({"links": links} if links else {})})
                     continue
                 if txt and len(txt.strip()) > 200:
                     n_ok += 1
@@ -344,6 +461,9 @@ def build(queue: list[dict], today: date, ann_st: dict, ex: dict, dec: dict, ev:
                     d.update({"has_text": False, "excerpts": [], "note": "no text layer or not reachable: open the PDF yourself or skip"})
                 docs.append(d)
                 time.sleep(0.4)
+        call = (calls or {}).get(s)
+        if call:
+            call = _latest_call_docs(call, docs, review, time.time() - t0 < max_minutes * 60)
         Mx = mx.get(s) or {}
         nums = {k: val(Mx, k) for k in ("price", "mcap_cr", "revenue_ttm_cr", "pat_ttm_cr", "pe", "ev_ebitda", "roce_pct", "rev_yoy_pct",
                                          "rev_cagr_3y_pct", "ebitda_margin_pct", "de", "promoter_pct")}
@@ -358,6 +478,10 @@ def build(queue: list[dict], today: date, ann_st: dict, ex: dict, dec: dict, ev:
                                   for p in th.get("promises", []) if p.get("status") in ("pending", "raised", "unverified")],
                 "checkpoints": [c for c in (mem.get(s) or {}).get("checkpoints", []) if c.get("status") in ("open", "due")][:8],
                 "events": q.get("events") or [], "filings": q.get("filings") or []}
+        if call:
+            pack["latest_call"] = {k: v for k, v in call.items() if k != "brief"}
+            if call.get("brief") and review:
+                pack["alphabrief"] = call["brief"]
         if thin:
             pack["thin_documents"] = thin
         if q.get("overdue"):  # kill switches / must-go-right items / promises past due: resolve each with filed evidence (or say none is filed)
@@ -432,7 +556,7 @@ def attach_reader(d: dict, store: dict | None = None) -> bool:
         if _STORE is None:
             _STORE = reader_store()
         store = _STORE
-    e = store.get(d.get("url") or "") or {}
+    e = store.get(d.get("filing") or d.get("url") or "") or {}  # the reader keys a followed cover letter by the filing url
     for m in ("flash", "lite"):
         r = e.get(m) or {}
         if "rows" in r:

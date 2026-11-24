@@ -148,7 +148,7 @@ import kotlinx.serialization.json.JsonPrimitive
     val out: Out? = null, val why: String? = null, val su: String? = null, val bt: String? = null, val up: Double? = null, val na: Int? = null,
     val sp: List<Double> = emptyList(), val r: Boolean = false, val ss: String? = null, val cp: List<Cp2> = emptyList(),
     val tags: List<String> = emptyList(), val bq: Int? = null, val dc: String? = null, val ld: String? = null, val vf: String? = null, val af: Int? = null,
-    val cand: String? = null, val rk: Int? = null, val mb: Boolean = false, val cv: String? = null,
+    val cand: String? = null, val rk: Int? = null, val mb: Boolean = false, val cv: String? = null, val tb: Int? = null,
 ) {
     fun tier(level: Int): Int = t.getOrElse(level) { 0 }
 }
@@ -173,7 +173,9 @@ import kotlinx.serialization.json.JsonPrimitive
 @Serializable data class Setup(val type: String = "", val lo: Double? = null, val hi: Double? = null, val add: Double? = null, val stop: Double? = null,
                                val note: String? = null, val rr: Double? = null, @SerialName("rr_note") val rrNote: String? = null,
                                @SerialName("size_10l") val size10l: Int? = null, val trail: Double? = null, val sma50: Double? = null,
-                               @SerialName("watch_lo") val watchLo: Double? = null, @SerialName("watch_hi") val watchHi: Double? = null)
+                               @SerialName("watch_lo") val watchLo: Double? = null, @SerialName("watch_hi") val watchHi: Double? = null,
+                               val atr: Double? = null, val price: Double? = null, val h55: Double? = null, val ref: Double? = null,
+                               @SerialName("stop_basis") val stopBasis: String? = null)
 @Serializable data class Stand(val lv: String = "", val n: String = "", val v: String = "", val k: String? = null)
 @Serializable data class Standouts(val good: List<Stand> = emptyList(), val watch: List<Stand> = emptyList())
 @Serializable data class ScanState(val state: String = "never", val date: String? = null, val reopen: String? = null, val next: String? = null)
@@ -200,6 +202,11 @@ import kotlinx.serialization.json.JsonPrimitive
                                     val rule: String? = null, val date: String? = null, val checks: List<ConvCheck> = emptyList())
 /** One conviction check: id (C1..C7), name, met, the figure or reason (v). */
 @Serializable data class ConvCheck(val id: String = "", val n: String = "", val ok: Boolean? = null, val v: String? = null, val why: String? = null)
+/** The latest earnings call in brief (AlphaStreet's AlphaBrief): metrics are [label, value, direction]. */
+@Serializable data class CallCard(val call: String = "", val date: String = "", val headline: String? = null,
+                                  val metrics: List<List<String>> = emptyList(), val bullets: List<String> = emptyList(), val url: String? = null)
+/** A news headline matched by company name (last 30 days, newest first). time: ISO with offset. */
+@Serializable data class NewsItem(val title: String = "", val url: String? = null, val time: String? = null, val source: String? = null)
 @Serializable data class Detail(val metrics: Map<String, JsonElement> = emptyMap(), val analyst: Analyst? = null,
                                 val levels: Map<String, Level> = emptyMap(), val verdict: String = "", val statement: String = "",
                                 val standouts: Standouts = Standouts(), val setup: Setup = Setup(),
@@ -207,7 +214,9 @@ import kotlinx.serialization.json.JsonPrimitive
                                 @SerialName("verdict_log") val verdictLog: List<VLog> = emptyList(), val stock: StockInfo = StockInfo(),
                                 val decision: Decision? = null, @SerialName("audit_flags") val auditFlags: List<String> = emptyList(),
                                 @SerialName("research_log") val researchLog: List<RLog> = emptyList(),
-                                val conviction: Conviction? = null) {
+                                val conviction: Conviction? = null,
+                                @SerialName("latest_call_card") val callCard: CallCard? = null,
+                                val news: List<NewsItem> = emptyList()) {
     fun m(key: String): Metric? = (metrics[key] as? JsonObject)?.let { runCatching { json.decodeFromJsonElement(Metric.serializer(), it) }.getOrNull() }
     fun v(key: String): Double? = m(key)?.takeIf { !it.nm }?.v
     fun str(key: String): String? = (metrics[key] as? JsonPrimitive)?.takeIf { it.isString }?.content

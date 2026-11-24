@@ -48,6 +48,9 @@ fun MoneyScreen(st: AppState) {
     val md = pf.mood
     var sectors by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     var how by remember { mutableStateOf(false) }
+    val why = rememberIndustryWhy(st)
+    var whyOf by remember { mutableStateOf<String?>(null) }
+    whyOf?.let { n -> IndustryWhySheet(st, n, rot?.industries?.get(n), why) { whyOf = null } }
     LazyColumn(Modifier.fillMaxSize().background(C.screen), contentPadding = PaddingValues(bottom = 110.dp)) {
         item { TopBar(st, "Market", back = st.stack.size > 1, big = st.stack.size == 1) }
         item {
@@ -99,7 +102,7 @@ fun MoneyScreen(st: AppState) {
             val src = if (sectors) rot.sectors else rot.industries
             Card(Modifier.padding(horizontal = 16.dp, vertical = 4.dp).fillMaxWidth(), pad = 12.dp) {
                 if (src.isEmpty()) T("No ${if (sectors) "sector" else "industry"} data today.", 13.sp, C.dim)
-                else RotationMap(src.values.map { RotPoint(it.ratio, it.mom, it.q) }, Modifier.fillMaxWidth().height(236.dp),
+                else RotationMap(src.values.map { RotPoint(it.ratio, it.mom, it.q) }, Modifier.fillMaxWidth().height(236.dp), colors = QUAD_COLORS,
                     onQuadrant = { q -> st.go(Screen.Quadrant(q, sectors)) })
                 Row(Modifier.fillMaxWidth().padding(top = 6.dp)) {
                     T("← weaker trend · stronger →", 10.sp, C.dim, modifier = Modifier.weight(1f)); T("tap a box", 10.sp, C.dim)
@@ -115,9 +118,9 @@ fun MoneyScreen(st: AppState) {
                 if (rising.isEmpty()) T("No industry is leading or improving today.", 13.sp, C.dim)
                 val rmax = rising.maxOfOrNull { abs(it.value.r1m ?: 0.0) }?.takeIf { it > 0 } ?: 1.0
                 rising.forEach { (ind, r) ->
-                    Row(Modifier.fillMaxWidth().clickable { st.go(Screen.Screener("ind:$ind")) }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.fillMaxWidth().clickable { whyOf = ind }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                         T(ind, 13.sp, modifier = Modifier.width(128.dp), maxLines = 1)
-                        HBar(max(r.r1m ?: 0.0, 0.0) / rmax, QUAD_FULL[r.q] ?: C.teal, Modifier.weight(1f), 10.dp)
+                        HBar(max(r.r1m ?: 0.0, 0.0) / rmax, quadC(r.q), Modifier.weight(1f), 10.dp)
                         T(sg1(r.r1m), 13.sp, if (r.r1m == null) C.dim else gainColor(r.r1m), FontWeight.SemiBold, Modifier.width(56.dp), maxLines = 1, align = TextAlign.End)
                     }
                 }
@@ -162,7 +165,7 @@ fun IndRow(ind: String, r: Rot) {
         }
         val m = ((r.mom - 94) / 12).coerceIn(0.0, 1.0).toFloat()
         Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.weight(1f).height(4.dp).clip(RoundedCornerShape(2.dp)).background(C.chip)) { Box(Modifier.fillMaxWidth(m).fillMaxHeight().background(quadColor(r.q))) }
+            Box(Modifier.weight(1f).height(4.dp).clip(RoundedCornerShape(2.dp)).background(C.chip)) { Box(Modifier.fillMaxWidth(m).fillMaxHeight().background(quadC(r.q))) }
             Spacer(Modifier.width(8.dp)); T("momentum ${fmt(r.mom, 1)}" + (r.n?.let { " · $it stocks" } ?: ""), 11.sp, C.dim)
         }
     }
