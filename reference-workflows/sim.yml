@@ -16,7 +16,7 @@ concurrency:
 jobs:
   sim:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
@@ -27,13 +27,16 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
       - name: Simulate
+        timeout-minutes: 38  # step limit, so the Commit step below still runs and saves partial results
         env:
           PYTHONUNBUFFERED: "1"
           MOD: ${{ inputs.module }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           [[ "$MOD" =~ ^sim_[a-z0-9_]+$ ]] || { echo "module must be sim_<name>"; exit 1; }
           python -m "narrativ.$MOD"
       - name: Commit
+        if: always()  # a probe that times out still saves what it wrote
         env:
           MOD: ${{ inputs.module }}
         run: |
