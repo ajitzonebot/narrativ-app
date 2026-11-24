@@ -17,7 +17,7 @@ concurrency:
 jobs:
   sim:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Quiet logs (public repo)
         shell: bash
@@ -38,6 +38,7 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
       - name: Simulate
+        timeout-minutes: 38  # step limit, so the Commit step below still runs and saves partial results
         env:
           PYTHONUNBUFFERED: "1"
           MOD: ${{ inputs.module }}
@@ -46,6 +47,7 @@ jobs:
           [[ "$MOD" =~ ^sim_[a-z0-9_]+$ ]] || { echo "module must be sim_<name>"; exit 1; }
           python -m "narrativ.$MOD"
       - name: Commit
+        if: always()  # a probe that times out still saves what it wrote
         env:
           MOD: ${{ inputs.module }}
         run: |
