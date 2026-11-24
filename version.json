@@ -1,11 +1,21 @@
 {
- "versionCode": 69,
- "versionName": "2.21.0",
- "date": "2026-11-23",
- "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.21.0-b69/narrativ-v2.21.0-b69.apk",
+ "versionCode": 71,
+ "versionName": "2.22.0",
+ "date": "2026-11-24",
+ "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.22.0-b71/narrativ-v2.22.0-b71.apk",
  "sizeMb": 11.6,
- "sha256": "25aca524acf31d015c2b84d71f3b9c8274c2662582b5989276ef0e5e1ebb8101",
+ "sha256": "0b3c102e91452464b9cc4bd6047da5f3b85b9ba4c431005ce3a08e0fedf763bb",
  "changelog": [
+  {
+   "version": "2.22.0",
+   "date": "2026-11-24",
+   "changes": [
+    {
+     "type": "new",
+     "text": "Outlook: Latest call card with the headline, key numbers and points from the latest earnings call, and a link to the full call"
+    }
+   ]
+  },
   {
    "version": "2.21.0",
    "date": "2026-11-24",
