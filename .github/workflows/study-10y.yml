@@ -1,0 +1,92 @@
+# Generated from the private repo by .github/mirror/public_workflows.py: edit it there.
+name: study-10y
+
+# Research only (scripts/study_10y.py): traits and trait combinations that stocks had at the start of a 5x run within
+# 5 years, 2014-2021 start dates, vs look-alike stocks. Long Yahoo history is kept in its own Actions cache.
+on:
+  workflow_dispatch:
+    inputs:
+      quick: { description: "Quick test (300 stocks, yearly start dates)", default: "false" }
+
+permissions:
+  contents: write
+
+concurrency:
+  group: study-10y
+  cancel-in-progress: false
+
+jobs:
+  study:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - name: Quiet logs (public repo)
+        shell: bash
+        run: |
+          cat > /home/runner/q.sh <<'EOF'
+          bash --noprofile --norc -eo pipefail "$1" >> "$RUNNER_TEMP/narrativ.log" 2>&1 && exit 0
+          echo "Step failed. The full log is saved in the private repo (logs/)."
+          exit 1
+          EOF
+      - uses: actions/checkout@v4
+        with:
+          repository: ajitzonebot/Narrativ
+          token: ${{ secrets.NARRATIV_RW_TOKEN }}
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt scikit-learn
+      - id: pxcache
+        uses: actions/cache/restore@v4
+        with:
+          path: data/study_cache
+          key: study10y-prices-v1
+      - name: Fundamentals probe
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/study_10y.py --probe || true
+      - name: Study
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: python scripts/study_10y.py ${{ inputs.quick == 'true' && '--quick' || '' }}
+      - name: Save price cache
+        if: inputs.quick != 'true' && steps.pxcache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: data/study_cache
+          key: study10y-prices-v1
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ "${{ inputs.quick }}" = "true" ]; then
+            git add data/study_10y
+          else
+            git add data/study_10y/probe.json docs/data/study_10y.json docs/research/study_10y.md
+          fi
+          git diff --cached --quiet && exit 0
+          git commit -m "data: study-10y $(TZ=Asia/Kolkata date +%F)"
+          bash scripts/push_retry.sh
+      - name: Save the log in the private repo
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          [ -d .git ] && [ -f "$RUNNER_TEMP/narrativ.log" ] || exit 0
+          mkdir -p logs
+          cp "$RUNNER_TEMP/narrativ.log" "logs/$GITHUB_WORKFLOW-$(date -u +%Y%m%d-%H%M).log"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add logs && git commit -qm "logs: $GITHUB_WORKFLOW failed" -- logs
+          git stash -u -q
+          for i in 1 2 3; do git pull -q --rebase && git push -q && break; sleep 5; done
+          exit 0
+
+env:
+  NARRATIV_REPO: ajitzonebot/Narrativ
+
+defaults:
+  run:
+    shell: bash /home/runner/q.sh {0}
