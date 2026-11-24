@@ -109,7 +109,8 @@ SNAP_NEW = (("decision", "TEXT"), ("candidate", "TEXT"), ("verified", "TEXT"), (
 
 
 def sync(today: date, s0i, btypes: dict, lender: dict, picks: list, details: dict, fins: dict, mem: dict, theses: dict,
-         md: dict, ann_st: dict, extra_counts: dict | None = None) -> dict:
+         md: dict, ann_st: dict, extra_counts: dict | None = None, breadth_in: tuple | None = None) -> dict:
+    """breadth_in: (prices, isin by symbol, market cap cr by symbol, momentum score by symbol) for the industry_breadth table."""
     t0 = time.time()
     st = Store()
     if not st.db:
@@ -333,9 +334,16 @@ def sync(today: date, s0i, btypes: dict, lender: dict, picks: list, details: dic
                              [[d, md.get("score"), md.get("zone"), md.get("inputs"), (md.get("breadth") or {}).get("pct") if isinstance(md.get("breadth"), dict) else None]],
                              ["date"])
 
-        # daily essentials first; the big one-off backfills (events, quarters) use what is left of the budget
+        def breadth():  # owner request 2026-11-23: industry breadth history for watching trends (not in the app)
+            if not breadth_in:
+                return 0
+            from . import breadth as BR
+            return BR.sync(st, today, *breadth_in)
+
+        # daily essentials first; the big one-off backfills (events, quarters, breadth history) use what is left of the budget
         for name, fn in (("snapshot", snapshot), ("stock_detail", detail), ("market_day", market), ("research", research),
-                         ("checkpoint", checkpoint), ("verdict_log", verdicts), ("company", company), ("event", event), ("quarter", quarter)):
+                         ("checkpoint", checkpoint), ("verdict_log", verdicts), ("company", company), ("industry_breadth", breadth),
+                         ("event", event), ("quarter", quarter)):
             step(name, fn)
 
         # R2: the two stores that today live only in the Actions cache (evicted after 7 days unused)

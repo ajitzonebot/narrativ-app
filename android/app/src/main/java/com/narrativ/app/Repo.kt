@@ -27,7 +27,7 @@ class Repo(private val ctx: Context) {
     private fun open(url: String): HttpURLConnection = (URL(url).openConnection() as HttpURLConnection).apply {
         connectTimeout = 15000; readTimeout = 30000
         setRequestProperty("Cache-Control", "no-cache")
-        if (api.isNotEmpty() && url.startsWith(api)) setRequestProperty("X-App-Key", BuildConfig.APP_KEY)
+        if (api.isNotEmpty() && url.startsWith(api)) setRequestProperty("X-App-Key", KeyGate.header())
     }
 
     /** Text of [path] and whether it came from the network (true) or only from the phone cache (false); null when neither has it. */
@@ -41,6 +41,8 @@ class Repo(private val ctx: Context) {
             for (u in urls) {
                 try {
                     val c = open(u)
+                    // A refused key (wrong, or changed on the server): ask for it again instead of showing old data quietly.
+                    if (c.responseCode == 401 && api.isNotEmpty() && u.startsWith(api)) KeyGate.rejected = true
                     if (c.responseCode == 200) {
                         val body = c.inputStream.bufferedReader().use { it.readText() }
                         // write beside, then rename: a download cut short never leaves a half-written cache file

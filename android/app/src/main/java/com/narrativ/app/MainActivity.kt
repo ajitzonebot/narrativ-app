@@ -213,6 +213,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        KeyGate.init(this)
         val start = intent?.getStringExtra("route")
         val ci = intent?.getBooleanExtra("ci", false) ?: false
         setContent { NarrativTheme { App(start, ci) } }
@@ -278,6 +279,10 @@ fun App(startRoute: String? = null, ci: Boolean = false) {
     }
     BackHandler(enabled = st.stack.size > 1) { st.back() }
 
+    if (KeyGate.showing && !ci) {
+        KeyScreen(onDone = { scope.launch { st.load() } })
+        return
+    }
     Box(Modifier.fillMaxSize().background(C.bg)) {
         if (st.picks == null) {
             Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {

@@ -22,11 +22,11 @@ import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.util.concurrent.TimeUnit
 
-/** IPO alerts on this phone: 09:15 IST (market open) and 15:00 IST (2 hours before the 17:00 close) on an IPO's last day,
- *  only when the call is APPLY, or at 15:00 when the 14:10 NSE update changed an APPLY. Reads docs/data/ipo_today.json. */
+/** IPO alerts on this phone. 09:15 IST: every IPO the 08:30 check calls APPLY. 15:45 IST (after the 15:30 check): last-day APPLYs,
+ *  and any call that changed since the morning. Reads docs/data/ipo_today.json. */
 object IpoAlerts {
     private val IST: ZoneId = ZoneId.of("Asia/Kolkata")
-    private val SLOTS = mapOf("am" to LocalTime.of(9, 15), "pm" to LocalTime.of(15, 0))
+    private val SLOTS = mapOf("am" to LocalTime.of(9, 15), "pm" to LocalTime.of(15, 45))
     private const val CHANNEL = "ipo"
 
     private fun request(slot: String) = OneTimeWorkRequestBuilder<IpoWorker>()
@@ -67,21 +67,20 @@ object IpoAlerts {
     /** Alerts due for [slot] from today's report at time [now] (pure, so it is easy to check). Nothing once bidding has closed. */
     fun due(x: IpoToday, slot: String, today: String, now: LocalTime = LocalTime.now(IST)): List<Pair<String, String>> {
         if (x.date != today) return emptyList()
-        return x.actionable.filter { it.finalDay && it.lastDate == today }.mapNotNull { i ->
+        return x.actionable.filter { it.lastDate >= today }.mapNotNull { i ->
             val close = closeAt(i)
-            if (!now.isBefore(close)) return@mapNotNull null  // a late job must not say "2 hours left" after bids closed
-            val left = Duration.between(now, close).toMinutes()
-            val leftTxt = if (left >= 105) "2 hours left" else "$left min left"
+            val last = i.lastDate == today
+            if (last && !now.isBefore(close)) return@mapNotNull null  // a late job must not alert after bids closed
+            val gmp = (i.gmpPct ?: i.gmpPctHigh)?.let { "GMP ${fmt(it, 1)}%" } ?: "GMP –"
+            val sub = i.subscription?.overall?.let { "${fmt(it, 1)}×" } ?: "–"
+            val closes = if (last) "closes ${close.toString().take(5)} today" else "closes ${shortDate(i.lastDate)}"
             val pm = i.pmUpdate
-            val sub = i.subscription?.overall?.let { "${fmt(it, 1)}× subscribed" } ?: "subscription –"
-            val gmp = i.gmpHigh?.let { "GMP ₹${fmt(it, 0)}" + (i.gmpPctHigh?.let { p -> " (${fmt(p, 1)}%)" } ?: "") } ?: "GMP –"
             when {
-                slot == "pm" && pm?.callBefore == "APPLY" && pm.callAfter != "APPLY" ->
-                    "Call changed: ${i.name} · now ${pm.callAfter}" to "Updated ${pm.asOf?.substringAfter('T')?.take(5) ?: "–"}: $sub. ${i.missing.lastOrNull() ?: ""}".trim()
+                slot == "pm" && pm?.callBefore != null && pm.callBefore != pm.callAfter -> "${i.name} · now ${pm.callAfter}" to "$gmp · $sub · $closes"
                 i.action != "APPLY" -> null
-                slot == "am" -> "Last day: ${i.name} · APPLY" to "${i.rating} · $gmp · $sub. Bids close today."
-                else -> "$leftTxt: ${i.name} · APPLY" to (if (pm != null) "Updated ${pm.asOf?.substringAfter('T')?.take(5) ?: "–"}: " else "") +
-                    i.subscription.let { s -> if (s == null) sub else "${fmt(s.overall, 1)}× (QIB ${fmt(s.qib, 1)}×, NII ${fmt(s.nii, 1)}×, Retail ${fmt(s.retail, 1)}×)" } + ". $gmp."
+                slot == "am" -> "Apply: ${i.name}" to "$gmp · $sub · $closes"
+                last -> "Apply before ${close.toString().take(5)}: ${i.name}" to "$gmp · $sub"
+                else -> null
             }
         }
     }

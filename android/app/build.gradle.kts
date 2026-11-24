@@ -10,8 +10,6 @@ plugins {
 val vProps = Properties().apply { rootProject.file("version.properties").inputStream().use { load(it) } }
 val apiProps = Properties().apply { rootProject.file("api.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) } }
 val vCode = (project.findProperty("versionCode") as String?)?.toInt() ?: 1
-// Key the app sends to the Narrativ API. Release builds must have it (checked below); debug builds may use a dummy.
-val appKey: String? = System.getenv("NARRATIV_APP_KEY")?.takeIf { it.isNotBlank() }
 val vName = (project.findProperty("versionName") as String?) ?: vProps.getProperty("versionName")
 
 android {
@@ -40,10 +38,11 @@ android {
 
     buildTypes {
         debug {
-            buildConfigField("String", "APP_KEY", "\"${appKey ?: "narrativ-app"}\"")
+            buildConfigField("String", "APP_KEY", "\"narrativ-app\"")  // dummy for debug and CI screenshots
         }
         release {
-            buildConfigField("String", "APP_KEY", "\"${appKey ?: ""}\"")
+            // No key in release builds: the APK is public. The owner types the key once (AccessKey.kt).
+            buildConfigField("String", "APP_KEY", "\"\"")
             isMinifyEnabled = false
             signingConfig = signingConfigs.getByName("release")
         }
@@ -56,11 +55,6 @@ android {
     buildFeatures { compose = true; buildConfig = true }
 }
 
-// A release APK without the key would silently talk to the API as an anonymous client: fail the build instead.
-val checkReleaseAppKey by tasks.registering {
-    doFirst { if (appKey == null) throw GradleException("NARRATIV_APP_KEY is not set: release builds need it (debug builds use a dummy).") }
-}
-tasks.matching { it.name in setOf("packageRelease", "assembleRelease", "bundleRelease") }.configureEach { dependsOn(checkReleaseAppKey) }
 
 dependencies {
     val bom = platform("androidx.compose:compose-bom:2024.12.01")

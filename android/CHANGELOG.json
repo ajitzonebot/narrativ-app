@@ -1,5 +1,55 @@
 [
  {
+  "version": "2.21.0",
+  "date": "2026-11-24",
+  "changes": [
+   {
+    "type": "change",
+    "text": "Top 10: the conviction bars now name the level (High, Medium, Low)"
+   },
+   {
+    "type": "change",
+    "text": "Stock summary: sector and industry in one line each, their state with the way it is heading and the 1M and 3M moves"
+   },
+   {
+    "type": "change",
+    "text": "Stock summary: the four key numbers take the colour of their check"
+   }
+  ]
+ },
+ {
+  "version": "2.20.0",
+  "date": "2026-11-24",
+  "changes": [
+   {
+    "type": "new",
+    "text": "IPOs: one call, Apply, Wait or Avoid, from five fixed rules on GMP and subscription. The final-day call is made at 15:30"
+   },
+   {
+    "type": "new",
+    "text": "IPO screen: price band to expected listing, issue and listing days, GMP path with its peak, subscription by day, the rules with their numbers, lot and issue facts"
+   },
+   {
+    "type": "change",
+    "text": "IPO alerts at 09:15 for every Apply, and at 15:45 for last-day Applys and any call that changed"
+   }
+  ]
+ },
+ {
+  "version": "2.19.0",
+  "date": "2026-11-23",
+  "changes": [
+   {
+    "type": "new",
+    "text": "Access key: Narrativ is private, so the app asks for your key once on each phone. Change it in Settings > Access key"
+   },
+   {
+    "type": "change",
+    "text": "The key is no longer built into the app, so a downloaded copy shows nothing without it"
+   }
+  ]
+ },
+ {
   "version": "2.18.0",
   "date": "2026-11-20",
   "changes": [

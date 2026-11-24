@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       per_shard: { description: "Max companies per shard", default: "400" }
-      mode: { description: "backfill (new filings), leases (re-read lease liabilities) or history (short-history companies: basis for 3-year data)", default: "backfill" }
+      mode: { description: "backfill (new filings), leases (re-read lease liabilities) or history (short-history companies: basis for 3-year data), banks (standalone NPA / CET1 re-read)", default: "backfill" }
 
 permissions:
   contents: write
@@ -29,7 +29,7 @@ jobs:
           FILINGS_SHARD: "${{ matrix.i }}/5"
           FILINGS_MAX_MINUTES: "50"
         run: |
-          if [ "${{ inputs.mode }}" = "leases" ]; then python -m narrativ.filings --leases; elif [ "${{ inputs.mode }}" = "history" ]; then python -m narrativ.filings --history; elif [ "${{ inputs.mode }}" = "audit" ]; then python -m narrativ.filings --audit; else python -m narrativ.filings --backfill "${{ inputs.per_shard }}"; fi
+          if [ "${{ inputs.mode }}" = "leases" ]; then python -m narrativ.filings --leases; elif [ "${{ inputs.mode }}" = "history" ]; then python -m narrativ.filings --history; elif [ "${{ inputs.mode }}" = "audit" ]; then python -m narrativ.filings --audit; elif [ "${{ inputs.mode }}" = "banks" ]; then python -m narrativ.filings --banks; else python -m narrativ.filings --backfill "${{ inputs.per_shard }}"; fi
       - name: Pack changed files
         run: |
           git status --porcelain -uall data/financials | awk '{print $2}' > changed.txt

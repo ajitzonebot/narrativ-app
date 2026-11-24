@@ -243,7 +243,14 @@ def survivability(Mx, lender, ann=None, nse=None):
         items.append(it("C1", "Gross NPA ≤ 10%", m, pc(g, 2), "gnpa_pct_advances"))
         if m == 0:
             bad_c.append(f"gross NPA {g:.1f}%")
-        items.append(pending("C2", "Capital adequacy above RBI minimum"))
+        c1 = v(Mx, "cet1_pct")
+        if c1 is None:
+            items.append(pending("C2", "Capital adequacy above RBI minimum"))
+        else:  # RBI: CET1 5.5% minimum + 2.5% conservation buffer = 8%
+            m = 2 if c1 >= 8 else 1 if c1 >= 5.5 else 0
+            items.append(it("C2", "Capital adequacy above RBI minimum", m, f"CET1 {c1:.1f}% (RBI minimum with buffer 8%)", "cet1_pct"))
+            if m == 0:
+                bad_c.append(f"CET1 {c1:.1f}% below RBI minimum")
         lq = v(Mx, "loss_quarters_4")
         m = None if lq is None else 0 if lq >= 2 else 1 if lq == 1 else 2
         items.append(it("C3", "No net loss in 2 of last 4 quarters", m, None if lq is None else f"{int(lq)} loss quarter(s)", "loss_quarters_4"))
@@ -360,8 +367,17 @@ def quality(Mx, lender, ind):
             items.append(it("L1", "ROE ≥ 10% or ROA ≥ 1%", m, f"ROE {roe:.1f}%" + (f" · ROA {roa:.2f}%" if roa is not None else ""), "roe_pct"))
             if bad:
                 flags.append("low returns")
-        items.append(pending("L2", "Loan book growing ≥ 5% a year"))
-        items.append(pending("L3", "Gross NPA not rising 4 quarters in a row"))
+        ag = v(Mx, "advances_yoy_pct")
+        if ag is None:
+            items.append(pending("L2", "Loan book growing ≥ 5% a year"))
+        else:
+            items.append(it("L2", "Loan book growing ≥ 5% a year", 2 if ag >= 5 else 1 if ag >= 0 else 0, pc(ag, 1), "advances_yoy_pct"))
+        nr = v(Mx, "gnpa_rising_q")
+        if nr is None:
+            items.append(pending("L3", "Gross NPA not rising 4 quarters in a row"))
+        else:
+            items.append(it("L3", "Gross NPA not rising 4 quarters in a row", 0 if nr >= 4 else 1 if nr >= 2 else 2,
+                            f"rose {int(nr)} quarter{'s' if nr != 1 else ''} in a row", "gnpa_rising_q"))
 
     r0, r1 = v(Mx, "rev_yoy_pct"), v(Mx, "rev_yoy_prev_pct")
     mq, mqy = v(Mx, "ebitda_margin_q_pct"), v(Mx, "ebitda_margin_q_yago_pct")
@@ -749,7 +765,7 @@ def momentum(t, df, rs_pct, ind_rank, bulk, Mx, an, nse=None):
     if dv and dv.get("m3"):
         r_ = dv["d10"] / dv["m3"] if dv["m3"] else 0
         add("F3", "Delivery % vs own 3-month average", 8, 8 if r_ >= 1.2 else 4 if r_ >= 1.0 else 0,
-            f"10-day {dv['d10']:.0f}% vs 3-month {dv['m3']:.0f}% (NSE)")
+            f"10-day {dv['d10']:.0f}% vs 3-month {dv['m3']:.0f}% ({(nse or {}).get('deliv_src', 'NSE')})")
     elif nse and nse.get("deliv_ok"):
         add("F3", "Delivery % vs own 3-month average", 8, 0, f"building history ({(dv or {}).get('n', 0)} of 40 days)", avail_=False)
     else:
@@ -842,7 +858,7 @@ def discovery(inst, analysts, df, bulk, nse=None):
     dv = (nse or {}).get("deliv")
     if dv and dv.get("m3"):
         ch = dv["m1"] - dv["m3"]
-        items.append(it("D7", "Delivery % trend", 2 if ch >= 3 else 0 if ch <= -3 else 1, f"1-month {dv['m1']:.0f}% vs 3-month {dv['m3']:.0f}% (NSE)"))
+        items.append(it("D7", "Delivery % trend", 2 if ch >= 3 else 0 if ch <= -3 else 1, f"1-month {dv['m1']:.0f}% vs 3-month {dv['m3']:.0f}% ({(nse or {}).get('deliv_src', 'NSE')})"))
     elif nse and nse.get("deliv_ok"):
         items.append(it("D7", "Delivery % trend", None, note=f"building history ({(dv or {}).get('n', 0)} of 40 days)"))
     else:
@@ -853,7 +869,8 @@ def discovery(inst, analysts, df, bulk, nse=None):
             items.append(it("D8", "Index inclusion", {"Nifty 50": 0, "Nifty 100": 0, "Nifty Midcap 150": 0, "Nifty Smallcap 250": 1}.get(ix[0], 2),
                             f"{ix[0]} (in our records since {ix[1]})", note="NSE index lists"))
         else:
-            items.append(it("D8", "Index inclusion", 2, "not in Nifty 50/100, Midcap 150, Smallcap 250 or Microcap 250", note="NSE index lists"))
+            items.append(it("D8", "Index inclusion", 2, "listed on BSE only: in no Nifty index" if (nse or {}).get("deliv_src") == "BSE"
+                            else "not in Nifty 50/100, Midcap 150, Smallcap 250 or Microcap 250", note="NSE index lists"))
     else:
         items.append(pending("D8", "Index inclusion"))
     if sp and sp.get("retail_yoy_pct") is not None:
@@ -920,7 +937,14 @@ def outlook(Mx, wind, rot_q, research, scan_raw, flags_text, l1, l2, l4, nse=Non
         trig("T1", "Order book ≥ 2× revenue", r >= 2, f"{r:.2f}x (₹{ob['value_cr']:,.0f} cr, quoted)", strong=r >= 3)
     else:
         trig("T1", "Order book ≥ 2× revenue", None, note="needs research" if not researched else "no order book quoted")
-    trig("T2", "Book-to-bill > 1", None, note=PENDING)
+    b2 = (nse or {}).get("b2b")
+    if b2:
+        st2, val2, note2, url2 = b2
+        trig("T2", "Book-to-bill > 1", st2, val2, strong=bool(st2), note=None if st2 is not None else note2)
+        if url2 and items[-1].get("id") == "T2":
+            items[-1]["u"] = url2
+    else:
+        trig("T2", "Book-to-bill > 1", None, note=PENDING)
     t3 = (nse or {}).get("t3")
     if t3:
         st3, val3, note3, url3 = t3
@@ -1662,10 +1686,15 @@ def _hash(o, canon=True) -> str:
 
 
 def stamp_audits(raw: dict, stamps: dict, today, syms=None) -> dict[str, list[str]]:
-    """`raw`: theses.json as Claude wrote it. The first time an audit is seen, record a content hash of each audited field
+    """`raw`: theses.json as Claude wrote it. The first time a review is seen, record a content hash of each audited field
     (AUDITED) with it in `stamps` (docs/data/audit_stamps.json); later, any audited field whose hash differs means the
-    research changed after the review. An audit first seen with `updated` later than its date (written before the stamps
-    existed: BLS, TALBROAUTO, CAPLIPOINT) counts as changed until the audit is redone. -> {symbol: changed fields}."""
+    research changed after the review. -> {symbol: changed fields}.
+
+    The same review (same date) whose record was edited keeps its original stamp, so an edit to the audit object cannot
+    re-baseline research changed after it. A stamp marked `edited_after` (stamps first taken on 20-23 Nov 2026 for reviews
+    written earlier, when a later `updated` date was taken as a change) stays pending until `repair_stamps` compares the
+    fields with the version the review judged, or the review is redone. A bare `updated` date is not a change: on 23 Nov
+    rechecks that changed nothing reset 10 passed reviews that way."""
     out = {}
     for s in (raw if syms is None else syms):
         th = raw.get(s) or {}
@@ -1675,16 +1704,36 @@ def stamp_audits(raw: dict, stamps: dict, today, syms=None) -> dict[str, list[st
             continue
         aid, cur = _hash(au, canon=False), {k: _hash(th.get(k)) for k in AUDITED}
         st = stamps.get(s)
+        d = str(au.get("date") or "")[:10]
         if not st or st.get("audit") != aid:
-            d, u = str(au.get("date") or "")[:10], str(th.get("updated") or "")[:10]
-            st = stamps[s] = {"audit": aid, "audit_date": d, "fields": cur, "stamped": str(today)[:10]}
-            if u > d:
-                st["edited_after"] = u
+            if st and st.get("audit_date") == d and st.get("fields"):
+                st = stamps[s] = {**st, "audit": aid}  # same review, record edited: still judged against what it reviewed
+            else:
+                st = stamps[s] = {"audit": aid, "audit_date": d, "fields": cur, "stamped": str(today)[:10]}
         ch = [k for k in AUDITED if (st.get("fields") or {}).get(k) != cur[k]]
         if st.get("edited_after") and not ch:
             ch = [f"edited {st['edited_after']}"]
         if ch:
             out[s] = ch
+    return out
+
+
+def repair_stamps(stamps: dict, version_at) -> dict[str, str]:
+    """One-off: for each stamp marked `edited_after`, compare the audited fields with the thesis as it was when the review was
+    written (`version_at(symbol, audit_date)` -> that thesis or None) and replace the guess with the real baseline.
+    -> {symbol: "cleared" | "changed: <fields>" | "kept (no history)"}."""
+    out = {}
+    for s, st in stamps.items():
+        if not st.get("edited_after"):
+            continue
+        old = version_at(s, st.get("audit_date"))
+        if not old:
+            out[s] = "kept (no history)"
+            continue
+        st["fields"] = {k: _hash(old.get(k)) for k in AUDITED}
+        st.pop("edited_after", None)
+        st["repaired"] = True
+        out[s] = "baseline from history"
     return out
 
 
@@ -1745,14 +1794,21 @@ def cash_conversion(Mx: dict) -> tuple[float | None, int | None]:
     return (float(x) if x is not None else float(m["v"])), i.get("years")
 
 
+# R1: positive operating cash flow over the full years (owner, 23 Nov 2026). Was cash conversion >= 50% from 17 Nov: the replay
+# showed the candidates it blocked (mostly growing companies tying cash up in stock and receivables) beat the Nifty more often
+# than those it passed; Claude's review checks receivables and earnings quality for the rest.
+R1_MIN = 0.0
+
+
 def buy_gates(Mx: dict, lender: bool, L: dict, th: dict | None, today) -> list[str]:
     """RULES.md Buy gates R1, R2, R4, R6: the failed ones, as text. `th` is the verified research entry."""
     from datetime import timedelta
     th, g = th or {}, []
     cc, yrs = cash_conversion(Mx)
     oi = v(Mx or {}, "other_income_pct_pbt")
-    if not lender and cc is not None and cc < 50:
-        g.append(f"R1 cash conversion {cc:.1f}% of operating profit (needs ≥ 50%)" + (f"; only {yrs} full years filed" if yrs and yrs < 3 else ""))
+    if not lender and cc is not None and cc <= R1_MIN:
+        g.append(f"R1 operations did not bring in cash: cash conversion {cc:.1f}% of operating profit (needs above {R1_MIN:.0f}%)"
+                 + (f"; only {yrs} full years filed" if yrs and yrs < 3 else ""))
     if not lender and oi is not None and oi > 25 and not th.get("other_income_recurring"):
         g.append(f"R2 other income {oi:.0f}% of pre-tax profit (needs ≤ 25%, or Claude to verify it is recurring)")
     live = [x for x in ((L.get("out") or {}).get("triggers") or []) if x.get("id") != "T4"]

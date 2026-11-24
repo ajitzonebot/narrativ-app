@@ -19,17 +19,19 @@ def mx(cc=None, oi=None, years=3, exact=True):
 
 
 # ---------------------------------------------------------------- R1 on the unrounded value
-def test_r1_compares_the_unrounded_cash_conversion():
+def test_r1_needs_positive_operating_cash_flow():
     assert FN.cash_conversion(mx(49.5)) == (49.5, 3)
-    g = FN.buy_gates(mx(49.5), False, TRIG, {}, TODAY)
-    assert len(g) == 1 and g[0].startswith("R1 cash conversion 49.5%")  # shown as 50%, which used to pass
-    assert FN.buy_gates(mx(50.0), False, TRIG, {}, TODAY) == []
+    assert FN.buy_gates(mx(36.9), False, TRIG, {}, TODAY) == []  # SRM-like: a growing company tying up cash passes since 23 Nov
+    g = FN.buy_gates(mx(-3.8), False, TRIG, {}, TODAY)  # ASIANENE-like: operations lost cash
+    assert len(g) == 1 and g[0].startswith("R1 operations did not bring in cash: cash conversion -3.8%")
+    assert len(FN.buy_gates(mx(0.0), False, TRIG, {}, TODAY)) == 1
+    assert FN.buy_gates(mx(0.4), False, TRIG, {}, TODAY) == []  # the unrounded value is compared
 
 
 def test_r1_falls_back_to_the_inputs_for_older_data_and_marks_two_years():
     assert FN.cash_conversion(mx(49.5, years=2, exact=False)) == (49.5, 2)
-    assert "only 2 full years filed" in FN.buy_gates(mx(49.5, years=2), False, TRIG, {}, TODAY)[0]
-    assert FN.buy_gates(mx(10.0), True, TRIG, {}, TODAY) == []  # lenders exempt
+    assert "only 2 full years filed" in FN.buy_gates(mx(-5.0, years=2), False, TRIG, {}, TODAY)[0]
+    assert FN.buy_gates(mx(-10.0), True, TRIG, {}, TODAY) == []  # lenders exempt
 
 
 # ---------------------------------------------------------------- shared gates and the data-issue hold
@@ -44,9 +46,9 @@ def test_gates_r2_r4_r6():
 def test_apply_buy_rules_holds_for_open_issues_and_failed_gates():
     d = FN.apply_buy_rules({"d": "Buy", "why": []}, mx(80), False, TRIG, {}, TODAY, [{"field": "equity_cr"}])
     assert d["d"] == "Hold" and d["candidate"] == "Buy" and "under correction" in d["why"][0]
-    d = FN.apply_buy_rules({"d": "Strong Buy", "why": []}, mx(40), False, TRIG, {}, TODAY, None, 3)
+    d = FN.apply_buy_rules({"d": "Strong Buy", "why": []}, mx(-5), False, TRIG, {}, TODAY, None, 3)
     assert d["d"] == "Hold" and d["gates"][0].startswith("R1") and "Scores say Buy" in d["why"][0]  # R5 capped first
-    assert FN.apply_buy_rules({"d": "Hold", "why": []}, mx(40), False, TRIG, {}, TODAY) == {"d": "Hold", "why": []}
+    assert FN.apply_buy_rules({"d": "Hold", "why": []}, mx(-5), False, TRIG, {}, TODAY) == {"d": "Hold", "why": []}
 
 
 # ---------------------------------------------------------------- republish applies the same rules as the daily run

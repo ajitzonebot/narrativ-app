@@ -84,6 +84,10 @@ fun SettingsScreen(st: AppState) {
                 })
                 HLineDivider(Modifier.padding(horizontal = 14.dp))
                 SetRow(Icons.Rounded.ChatBubbleOutline, "Feedback", "Send a note or see yours", { st.go(Screen.Feedback) })
+                HLineDivider(Modifier.padding(horizontal = 14.dp))
+                SetRow(Icons.Rounded.Key, "Access key", "Saved on this phone", { KeyGate.editing = true }, trailing = {
+                    T("Change", 14.sp, C.blue, FontWeight.SemiBold)
+                })
             }
         }
         item {

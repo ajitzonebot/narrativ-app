@@ -12,6 +12,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.NorthEast
+import androidx.compose.material.icons.rounded.SouthEast
 import androidx.compose.material.icons.rounded.RocketLaunch
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -297,29 +299,30 @@ private fun RotationCard(st: AppState, p: P?, det: Detail?) {
     val sec = secKey?.let { st.rotation?.sectors?.get(it) }
     val ir = st.rotation?.industries?.get(ind)
     if (sec == null && ir == null) return
+    // feedback #78: one line each, where it stands vs the market and which way it is heading (no quadrant map)
     Card(Modifier.fillMaxWidth(), pad = 12.dp) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            RotationMap(listOfNotNull(sec?.let { RotPoint(it.ratio, it.mom, it.q, "S") }, ir?.let { RotPoint(it.ratio, it.mom, it.q, "I") }),
-                Modifier.size(128.dp, 104.dp), mini = true)
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                sec?.let { RotBlock("S", it.ticker ?: "Nifty $secKey", it) }
-                ir?.let { RotBlock("I", "Industry", it) }
-            }
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            sec?.let { RotLine("Sector · ${it.ticker ?: "Nifty $secKey"}", it) }
+            ir?.let { RotLine("Industry · $ind", it) }
         }
     }
 }
 
 @Composable
-private fun RotBlock(letter: String, name: String, r: Rot) {
+private fun RotLine(label: String, r: Rot) {
     val qc = QUAD_MINI[r.q] ?: C.dim
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(buildAnnotatedString {
-            withStyle(SpanStyle(color = qc)) { append(letter) }; append(" · $name · "); withStyle(SpanStyle(color = qc)) { append(r.q.ifBlank { "–" }) }
-        }, color = C.white, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            r.r1m?.let { ValChip("1M ${skSgn(it)}", gainColor(it)) }
-            r.r3m?.let { ValChip("3M ${skSgn(it)}", gainColor(it)) }
+    val up = r.mom >= 100.0
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(Modifier.weight(1f)) {
+            T(label, 11.sp, C.dim, maxLines = 1)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                T(r.q.ifBlank { "–" }, 15.sp, qc, FontWeight.Bold, maxLines = 1)
+                if (r.q.isNotBlank()) Icon(if (up) Icons.Rounded.NorthEast else Icons.Rounded.SouthEast, null,
+                    tint = if (up) TierC.lightGreen else TierC.lightRed, modifier = Modifier.padding(start = 4.dp).size(16.dp))
+            }
         }
+        r.r1m?.let { ValChip("1M ${skSgn(it)}", gainColor(it)) }
+        r.r3m?.let { ValChip("3M ${skSgn(it)}", gainColor(it)) }
     }
 }
 
@@ -384,8 +387,11 @@ private fun PlanCard(s: Setup) {
 
 // ---------------------------------------------------------------- four key numbers with small visuals
 @Composable
-private fun RowScope.KeyTile(label: String, value: String, onClick: () -> Unit, content: (@Composable ColumnScope.() -> Unit)? = null) =
-    StatTile(label, value, Modifier.weight(1f).heightIn(min = 86.dp), onClick = onClick, content = content)
+private fun RowScope.KeyTile(label: String, value: String, onClick: () -> Unit, color: Color = C.white, content: (@Composable ColumnScope.() -> Unit)? = null) =
+    StatTile(label, value, Modifier.weight(1f).heightIn(min = 86.dp), valueColor = color, onClick = onClick, content = content)
+
+/** feedback #79: a key number takes its check's colour (Pass / Partly / Miss); white when the check is not scored. */
+private fun checkColor(lv: Level?, id: String): Color = lv?.item(id)?.m?.let { statusColor(statusOf(it)) } ?: C.white
 
 @Composable
 private fun KeyTiles(det: Detail, open: (String?) -> Unit) {
@@ -398,28 +404,28 @@ private fun KeyTiles(det: Detail, open: (String?) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             val metric = vl?.metric ?: METRIC_NAMES[vkey] ?: "P/E"
-            KeyTile(if (hist.size >= 2) "$metric · own ${skFx(hist.min(), 1)}–${skFx(hist.max(), 1)}" else metric, skFx(vnow, 1), { open(vkey) }) {
+            KeyTile(if (hist.size >= 2) "$metric · own ${skFx(hist.min(), 1)}–${skFx(hist.max(), 1)}" else metric, skFx(vnow, 1), { open(vkey) }, checkColor(vl, "V1")) {
                 val c = if (vl?.item("V1")?.m != null) statusColor(vl.status("V1")) else C.blue
                 if (hist.size >= 2 && vnow != null) MiniRange(hist.min(), hist.max(), vnow, c)
             }
-            if (lender) KeyTile("ROE", det.v("roe_pct")?.let { "${skFx(it, 1)}%" } ?: "–", { open("roe_pct") })
+            if (lender) KeyTile("ROE", det.v("roe_pct")?.let { "${skFx(it, 1)}%" } ?: "–", { open("roe_pct") }, checkColor(qual, "Q1"))
             else {
                 val roce = det.roceFy
                 KeyTile(if (roce.size >= 2) "ROCE avg · FY${roce.first().first % 100}–${roce.last().first % 100}" else "ROCE avg",
-                    det.v("roce_3y_avg_pct")?.let { "${skFx(it, 1)}%" } ?: "–", { open("roce_3y_avg_pct") }) {
+                    det.v("roce_3y_avg_pct")?.let { "${skFx(it, 1)}%" } ?: "–", { open("roce_3y_avg_pct") }, checkColor(qual, "Q1")) {
                     if (roce.size >= 2) Bars(roce.map { it.second }, Modifier.fillMaxWidth().height(26.dp), color = C.teal, base = roce.minOf { it.second } * 0.85, barFrac = 0.75f)
                 }
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             val rev = det.quarterly.mapNotNull { it.getOrNull(1) }
-            KeyTile(if (rev.size >= 2) "Revenue growth · ${rev.size}Q" else "Revenue growth", det.v("rev_cagr_3y_pct")?.let { "${skFx(it, 1)}%/yr" } ?: "–", { open("rev_cagr_3y_pct") }) {
+            KeyTile(if (rev.size >= 2) "Revenue growth · ${rev.size}Q" else "Revenue growth", det.v("rev_cagr_3y_pct")?.let { "${skFx(it, 1)}%/yr" } ?: "–", { open("rev_cagr_3y_pct") }, checkColor(qual, "Q3")) {
                 if (rev.size >= 2) Sparkline(rev, Modifier.fillMaxWidth().height(26.dp), color = C.teal, area = true, endDot = true)
             }
-            if (lender) KeyTile("Gross NPA", det.v("gnpa_pct_advances")?.let { "${skFx(it, 1)}%" } ?: "–", { open("gnpa_pct_advances") })
+            if (lender) KeyTile("Gross NPA", det.v("gnpa_pct_advances")?.let { "${skFx(it, 1)}%" } ?: "–", { open("gnpa_pct_advances") }, checkColor(det.levels["surv"], "C1"))
             else {
                 val cc = det.v("cfo_to_ebitda_pct")
-                KeyTile("Cash conversion · pass 70%", cc?.let { "${skFx(it, 0)}%" } ?: "–", { open("cfo_to_ebitda_pct") }) {
+                KeyTile("Cash conversion · pass 70%", cc?.let { "${skFx(it, 0)}%" } ?: "–", { open("cfo_to_ebitda_pct") }, checkColor(qual, "Q7")) {
                     if (cc != null) BulletBar(cc, 0.0, 100.0, 70.0, statusColor(qual?.status("Q7") ?: "n/a"), Modifier.fillMaxWidth().height(12.dp), partly = 50.0)
                 }
             }

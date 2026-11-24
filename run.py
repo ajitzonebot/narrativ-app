@@ -410,9 +410,14 @@ def main(limit: int | None) -> None:
     H.source("NSE daily files", delivery_days=len(nsed.get("deliv") or {}), latest=max(nsed.get("deliv") or {"": 0}) or None,
              surveillance=len(nsed.get("surv") or {}), index_members=len(nsed.get("idx") or {}))
 
-    def ext(sym):  # NSE daily files + shareholding filings for one stock (None for BSE-only)
+    try:  # exchange classification by ISIN (industry decides whether book-to-bill applies)
+        cls_of = json.loads(Path("data/classification.json").read_text())
+    except Exception:  # noqa: BLE001
+        cls_of = {}
+
+    def ext(sym):  # exchange daily files + filings for one stock; BSE-only: BSE delivery, BSE dividends, BSE announcements
         e = NSED.for_symbol(nsed, sym, s0i.loc[sym, "bse_code"] if sym in s0i.index else None) if nsed else None
-        if not sym.endswith(".NS"):
+        if not sym.endswith((".NS", ".BO")):
             return None
         cf = CF.stats(cf_st, sym, today)
         mk = None
@@ -421,10 +426,14 @@ def main(limit: int | None) -> None:
             c = c[c.index <= pd.Timestamp(cf["pref"][0][0])]
             mk = float(c.iloc[-1]) if len(c) else None
         t3 = ORD.t3(ann_rows(sym), MX.val(mx[sym], "revenue_ttm_cr"), today)
+        ind = (cls_of.get(s0i.loc[sym, "isin"]) or {}).get("i") if "isin" in s0i.columns else None
+        b2b = ORD.b2b(ann_rows(sym), MX.val(mx[sym], "revenue_ttm_cr"), today, ind in ORD.ORDER_INDUSTRIES)
         d24 = str(today - timedelta(days=730))
         cf = {**cf, "dev_docs": [{"date": r[0], "url": r[3], "title": (r[2] or r[1])[:120]} for r in ann_rows(sym)
                                  if r[0] >= d24 and r[3] and ANN.DEV.search(f"{r[1]} {r[2]}")][:3]}
-        return {**(e or {}), "shp": SHP.stats(shp_st, sym), "shp_ok": bool(shp_st), "cf": cf, "pref_mkt": mk, "t3": t3}
+        if sym.endswith(".BO"):  # no BSE shareholding / surveillance / insider source: those checks stay "not connected"
+            return {**(e or {}), "deliv_src": "BSE", "shp": None, "shp_ok": False, "cf": cf, "pref_mkt": None, "t3": t3, "b2b": b2b}
+        return {**(e or {}), "deliv_src": "NSE", "shp": SHP.stats(shp_st, sym), "shp_ok": bool(shp_st), "cf": cf, "pref_mkt": mk, "t3": t3, "b2b": b2b}
 
     ev = {}
     for s in syms:
@@ -730,6 +739,7 @@ def main(limit: int | None) -> None:
             n_enrich[0] += 1
             q(s, why, "enrich")
     near = [s for s in top if not has_driver(s) and all(0 < ev[s]["L"][k]["t"] <= 3 for k in ("surv", "qual", "val"))]
+    near.sort(key=lambda s: not (fwd.get(s) or {}).get("dated"))  # stable: the free readers found a dated row -> first, then priority
     for s in near:
         enrich(s, f"one forward driver away from a Buy/Hold call (priority {ev[s]['pr']})")
     for s, gp in odp["gaps"][:config.GAP_ENRICH_PER_DAY]:  # scan items with no quote / source / due date: only Claude can fill them
@@ -949,8 +959,11 @@ def main(limit: int | None) -> None:
     alerts.send([p for p in picks if not p.get("out")][:60], newly_due_all, changes, new_events)
     if not limit:  # D1 tables + R2 files (git JSON above stays the fallback during the switch-over)
         try:
+            isin_of = {s: s0i.loc[s, "isin"] for s in syms if "isin" in s0i.columns and isinstance(s0i.loc[s, "isin"], str)}
+            mcap_of = {s: float(s0i.loc[s, "mcap_cr"]) for s in syms if "mcap_cr" in s0i.columns and pd.notna(s0i.loc[s, "mcap_cr"])}
+            mom_of = {p["s"]: (p.get("sc") or [None] * 7)[FN.LEVELS.index("mom")] for p in picks if p.get("s")}
             dbsync.sync(today, s0i, btypes, {s: ev[s]["lscore"] for s in syms}, picks, details, fins, M.all_records(), theses, md, ann_st,
-                        {"universe": len(syms), "in_funnel": len(infunnel)})
+                        {"universe": len(syms), "in_funnel": len(infunnel)}, breadth_in=(px, isin_of, mcap_of, mom_of))
         except Exception as e:  # noqa: BLE001
             print(f"[store] sync failed: {e}")
     H.mark("database sync")

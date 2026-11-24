@@ -31,8 +31,10 @@ RESEARCH_TOP_N = 20                    # top N eligible for Claude research
 # Score weights (outlook + sentiment redistributed when a stock has no research yet)
 WEIGHTS = {"outlook": 0.25, "inflection": 0.20, "undiscovered": 0.15, "valuation": 0.15,
            "momentum": 0.15, "sentiment": 0.10}
-RESEARCH_PER_DAY = 45                  # cap on the queue: full reviews first, then rechecks with a reason, then a few enrich
-ENRICH_PER_DAY = 8                     # forward-driver hunts for non-candidates (the most reading for the least decision value)
+RESEARCH_PER_DAY = 60                  # cap on the queue: full reviews first, then rechecks with a reason, then enrich (60 lasts a
+                                       # weekend at ~25 items a day: 22-23 Nov 2026 the 45-item Friday queue ran out and 6 runs idled)
+ENRICH_PER_DAY = 20                    # forward-driver hunts for stocks one driver away from a Buy / Hold call; reader-found dated
+                                       # rows first (Claude only confirms them). 8 until 23 Nov 2026: 52 top-scoring stocks sat Not rated
 RECENT_RESEARCH_DAYS = 30              # an enrich is skipped if Claude researched the stock this recently
 OVERDUE_COOLDOWN_DAYS = 3              # an overdue recheck / scan-gap enrich is skipped if researched this recently (unless a new document arrived)
 GAP_ENRICH_PER_DAY = 5                 # enrich tasks that fill kill switches / must-go-right items missing a quote, source or due date

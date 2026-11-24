@@ -55,3 +55,31 @@ def t3(rows: list, rev_ttm_cr: float | None, today: date) -> tuple:
         return None, f"largest order ₹{top['cr']:,.1f} cr ({top['date']})", "revenue (last 4 quarters) not available", top["url"]
     pct = top["cr"] / rev_ttm_cr * 100
     return pct >= 10, f"₹{top['cr']:,.1f} cr on {top['date']} = {pct:.1f}% of revenue (last 4 quarters)", "order value from the filing's subject line", top["url"]
+
+
+# exchange classification industries (data/classification.json "i") whose revenue comes from orders / contracts
+ORDER_INDUSTRIES = {"Construction", "Electrical Equipment", "Industrial Manufacturing", "Aerospace & Defense", "Industrial Products",
+                    "Engineering Services", "Telecom -  Equipment & Accessories", "Transport Infrastructure",
+                    "Agricultural, Commercial & Construction Vehicles", "IT - Services", "Other Construction Materials"}
+
+
+def b2b(rows: list, rev_ttm_cr: float | None, today: date, order_industry: bool) -> tuple:
+    """-> (state, value text, note, url) for T2 'Book-to-bill > 1' from order announcements over 12 months.
+
+    Companies announce only material orders, so the announced total is a floor on the real inflow: it can prove
+    book-to-bill > 1 (announced orders alone exceed revenue) but never prove it is below 1 (then the check stays open).
+    Businesses outside order-driven industries with no order announcements: not applicable."""
+    o = recent(rows, today, days=365)
+    if not o:
+        return (None, None, "no order announcement in 12 months" if order_industry else "not applicable", None)
+    valued = [x for x in o if x["cr"]]
+    if not valued:
+        return None, f"{len(o)} order announcement(s), value not stated in ₹", "open the filings", o[0]["url"]
+    tot = sum(x["cr"] for x in valued)
+    if not rev_ttm_cr:
+        return None, f"announced orders ₹{tot:,.0f} cr (12 months)", "revenue (last 4 quarters) not available", valued[0]["url"]
+    r = tot / rev_ttm_cr
+    txt = f"announced orders ₹{tot:,.0f} cr in 12 months = {r:.2f}× revenue ({len(valued)} orders)"
+    if r >= 1:
+        return True, txt, None, valued[0]["url"]
+    return None, txt, "only large orders are announced, so this cannot show book-to-bill below 1", valued[0]["url"]

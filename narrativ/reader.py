@@ -24,6 +24,7 @@ gemini-3.5-flash-lite 15/min, 500/day; 250K tokens a minute each; daily limits r
 import json
 import os
 import re
+import subprocess
 import sys
 import threading
 import time
@@ -46,6 +47,9 @@ DATED = {"guidance", "order", "capacity", "capex", "product", "margin"}  # kinds
 PACE = {"flash-lite": 4.5, "flash": 13.0}  # seconds between requests: under 15/min and 5/min
 OUT = Path("data/reader_test")
 MAX_DOC_CHARS = 400_000  # a long transcript is ~100K characters; anything far larger is not a call
+SAVE_EVERY = 20 * 60  # seconds between saves to main during a run (READER_SAVE=1, set by reader.yml)
+OWN = (STORE, STATS, FORWARD)  # files only the reader writes: a save puts these back on the latest main, never merges them
+_last_save = [time.time()]
 
 KINDS = ["guidance", "order", "capacity", "capex", "margin", "product", "demand", "risk", "other"]
 SCHEMA = {
@@ -304,6 +308,8 @@ def _stage_run(name: str, model: str, todo: list[dict], cap: int, key: str, stor
             e[name] = {"model": model, "at": str(datetime.now(IST).date()), "secs": round(time.time() - t0, 1), "rows": rows,
                        "dropped": drop, "finish": meta.get("finish")}
             STORE.write_text(json.dumps(store, ensure_ascii=False, indent=0))
+            if os.environ.get("READER_SAVE") == "1" and time.time() - _last_save[0] > SAVE_EVERY:
+                save(store)  # under the lock: the other stage waits a few seconds
         log[f"{name}_read"] += 1
         log[f"{name}_rows"] += len(rows)
         log[f"{name}_dropped"] += sum(v for k, v in drop.items() if not k.startswith("flagged"))
@@ -367,6 +373,42 @@ def patch_packs(store: dict) -> int:
     return n
 
 
+def _git(*a: str, check: bool = True) -> subprocess.CompletedProcess:
+    return subprocess.run(["git", *a], capture_output=True, text=True, check=check)
+
+
+def save(store: dict, tries: int = 5) -> bool:
+    """Commit the reader's work onto the latest main and push, conflict-free by construction: the work tree is reset to
+    origin/main, the reader's own files (OWN; nothing else writes them) are put back, and reader rows are attached to main's
+    current packs. A rebase of the whole run's commit failed on 23 Nov 2026 (the daily run had rewritten packs meanwhile)
+    and lost ~2 hours of reading and the day's free quota; saving every SAVE_EVERY also caps what a crash can lose."""
+    _last_save[0] = time.time()
+    STORE.write_text(json.dumps(store, ensure_ascii=False, indent=0))
+    forward(store)
+    keep = {p: p.read_bytes() for p in OWN if p.exists()}
+    for i in range(tries):
+        try:
+            _git("fetch", "-q", "origin", "main")
+            _git("reset", "-q", "--hard", "origin/main")
+            for p, b in keep.items():
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_bytes(b)
+            n = patch_packs(store)
+            _git("add", "-A", "--", *[str(p) for p in (*OWN, packs.OUT) if p.exists()])
+            if _git("diff", "--cached", "--quiet", check=False).returncode == 0:
+                return True
+            _git("-c", "user.name=github-actions[bot]", "-c", "user.email=41898282+github-actions[bot]@users.noreply.github.com",
+                 "commit", "-q", "-m", f"data: reader {datetime.now(IST):%Y-%m-%d %H:%M} IST")
+            if _git("push", "-q", "origin", "HEAD:main", check=False).returncode == 0:
+                print(f"[reader] saved to main ({sum(1 for e in store.values() for m in ('lite', 'flash') if 'rows' in (e.get(m) or {}))} documents read, {n} packs patched)")
+                return True
+        except subprocess.CalledProcessError as e:
+            print(f"[reader] save attempt {i + 1}: git {' '.join(e.cmd[1:3])}: {(e.stderr or '').strip()[:200]}")
+        time.sleep(5 * (i + 1))
+    print("::error::reader: saving to main failed after retries")
+    return False
+
+
 def daily() -> None:
     key = os.environ["GEMINI_API_KEY"]
     t0 = time.time()
@@ -394,6 +436,8 @@ def daily() -> None:
     with STATS.open("a") as f:
         f.write(json.dumps(line) + "\n")
     print("[reader] " + json.dumps(line))
+    if os.environ.get("READER_SAVE") == "1" and not save(store):
+        sys.exit(1)
 
 
 if __name__ == "__main__":
@@ -401,5 +445,7 @@ if __name__ == "__main__":
         test(sys.argv[2], int(sys.argv[3]) if len(sys.argv) > 3 else 1000)
     elif sys.argv[1] == "--daily":
         daily()
+    elif sys.argv[1] == "--save":  # after a crash: save whatever the run wrote to data/reader/store.json
+        sys.exit(0 if save(json.loads(STORE.read_text()) if STORE.exists() else {}) else 1)
     elif sys.argv[1] == "--models":
         print("\n".join(models(os.environ["GEMINI_API_KEY"])))

@@ -18,8 +18,8 @@
  *    number with duplicate:true instead of creating another.
  */
 const JSON_HDR = { "content-type": "application/json; charset=utf-8" };
-// Must equal the second entry of wrangler.toml crons. Cloudflare numbers day-of-week 1 = Sunday, so the schedules use MON-FRI names.
-const IPO_CRON = "40 8 * * MON-FRI";
+// Must equal the IPO entries of wrangler.toml crons. Cloudflare numbers day-of-week 1 = Sunday, so the schedules use MON-FRI names.
+const IPO_CRONS = ["0 3 * * MON-FRI", "0 10 * * MON-FRI"];
 const MAX_BODY = 8 * 1024;
 const IP_DAILY_CAP = 10;      // feedback + scan posts per IP per UTC day (best-effort, per isolate)
 const GLOBAL_DAILY_CAP = 100; // feedback + scan issues per rolling 24 h, counted from GitHub
@@ -139,8 +139,8 @@ async function recentScan(env, sym) {
 
 export default {
   async scheduled(event, env, ctx) {
-    // 08:40 UTC = 14:10 IST -> IPO subscription update; 11:40 UTC = 17:10 IST -> daily run
-    const wf = event.cron === IPO_CRON ? "ipo-pm.yml" : "daily.yml";
+    // 03:00 / 10:00 UTC = 08:30 / 15:30 IST -> IPO check; 11:40 UTC = 17:10 IST -> daily run
+    const wf = IPO_CRONS.includes(event.cron) ? "ipo.yml" : "daily.yml";
     let status = 0, detail = "";
     for (let i = 1; i <= 3; i++) {  // 204 = started; retry transient failures (5xx, network)
       try {

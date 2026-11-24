@@ -312,8 +312,28 @@
 "url": "https://www.bseindia.com/corporates/results.aspx?Code=522273&Company=Ahmedabad-Steelcraft-Ltd&qtr=131.00&RType="
 },
 "AIRLTD.BO": {
-"fy": {},
-"q": {}
+"checked": "2026-11-20",
+"code": "508929",
+"fy": {
+"2026-03-31": {
+"eps": null,
+"pat": 0.76,
+"rev": null
+}
+},
+"q": {
+"2026-06-30": {
+"eps": null,
+"pat": -0.18,
+"rev": null
+},
+"2026-09-30": {
+"eps": -0.11,
+"pat": -0.26,
+"rev": null
+}
+},
+"url": "https://www.bseindia.com/corporates/results.aspx?Code=508929&Company=Avishkar-Infra-Realty-Ltd&qtr=131.00&RType="
 },
 "AKCAPIT.NS": {
 "checked": "2026-11-16",
@@ -556,7 +576,7 @@
 "url": "https://www.bseindia.com/corporates/results.aspx?Code=526173&Company=Andrew-Yule-%26-Company-Ltd&qtr=131.00&RType="
 },
 "APIS.BO": {
-"checked": "2026-11-16",
+"checked": "2026-11-23",
 "code": "506166",
 "fy": {
 "2026-03-31": {
@@ -844,7 +864,7 @@
 "url": "https://www.bseindia.com/corporates/results.aspx?Code=512600&Company=Astal-Laboratories-Ltd&qtr=131.00&RType="
 },
 "ASTAR.NS": {
-"checked": "2026-11-16",
+"checked": "2026-11-23",
 "code": "531847",
 "fy": {
 "2026-03-31": {
@@ -1331,7 +1351,7 @@
 "url": "https://www.bseindia.com/corporates/NBFC.aspx?Code=533095&qtr=378&Rtype=P&Company=Bengal-%26-Assam-Company-Ltd"
 },
 "BGDL.BO": {
-"checked": "2026-11-16",
+"checked": "2026-11-23",
 "code": "521238",
 "fy": {
 "2026-03-31": {
@@ -1759,7 +1779,7 @@
 "url": "https://www.bseindia.com/corporates/results.aspx?Code=543831&Company=Bright-Outdoor-Media-Ltd&qtr=131.00&RType="
 },
 "BRPL.BO": {
-"checked": "2026-11-16",
+"checked": "2026-11-23",
 "code": "538546",
 "fy": {
 "2026-03-31": {
@@ -1916,7 +1936,7 @@
 "url": "https://www.bseindia.com/corporates/results.aspx?Code=538786&Company=Citizen-Solar-Ltd&qtr=131.00&RType="
 },
 "CITURGIA.BO": {
-"checked": "2026-11-16",
+"checked": "2026-11-23",
 "code": "506373",
 "fy": {
 "2026-03-31": {
@@ -2180,7 +2200,7 @@
 "url": "https://www.bseindia.com/corporates/NBFC.aspx?Code=538476&qtr=378&Rtype=P&Company=Capital-Trade-Links-Ltd"
 },
 "CUPIDALBV.BO": {
-"checked": "2026-11-16",
+"checked": "2026-11-23",
 "code": "512361",
 "fy": {},
 "q": {
@@ -2312,6 +2332,30 @@
 },
 "url": "https://www.bseindia.com/corporates/NBFC.aspx?Code=501945&qtr=378&Rtype=P&Company=Dhenu-Buildcon-Infra-Ltd"
 },
+"DHRUVCA.BO": {
+"checked": "2026-11-20",
+"code": "531237",
+"fy": {
+"2026-03-31": {
+"eps": 2.25,
+"pat": 1.62,
+"rev": 5.48
+}
+},
+"q": {
+"2026-06-30": {
+"eps": 1.54,
+"pat": 0.03,
+"rev": 0.8
+},
+"2026-09-30": {
+"eps": 0.23,
+"pat": 0.17,
+"rev": 1.16
+}
+},
+"url": "https://www.bseindia.com/corporates/NBFC.aspx?Code=531237&qtr=378&Rtype=P&Company=Dhruva-Capital-Services-Ltd"
+},
 "DISAQ.NS": {
 "checked": "2026-11-16",
 "code": "500068",
@@ -2408,8 +2452,32 @@
 },
 "url": "https://www.bseindia.com/corporates/results.aspx?Code=526783&Company=Dr-Agarwals-Eye-Hospital-Ltd-$&qtr=130.00&RType="
 },
+"EASTINDIA.BO": {
+"checked": "2026-11-20",
+"code": "523874",
+"fy": {
+"2026-03-31": {
+"eps": 3.16,
+"pat": 4.67,
+"rev": 248.22
+}
+},
+"q": {
+"2026-06-30": {
+"eps": 0.92,
+"pat": 1.35,
+"rev": 63.45
+},
+"2026-09-30": {
+"eps": 1.32,
+"pat": 1.96,
+"rev": 73.21
+}
+},
+"url": "https://www.bseindia.com/corporates/results.aspx?Code=523874&Company=East-India-Drums-and-Barrels-Manufacturing-Ltd&qtr=131.00&RType="
+},
 "EBIX.NS": {
-"checked": "2026-11-16",
+"checked": "2026-11-23",
 "code": "531035",
 "fy": {
 "2026-03-31": {
@@ -2577,7 +2645,7 @@
 "url": "https://www.bseindia.com/corporates/NBFC.aspx?Code=503681&qtr=378&Rtype=P&Company=EL-CID-Investments-Ltd"
 },
 "ELITECON.NS": {
-"checked": "2026-11-16",
+"checked": "2026-11-23",
 "code": "539533",
 "fy": {
 "2026-03-31": {
@@ -3142,7 +3210,7 @@
 "url": "https://www.bseindia.com/corporates/results.aspx?Code=526073&Company=Galaxy-Bearings-Ltd&qtr=131.00&RType="
 },
 "GAMCO.BO": {
-"checked": "2026-11-16",
+"checked": "2026-11-23",
 "code": "540097",
 "fy": {
 "2026-03-31": {
@@ -3358,7 +3426,7 @@
 "url": "https://www.bseindia.com/corporates/results.aspx?Code=500168&Company=Goodyear-India-Ltd&qtr=131.00&RType="
 },
 "GRANDOAK.NS": {
-"checked": "2026-11-16",
+"checked": "2026-11-23",
 "code": "523862",
 "fy": {
 "2023-03-31": {
@@ -3790,13 +3858,18 @@
 "url": "https://www.bseindia.com/corporates/results.aspx?Code=504375&Company=IDream-Film-Infrastructure-Company-Ltd&qtr=131.00&RType="
 },
 "IFINSEC.BO": {
-"checked": "2026-11-16",
+"checked": "2026-11-23",
 "code": "535667",
 "fy": {
 "2025-03-31": {
 "eps": null,
 "pat": 0.0,
 "rev": 0.27
+},
+"2026-03-31": {
+"eps": 0.01,
+"pat": 0.04,
+"rev": 0.04
 }
 },
 "q": {
@@ -3809,6 +3882,16 @@
 "eps": -0.03,
 "pat": -0.08,
 "rev": 0.01
+},
+"2026-06-30": {
+"eps": -0.03,
+"pat": -0.08,
+"rev": null
+},
+"2026-09-30": {
+"eps": 0.03,
+"pat": 0.08,
+"rev": null
 }
 },
 "url": "https://www.bseindia.com/corporates/results.aspx?Code=535667&Company=India-Finsec-Ltd&qtr=131.00&RType="
@@ -4222,7 +4305,7 @@
 "url": "https://www.bseindia.com/corporates/results.aspx?Code=524592&Company=Jaysynth-Orgochem-Ltd&qtr=131.00&RType="
 },
 "JAYTEX.BO": {
-"checked": "2026-11-16",
+"checked": "2026-11-23",
 "code": "512233",
 "fy": {
 "2019-03-31": {
@@ -4499,7 +4582,7 @@
 "url": "https://www.bseindia.com/corporates/results.aspx?Code=512595&Company=KD-Green-Industries-Ltd&qtr=131.00&RType="
 },
 "KELENRG.BO": {
-"checked": "2026-11-16",
+"checked": "2026-11-23",
 "code": "506528",
 "fy": {
 "2026-03-31": {
@@ -4518,9 +4601,14 @@
 "eps": 80.8,
 "pat": 8.08,
 "rev": 183.28
+},
+"2026-09-30": {
+"eps": 82.51,
+"pat": 8.25,
+"rev": 160.53
 }
 },
-"url": "https://www.bseindia.com/corporates/results.aspx?Code=506528&Company=KELTECH-Energies-Ltd&qtr=130.00&RType="
+"url": "https://www.bseindia.com/corporates/results.aspx?Code=506528&Company=KELTECH-Energies-Ltd&qtr=131.00&RType="
 },
 "KENNAMET.NS": {
 "checked": "2026-11-16",
@@ -4902,7 +4990,7 @@
 "url": "https://www.bseindia.com/corporates/results.aspx?Code=504258&Company=Lakshmi-Electrical-Control-Systems-Ltd&qtr=131.00&RType="
 },
 "LAKSHMIMIL.NS": {
-"checked": "2026-11-16",
+"checked": "2026-11-23",
 "code": "502958",
 "fy": {
 "2026-03-31": {
@@ -5166,7 +5254,7 @@
 "url": "https://www.bseindia.com/corporates/results.aspx?Code=500267&Company=Majestic-Auto-Ltd&qtr=131.00&RType="
 },
 "MARBLE.BO": {
-"checked": "2026-11-16",
+"checked": "2026-11-23",
 "code": "531281",
 "fy": {
 "2026-03-31": {
@@ -5190,7 +5278,7 @@
 "url": "https://www.bseindia.com/corporates/results.aspx?Code=531281&Company=Marble-City-India-Ltd&qtr=130.00&RType="
 },
 "MAXGROW.BO": {
-"checked": "2026-11-16",
+"checked": "2026-11-23",
 "code": "521167",
 "fy": {
 "2026-03-31": {
@@ -5286,7 +5374,7 @@
 "url": "https://www.bseindia.com/corporates/results.aspx?Code=534091&Company=Multi-Commodity-Exchange-of-India-Ltd&qtr=131.00&RType="
 },
 "MEEIND.BO": {
-"checked": "2026-11-16",
+"checked": "2026-11-23",
 "code": "544831",
 "fy": {},
 "q": {
@@ -5491,7 +5579,7 @@
 "url": "https://www.bseindia.com/corporates/results.aspx?Code=538890&Company=M.K.-Exim-(India)-Ltd&qtr=131.00&RType="
 },
 "MKJEWELS.NS": {
-"checked": "2026-11-16",
+"checked": "2026-11-23",
 "code": "545017",
 "fy": {},
 "q": {},
@@ -5570,7 +5658,7 @@
 "url": "https://www.bseindia.com/corporates/NBFC.aspx?Code=512267&qtr=378&Rtype=P&Company=Media-Matrix-Worldwide-Ltd"
 },
 "MOBAVENUE.BO": {
-"checked": "2026-11-16",
+"checked": "2026-11-23",
 "code": "539682",
 "fy": {
 "2026-03-31": {
@@ -5930,7 +6018,7 @@
 "url": "https://www.bseindia.com/corporates/results.aspx?Code=530129&Company=Nile-Ltd&qtr=131.00&RType="
 },
 "NIRLON.NS": {
-"checked": "2026-11-16",
+"checked": "2026-11-23",
 "code": "500307",
 "fy": {
 "2026-03-31": {
@@ -5954,7 +6042,7 @@
 "url": "https://www.bseindia.com/corporates/results.aspx?Code=500307&Company=Nirlon-Ltd&qtr=130.00&RType="
 },
 "NITINCAST.BO": {
-"checked": "2026-11-16",
+"checked": "2026-11-23",
 "code": "508875",
 "fy": {
 "2026-03-31": {
@@ -5978,7 +6066,7 @@
 "url": "https://www.bseindia.com/corporates/results.aspx?Code=508875&Company=Nitin-Castings-Ltd&qtr=130.00&RType="
 },
 "NITTAGELA.NS": {
-"checked": "2026-11-16",
+"checked": "2026-11-23",
 "code": "506532",
 "fy": {
 "2026-03-31": {
@@ -5999,7 +6087,7 @@
 "rev": 140.87
 }
 },
-"url": "https://www.bseindia.com/corporates/results.aspx?Code=506532&Company=Nitta-Gelatin-India-Ltd&qtr=130.00&RType="
+"url": "https://www.bseindia.com/corporates/results.aspx?Code=506532&Company=Nitta-Gelatin-India-Ltd-$&qtr=130.00&RType="
 },
 "NIYOGIN.BO": {
 "checked": "2026-11-16",
@@ -6303,7 +6391,7 @@
 "url": "https://www.bseindia.com/corporates/results.aspx?Code=513511&Company=Panchmahal-Steel-Ltd&qtr=131.00&RType="
 },
 "PANORAMA.NS": {
-"checked": "2026-11-16",
+"checked": "2026-11-23",
 "code": "539469",
 "fy": {
 "2026-03-31": {
@@ -6322,9 +6410,14 @@
 "eps": 0.56,
 "pat": 14.6,
 "rev": 179.84
+},
+"2026-09-30": {
+"eps": 0.37,
+"pat": 9.76,
+"rev": 393.05
 }
 },
-"url": "https://www.bseindia.com/corporates/results.aspx?Code=539469&Company=Panorama-Studios-International-Ltd&qtr=130.00&RType="
+"url": "https://www.bseindia.com/corporates/results.aspx?Code=539469&Company=Panorama-Studios-International-Ltd&qtr=131.00&RType="
 },
 "PARSHVA.BO": {
 "checked": "2026-11-16",
@@ -6446,6 +6539,30 @@
 },
 "url": "https://www.bseindia.com/corporates/results.aspx?Code=500143&Company=PH-Capital-Ltd&qtr=131.00&RType="
 },
+"PHOTON.BO": {
+"checked": "2026-11-20",
+"code": "509084",
+"fy": {
+"2026-03-31": {
+"eps": 5.73,
+"pat": 0.89,
+"rev": 1.44
+}
+},
+"q": {
+"2026-06-30": {
+"eps": 0.59,
+"pat": 0.16,
+"rev": 0.25
+},
+"2026-09-30": {
+"eps": 2.32,
+"pat": 0.63,
+"rev": 1.13
+}
+},
+"url": "https://www.bseindia.com/corporates/results.aspx?Code=509084&Company=Photon-Capital-Advisors-Ltd&qtr=131.00&RType="
+},
 "PIPAN.BO": {
 "checked": "2026-11-16",
 "code": "538537",
@@ -6543,7 +6660,7 @@
 "url": "https://www.bseindia.com/corporates/results.aspx?Code=540717&Company=Polo-Queen-Industrial-and-Fintech-Ltd&qtr=131.00&RType="
 },
 "PRABHATAM.BO": {
-"checked": "2026-11-16",
+"checked": "2026-11-23",
 "code": "531647",
 "fy": {
 "2026-03-31": {
@@ -6562,9 +6679,14 @@
 "eps": -0.14,
 "pat": -0.27,
 "rev": 0.13
+},
+"2026-09-30": {
+"eps": 0.03,
+"pat": 0.52,
+"rev": 0.25
 }
 },
-"url": "https://www.bseindia.com/corporates/results.aspx?Code=531647&Company=Prabhatam-Infra-Venture-Ltd&qtr=130.00&RType="
+"url": "https://www.bseindia.com/corporates/results.aspx?Code=531647&Company=Prabhatam-Infra-Venture-Ltd&qtr=131.00&RType="
 },
 "PRADPME.NS": {
 "checked": "2026-11-16",
@@ -6783,7 +6905,7 @@
 "url": "https://www.bseindia.com/corporates/results.aspx?Code=531412&Company=Radix-Industries-(India)-Ltd&qtr=131.00&RType="
 },
 "RAGHUSYN.BO": {
-"checked": "2026-11-16",
+"checked": "2026-11-23",
 "code": "514316",
 "fy": {
 "2026-03-31": {
@@ -7545,7 +7667,7 @@
 "url": "https://www.bseindia.com/corporates/NBFC.aspx?Code=512399&qtr=378&Rtype=P&Company=Sera-Investments-%26-Finance-India-Ltd"
 },
 "SFCTECH.NS": {
-"checked": "2026-11-16",
+"checked": "2026-11-23",
 "code": "545009",
 "fy": {},
 "q": {},
@@ -8123,7 +8245,7 @@
 "url": "https://www.bseindia.com/corporates/results.aspx?Code=517166&Company=SPEL-Semiconductor-Ltd&qtr=131.00&RType="
 },
 "SPICEISLIN.BO": {
-"checked": "2026-11-16",
+"checked": "2026-11-23",
 "code": "526827",
 "fy": {
 "2026-03-31": {
@@ -8142,12 +8264,17 @@
 "eps": 2.24,
 "pat": 1.4,
 "rev": 17.83
+},
+"2026-09-30": {
+"eps": 1.36,
+"pat": -0.85,
+"rev": 34.8
 }
 },
-"url": "https://www.bseindia.com/corporates/results.aspx?Code=526827&Company=Spice-Islands-Industries-Ltd-$&qtr=130.00&RType="
+"url": "https://www.bseindia.com/corporates/results.aspx?Code=526827&Company=Spice-Islands-Industries-Ltd&qtr=131.00&RType="
 },
 "SPICEJET.BO": {
-"checked": "2026-11-16",
+"checked": "2026-11-23",
 "code": "500285",
 "fy": {
 "2025-03-31": {
@@ -8171,7 +8298,7 @@
 "url": "https://www.bseindia.com/corporates/results.aspx?Code=500285&Company=Spicejet-Ltd&qtr=128.00&RType="
 },
 "SPICELOUNG.BO": {
-"checked": "2026-11-16",
+"checked": "2026-11-23",
 "code": "539895",
 "fy": {
 "2026-03-31": {
@@ -8190,9 +8317,14 @@
 "eps": 0.01,
 "pat": 0.05,
 "rev": 2.37
+},
+"2026-09-30": {
+"eps": 0.01,
+"pat": 0.05,
+"rev": 1.75
 }
 },
-"url": "https://www.bseindia.com/corporates/results.aspx?Code=539895&Company=Spice-Lounge-Food-Works-Ltd&qtr=130.00&RType="
+"url": "https://www.bseindia.com/corporates/results.aspx?Code=539895&Company=Spice-Lounge-Food-Works-Ltd&qtr=131.00&RType="
 },
 "SRAMSET.BO": {
 "checked": "2026-11-16",
@@ -8363,7 +8495,7 @@
 "url": "https://www.bseindia.com/corporates/results.aspx?Code=539300&Company=Sunrakshakk-Industries-India-Ltd&qtr=131.00&RType="
 },
 "SUNSHIEL.NS": {
-"checked": "2026-11-16",
+"checked": "2026-11-23",
 "code": "530845",
 "fy": {
 "2026-03-31": {
@@ -8411,7 +8543,7 @@
 "url": "https://www.bseindia.com/corporates/results.aspx?Code=512527&Company=Super-Sales-India-Ltd-$&qtr=131.00&RType="
 },
 "SURAJ.BO": {
-"checked": "2026-11-16",
+"checked": "2026-11-23",
 "code": "518075",
 "fy": {
 "2026-03-31": {
@@ -8483,7 +8615,7 @@
 "url": "https://www.bseindia.com/corporates/results.aspx?Code=535621&Company=S-V-Global-Mill-Ltd&qtr=131.00&RType="
 },
 "SVRL.BO": {
-"checked": "2026-11-16",
+"checked": "2026-11-23",
 "code": "543373",
 "fy": {
 "2026-03-31": {
@@ -8795,7 +8927,7 @@
 "url": "https://www.bseindia.com/corporates/results.aspx?Code=500414&Company=Timex-Group-India-Ltd&qtr=131.00&RType="
 },
 "TITANBIO.BO": {
-"checked": "2026-11-16",
+"checked": "2026-11-23",
 "code": "524717",
 "fy": {
 "2026-03-31": {
@@ -8819,7 +8951,7 @@
 "url": "https://www.bseindia.com/corporates/results.aspx?Code=524717&Company=Titan-Biotech-Ltd&qtr=130.00&RType="
 },
 "TOTEM.BO": {
-"checked": "2026-11-16",
+"checked": "2026-11-23",
 "code": "544186",
 "fy": {
 "2026-03-31": {
@@ -8987,7 +9119,7 @@
 "url": "https://www.bseindia.com/corporates/results.aspx?Code=506808&Company=Tuticorin-Alkali-Chemicals-And-Fertilizers-Ltd&qtr=131.00&RType="
 },
 "UCIL.BO": {
-"checked": "2026-11-16",
+"checked": "2026-11-23",
 "code": "541358",
 "fy": {
 "2026-03-31": {
@@ -9227,7 +9359,7 @@
 "url": "https://www.bseindia.com/corporates/results.aspx?Code=526775&Company=Valiant-Communications-Ltd&qtr=131.00&RType="
 },
 "VEEFIN.NS": {
-"checked": "2026-11-16",
+"checked": "2026-11-23",
 "code": "543931",
 "fy": {
 "2026-03-31": {
@@ -9443,7 +9575,7 @@
 "url": "https://www.bseindia.com/corporates/results.aspx?Code=530521&Company=Brahm-Virat-Industries-Corporation-Ltd&qtr=131.00&RType="
 },
 "VISHAL.NS": {
-"checked": "2026-11-16",
+"checked": "2026-11-23",
 "code": "538598",
 "fy": {
 "2026-03-31": {

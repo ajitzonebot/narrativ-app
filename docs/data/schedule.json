@@ -1,5 +1,5 @@
 {
- "note": "All times IST. The 14:10 and 17:10 jobs are started by the Cloudflare Worker (GitHub timer as backup). After each research run a GitHub job publishes Claude's verdicts.",
+ "note": "All times IST. The 08:30, 15:30 and 17:10 jobs are started by the Cloudflare Worker (GitHub timer as backup). After each research run a GitHub job publishes Claude's verdicts.",
  "jobs": [
   {
    "time": "04:05 09:05 14:05 18:05 23:05",
@@ -10,25 +10,25 @@
   {
    "time": "08:30",
    "days": "Mon–Fri",
-   "name": "Open IPOs check",
-   "by": "Claude"
-  },
-  {
-   "time": "09:15",
-   "days": "IPO last days",
-   "name": "IPO alert on this phone (APPLY only)",
-   "by": "App"
-  },
-  {
-   "time": "14:10",
-   "days": "Mon–Fri",
-   "name": "IPO subscription update (NSE)",
+   "name": "Open IPOs check: GMP, subscription, 5 rules",
    "by": "GitHub"
   },
   {
-   "time": "15:00",
-   "days": "IPO last days",
-   "name": "IPO alert: 2 hours left or call changed",
+   "time": "09:15",
+   "days": "IPO days",
+   "name": "IPO alert: every Apply",
+   "by": "App"
+  },
+  {
+   "time": "15:30",
+   "days": "Mon–Fri",
+   "name": "Open IPOs check: final-day call",
+   "by": "GitHub"
+  },
+  {
+   "time": "15:45",
+   "days": "IPO days",
+   "name": "IPO alert: last-day Apply or call changed",
    "by": "App"
   },
   {

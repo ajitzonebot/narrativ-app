@@ -4727,6 +4727,14 @@
 "s": "Healthcare",
 "src": "BSE"
 },
+"INE107J01016": {
+"b": "Diversified Commercial Services",
+"d": "2026-11-23",
+"i": "Commercial Services & Supplies",
+"m": "Services",
+"s": "Services",
+"src": "BSE"
+},
 "INE108G01010": {
 "b": "Breweries & Distilleries",
 "d": "2026-11-16",
@@ -5365,6 +5373,14 @@
 "i": "Industrial Manufacturing",
 "m": "Industrials",
 "s": "Capital Goods",
+"src": "BSE"
+},
+"INE142I01023": {
+"b": "Healthcare Research, Analytics & Technology",
+"d": "2026-11-23",
+"i": "Healthcare Services",
+"m": "Healthcare",
+"s": "Healthcare",
 "src": "BSE"
 },
 "INE142M01025": {
@@ -6277,6 +6293,14 @@
 "i": "Industrial Products",
 "m": "Industrials",
 "s": "Capital Goods",
+"src": "BSE"
+},
+"INE191C01023": {
+"b": "Trading & Distributors",
+"d": "2026-11-23",
+"i": "Commercial Services & Supplies",
+"m": "Services",
+"s": "Services",
 "src": "BSE"
 },
 "INE191H01014": {
@@ -8621,6 +8645,14 @@
 "i": "Food Products",
 "m": "Fast Moving Consumer Goods",
 "s": "Fast Moving Consumer Goods",
+"src": "BSE"
+},
+"INE2OD001016": {
+"b": "Education",
+"d": "2026-11-23",
+"i": "Other Consumer Services",
+"m": "Consumer Discretionary",
+"s": "Consumer Services",
 "src": "BSE"
 },
 "INE2W6901017": {
@@ -18365,6 +18397,14 @@
 "i": "Consumer Durables",
 "m": "Consumer Discretionary",
 "s": "Consumer Durables",
+"src": "BSE"
+},
+"INE972E01014": {
+"b": "Non Banking Financial Company (NBFC)",
+"d": "2026-11-23",
+"i": "Finance",
+"m": "Financial Services",
+"s": "Financial Services",
 "src": "BSE"
 },
 "INE974B01016": {

@@ -256,7 +256,16 @@ import kotlinx.serialization.json.JsonPrimitive
     val subscription: IpoSub? = null, @SerialName("key_risk") val keyRisk: String = "", val missing: List<String> = emptyList(),
     val rating: String = "", val action: String = "", val why: String? = null, val top10: Boolean = false,
     @SerialName("gmp_sources") val gmpSources: List<String> = emptyList(), val sources: List<String> = emptyList(),
-    @SerialName("pm_update") val pmUpdate: IpoPm? = null, val upcoming: Boolean = false)
+    @SerialName("pm_update") val pmUpdate: IpoPm? = null, val upcoming: Boolean = false,
+    // code-only check (rules v2, 2026-11-23)
+    val rules: List<IpoRule> = emptyList(), @SerialName("listing_date") val listingDate: String? = null,
+    @SerialName("trading_days") val tradingDays: List<String> = emptyList(), @SerialName("fresh_cr") val freshCr: Double? = null,
+    @SerialName("ofs_cr") val ofsCr: Double? = null, @SerialName("profit_lot") val profitLot: Double? = null,
+    @SerialName("gmp_peak") val gmpPeak: Double? = null, @SerialName("gmp_pct") val gmpPct: Double? = null,
+    @SerialName("gmp_by_source") val gmpBySource: Map<String, Double?> = emptyMap(),
+    @SerialName("gmp_history") val gmpHistory: List<List<kotlinx.serialization.json.JsonPrimitive>> = emptyList(),
+    @SerialName("sub_days") val subDays: List<List<kotlinx.serialization.json.JsonPrimitive>> = emptyList())
+@Serializable data class IpoRule(val id: String = "", val n: String = "", val ok: Boolean? = null, val v: String? = null)
 @Serializable data class IpoLater(val name: String = "", val board: String = "", val opens: String? = null, @SerialName("last_date") val lastDate: String? = null)
 @Serializable data class IpoUp(val name: String = "", val board: String = "", @SerialName("open_date") val openDate: String? = null,
     @SerialName("last_date") val lastDate: String? = null, @SerialName("price_low") val priceLow: Double? = null, @SerialName("price_high") val priceHigh: Double? = null,

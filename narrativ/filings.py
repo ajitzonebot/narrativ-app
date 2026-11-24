@@ -39,7 +39,8 @@ DURATION_TAGS = {
     "ProfitBeforeExceptionalItemsAndTax": "pbt_pre_exc",
     "BasicEarningsPerShareAfterExtraordinaryItems": "eps_basic_bank", "DilutedEarningsPerShareAfterExtraordinaryItems": "eps_bank",
     "OperatingProfitBeforeProvisionAndContingencies": "ppop", "ProvisionsOtherThanTaxAndContingencies": "provisions",
-    "GrossNonPerformingAssets": "gnpa", "NonPerformingAssets": "nnpa", "ProfitOrLossAttributableToOwnersOfParent": "pat_owners",
+    "GrossNonPerformingAssets": "gnpa", "NonPerformingAssets": "nnpa", "PercentageOfGrossNpa": "gnpa_ratio",
+    "PercentageOfNpa": "nnpa_ratio", "CET1Ratio": "cet1_ratio", "AdditionalTier1Ratio": "at1_ratio", "ProfitOrLossAttributableToOwnersOfParent": "pat_owners",
     "ProfitOrLossAttributableToNonControllingInterests": "pat_minority",
     "BasicEarningsLossPerShareFromContinuingOperations": "eps_basic",
     "DilutedEarningsLossPerShareFromContinuingOperations": "eps",
@@ -483,12 +484,19 @@ def update(sym: str, ns: NSESession, today: date) -> dict:
     if len(have[basis]) < HISTORY_Q and len(have[other]) >= HISTORY_Q and keep_q[0] in have[other]:
         rec["basis_note"] = f"{other.lower()} series used: {basis.lower()} results filed for only {len(have[basis])} quarters"
         basis = other
+    # banks: RBI's ratios (gross NPA, CET1) are filled only in the standalone banking filing; the consolidated one carries
+    # zeros (SBI, HDFC Bank, Bank of Baroda ... showed gross NPA 0 and passed C1 on it). Banks use the standalone series.
+    if keep_q[0] in have["Standalone"] and any("BANKING" in (r.get("url") or "").upper() for r in rows if r["qe"] == keep_q[0]):
+        if basis != "Standalone":
+            rec["basis_note"] = "standalone series used: bank ratios (gross NPA, CET1) are reported only in the standalone filing"
+        basis = "Standalone"
     rec["basis"] = basis
     for r in rows:
         if r["qe"] not in keep_q or r["basis"] != basis:
             continue
         have = (rec["quarters"].get(r["qe"]) or {}).get(r["basis"])
-        if have and same_doc(have.get("url"), r["url"]) and not needs_ytd_reread(r["qe"], have):
+        bank_reread = have and have.get("kind") == "bank" and not have.get("bank_tags")  # parsed before the NPA % / CET1 tags (once)
+        if have and same_doc(have.get("url"), r["url"]) and not needs_ytd_reread(r["qe"], have) and not bank_reread:
             continue
         txt = ns.get(r["url"], as_json=False)
         time.sleep(config.FILINGS_SLEEP_SEC)
@@ -504,6 +512,8 @@ def update(sym: str, ns: NSESession, today: date) -> dict:
         u = r["url"].upper()
         kind = "bank" if "BANKING" in u else "nbfc" if "NBFC" in u else "insurance" if "INSURANCE" in u else "general"
         p.update({"url": r["url"], "filed": r["filed"], "src": r["src"], "audited": r["audited"], "kind": kind})
+        if kind == "bank":
+            p["bank_tags"] = 1
         if r.get("filed_time"):  # time of day (IST) the exchange broadcast it: T11 starts after an after-close filing next day
             p["filed_time"] = r["filed_time"]
         rec["quarters"].setdefault(p["end"], {})[r["basis"]] = p
@@ -553,6 +563,26 @@ if __name__ == "__main__":  # Actions: python -m narrativ.filings --backfill | -
             i, n = map(int, shard.split("/"))
             uni = [s for k, s in enumerate(uni) if k % n == i]
         reread_leases(uni, float(os.environ.get("FILINGS_MAX_MINUTES", "50")))
+        sys.exit()
+    if sys.argv[1] == "--banks":  # one-off: banks re-read on the standalone series with the NPA % / CET1 fields (2026-11-23)
+        uni = sorted(p.stem for p in DIR.glob("*.json"))
+        shard = os.environ.get("FILINGS_SHARD")
+        if shard:
+            i, n = map(int, shard.split("/"))
+            uni = [s for k, s in enumerate(uni) if k % n == i]
+        ns, t0, n_ok = NSESession(), time.time(), 0
+        for s in uni:
+            rec = load(s) or {}
+            qs = rec.get("quarters") or {}
+            if not qs or not any((v or {}).get("kind") == "bank" for v in qs[max(qs)].values()):
+                continue
+            if time.time() - t0 > float(os.environ.get("FILINGS_MAX_MINUTES", "50")) * 60:
+                break
+            try:
+                update(s, ns, date.today()); n_ok += 1
+            except Exception as e:  # noqa: BLE001
+                print(f"[filings] {s}: {e}")
+        print(f"[filings] banks re-read: {n_ok}, {ns.calls} requests, {time.time() - t0:.0f}s")
         sys.exit()
     if sys.argv[1] == "--audit":  # one-off: re-read the latest March-quarter filing of each company for the A3 fields
         uni = sorted(p.stem for p in DIR.glob("*.json"))

@@ -13,7 +13,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -108,7 +110,10 @@ fun MbTag() {
 @Composable
 fun ConvictionMeter(cv: String?, modifier: Modifier = Modifier) {
     val n = when (cv) { "High" -> 3; "Medium" -> 2; "Low" -> 1; else -> return }
-    Meter(3, n, modifier.padding(start = 6.dp))
+    Row(modifier.padding(start = 6.dp), verticalAlignment = Alignment.CenterVertically) {  // feedback #80: say which level
+        Meter(3, n)
+        T(cv, 11.sp, TierC.yellow, maxLines = 1, modifier = Modifier.padding(start = 5.dp))
+    }
 }
 
 /** Rounded horizontal bar 0..1 on a faint track, optional thin white mark (e.g. the 50% or 1× line). */
@@ -322,121 +327,172 @@ fun QuadrantListScreen(st: AppState, q: String, sectors: Boolean) {
 
 // ================================================================ h08 IPO DETAIL
 private fun ipoActionColor(a: String): Color = when (a) {
-    "APPLY" -> TierC.lightGreen; "SELECTIVE APPLY" -> TierC.yellow; "WAIT" -> C.dim; "AVOID" -> TierC.lightRed; else -> C.white
+    "APPLY" -> TierC.lightGreen; "WAIT" -> C.blue; "AVOID" -> TierC.lightRed; else -> C.white
 }
 
-/** One IPO from today's 08:30 check (or upcoming): call, days, band vs implied listing, GMP trend, subscription, why / risk / missing, sources. */
+/** One IPO: call and expected gain, band to expected listing, issue and listing days, GMP path, subscription, rules, lot and issue facts. */
 @Composable
 fun IpoDetailScreen(st: AppState, name: String) {
     val x = st.ipo
     val u = x?.upcoming?.firstOrNull { it.name == name }
     val i = x?.actionable?.firstOrNull { it.name == name }
-        ?: x?.laterToday?.firstOrNull { it.name == name }?.let { IpoOpen(name = it.name, board = it.board, lastDate = it.lastDate ?: "", upcoming = true, why = "Opens today ${it.opens ?: ""}".trim()) }
+        ?: x?.laterToday?.firstOrNull { it.name == name }?.let { IpoOpen(name = it.name, board = it.board, lastDate = it.lastDate ?: "", upcoming = true) }
         ?: u?.let { IpoOpen(name = it.name, board = it.board, priceLow = it.priceLow, priceHigh = it.priceHigh, openDate = it.openDate ?: "", lastDate = it.lastDate ?: "",
-            upcoming = true, gmpNote = it.note, gmpObserved = it.gmpObserved, sources = listOfNotNull(it.source)) }
+            upcoming = true, sources = listOfNotNull(it.source)) }
     val uri = LocalUriHandler.current
     LazyColumn(Modifier.fillMaxSize().background(C.screen), contentPadding = PaddingValues(bottom = 110.dp)) {
-        item { TopBar(st, name, context = "IPO $name", subtitle = listOfNotNull("IPO", i?.board?.ifBlank { null }, i?.symbol).joinToString(" · ")) }
-        if (i == null) { item { Spacer(Modifier.height(8.dp)); Empty("This IPO is not in today's report.") }; return@LazyColumn }
+        item { TopBar(st, name, context = "IPO $name", subtitle = listOfNotNull(i?.board?.ifBlank { null }, i?.symbol).joinToString(" · ")) }
+        if (i == null) { item { Spacer(Modifier.height(8.dp)); Empty("Not in today's IPO list") }; return@LazyColumn }
         val acol = if (i.upcoming) C.dim else ipoActionColor(i.action)
-        // call card
+        val gp = i.gmpPct ?: i.gmpPctHigh
         item {
             Column(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth().clip(RoundedCornerShape(S.card))
                 .background(Brush.verticalGradient(listOf(acol.copy(alpha = 0.16f), C.card), endY = 600f)).padding(S.cardPad)) {
-                if (i.rating.isNotEmpty()) StatusChip("Rating ${sentence(i.rating)}", color = acol)
-                T(if (i.upcoming) "Not open yet" else sentence(i.action.ifBlank { "No call" }), 26.sp, acol, FontWeight.ExtraBold, maxLines = 2,
-                    modifier = Modifier.padding(top = 6.dp))
-                val days = i.days; val day = i.day
-                if (days != null && days > 0 && day != null) Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 2.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    repeat(days) { k -> Box(Modifier.weight(1f).height(6.dp).clip(RoundedCornerShape(3.dp)).background(if (k < day) TierC.yellow else Color.White.copy(alpha = 0.1f))) }
-                }
-                T(listOfNotNull(if (day != null && days != null) "Day $day of $days" else null,
-                    i.openDate.ifBlank { null }?.let { "opened ${shortDate(it)}" },
-                    i.lastDate.ifBlank { null }?.let { "closes ${shortDate(it)}" + (i.closeTime?.let { t -> ", $t" } ?: "") }).joinToString(" · "),
-                    12.sp, if (i.finalDay) TierC.lightRed else C.dim, modifier = Modifier.padding(top = 2.dp))
-                if (i.finalDay) T("Final day", 12.sp, TierC.lightRed, FontWeight.Bold)
-                if (i.priceLow != null && i.priceHigh != null) BandChart(i.priceLow, i.priceHigh, i.impliedHigh, i.gmpPctHigh, Modifier.padding(top = 12.dp).fillMaxWidth().height(54.dp))
-                KvRow("Lot", i.lot?.let { l -> "$l shares" + (i.priceHigh?.let { " · ₹${fmt(it * l, 0)}" } ?: "") } ?: "–")
-                KvRow("Issue size", i.issueCr?.let { "₹${fmt(it, 0)} cr" } ?: "–", divider = false)
-            }
-        }
-        // GMP
-        item {
-            SectionCard(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    T("GMP", 15.sp, weight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                    Box(Modifier.clip(RoundedCornerShape(6.dp)).border(1.dp, TierC.yellow.copy(alpha = 0.4f), RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 1.dp)) {
-                        T("unofficial", 10.sp, TierC.yellow, FontWeight.SemiBold)
-                    }
+                    T(if (i.upcoming) "Opens ${shortDate(i.openDate)}" else sentence(i.action.ifBlank { "–" }), 26.sp, acol, FontWeight.ExtraBold,
+                        modifier = Modifier.weight(1f), maxLines = 1)
+                    gp?.let { T(sg1(it), 15.sp, gainColor(it), FontWeight.SemiBold) }
                 }
-                if (i.gmpHigh != null) Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.Bottom) {
-                    T(if (i.gmpLow != null && i.gmpLow != i.gmpHigh) "₹${fmt(i.gmpLow, 0)}–${fmt(i.gmpHigh, 0)}" else "₹${fmt(i.gmpHigh, 0)}", 26.sp, weight = FontWeight.Bold)
-                    i.gmpPctHigh?.let { T("  ${sg1(it)}", 14.sp, gainColor(it), modifier = Modifier.padding(bottom = 4.dp)); T(" on upper band", 14.sp, modifier = Modifier.padding(bottom = 4.dp)) }
-                } else T(u?.gmp ?: "No GMP seen", 14.sp, C.dim, modifier = Modifier.padding(top = 4.dp))
-                val trend = gmpTrend(i)
-                if (trend.size >= 2) GmpLine(trend, Modifier.padding(top = 6.dp).fillMaxWidth().height(96.dp))
-                val obs = i.gmpObserved?.let { istTime(it).takeIf { t -> t != "–" } ?: it.take(16) }
-                if (obs != null) T("Observed $obs" + (if (i.gmpNote?.contains("agree") == true) " · ${i.gmpSources.size} sources agree" else "") +
-                    (if (i.gmpStale) " · not today (stale)" else ""), 12.sp, if (i.gmpStale) C.amber else C.dim, modifier = Modifier.padding(top = 4.dp))
+                if (i.priceLow != null && i.priceHigh != null)
+                    BandChart(i.priceLow, i.priceHigh, i.impliedHigh, null, Modifier.padding(top = 10.dp).fillMaxWidth().height(44.dp))
+                IpoDays(i, Modifier.padding(top = 10.dp))
             }
         }
-        i.subscription?.let { sb ->
+        if (!i.upcoming) item {
+            SectionCard(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+                    T("GMP", 15.sp, weight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    T(i.gmpHigh?.let { "₹${fmt(it, 0)}" } ?: "–", 15.sp, weight = FontWeight.SemiBold)
+                    val others = i.gmpBySource.values.filterNotNull().filter { it != i.gmpHigh }
+                    if (others.isNotEmpty()) T("  · ₹${fmt(others.first(), 0)}", 12.sp, C.dim, modifier = Modifier.padding(bottom = 1.dp))
+                }
+                val trend = gmpTrend(i)
+                if (trend.size >= 2) GmpLine(trend, Modifier.padding(top = 6.dp).fillMaxWidth().height(110.dp),
+                    threshold = i.priceHigh?.let { it * 0.2 }, peak = i.gmpPeak)
+            }
+        }
+        i.subscription?.takeIf { !i.upcoming }?.let { sb ->
             item {
-                val mx = listOfNotNull(sb.qib, sb.nii, sb.retail, sb.overall, 1.0).max() * 1.08
-                SectionCard("Subscription", "${sb.asOf?.let { istTime(it) } ?: "–"} · line = 1×", Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
-                    listOf("QIB" to sb.qib, "NII" to sb.nii, "Retail" to sb.retail, "Overall" to sb.overall).forEach { (k, v) ->
+                val mx = listOfNotNull(sb.qib, sb.nii, sb.retail, 1.0).max() * 1.08
+                SectionCard("Subscription", sb.overall?.let { String.format(Locale.US, "%.1f×", it) }, Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
+                    listOf("QIB" to sb.qib, "NII" to sb.nii, "Retail" to sb.retail).forEach { (k, v) ->
                         Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
-                            T(k, 13.sp, C.muted, modifier = Modifier.width(60.dp))
+                            T(k, 13.sp, C.muted, modifier = Modifier.width(56.dp))
                             HBar((v ?: 0.0) / mx, if ((v ?: 0.0) < 1) TierC.lightRed else C.teal, Modifier.weight(1f), 8.dp, 1 / mx)
-                            T(v?.let { String.format(Locale.US, "%.2f×", it) } ?: "–", 13.sp, if (v != null && v < 1) TierC.lightRed else C.white, FontWeight.SemiBold,
-                                Modifier.width(58.dp), maxLines = 1, align = androidx.compose.ui.text.style.TextAlign.End)
+                            T(v?.let { String.format(Locale.US, "%.1f×", it) } ?: "–", 13.sp, if (v != null && v < 1) TierC.lightRed else C.white, FontWeight.SemiBold,
+                                Modifier.width(62.dp), maxLines = 1, align = androidx.compose.ui.text.style.TextAlign.End)
                         }
                     }
-                    i.pmUpdate?.let { pm -> T("14:10 update: call ${pm.callBefore ?: "–"} → ${pm.callAfter ?: "–"}", 12.sp,
-                        if (pm.callBefore != pm.callAfter) C.amber else C.dim, modifier = Modifier.padding(top = 6.dp)) }
+                    val days = i.subDays.mapNotNull { r -> r.getOrNull(1)?.content?.toDoubleOrNull()?.let { v -> (r[0].content) to v } }
+                    if (days.size >= 2) SubDays(days, Modifier.padding(top = 10.dp).fillMaxWidth().height(64.dp))
                 }
             }
         }
-        item {
-            var full by remember { mutableStateOf(false) }
+        if (i.rules.isNotEmpty()) item {
             SectionCard(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
-                if (i.upcoming) T("Rated at the 08:30 check on its opening day.", 13.sp, C.dim)
-                i.why?.takeIf { !i.upcoming && it.isNotBlank() }?.let {
-                    T("Why", 15.sp, weight = FontWeight.SemiBold); T(it, 13.sp, lineHeight = 19.sp, modifier = Modifier.padding(top = 2.dp, bottom = 10.dp))
+                i.rules.forEach { r ->
+                    Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(when (r.ok) { true -> Icons.Rounded.Check; false -> Icons.Rounded.Close; null -> Icons.Rounded.Remove }, null,
+                            tint = when (r.ok) { true -> TierC.lightGreen; false -> TierC.lightRed; null -> C.dim }, modifier = Modifier.size(18.dp))
+                        T(r.n, 14.sp, if (r.ok == null) C.dim else C.white, modifier = Modifier.padding(start = 8.dp).weight(1f), maxLines = 1)
+                        T(r.v ?: "–", 13.sp, C.grey, maxLines = 1)
+                    }
                 }
-                if (i.keyRisk.isNotBlank()) {
-                    val parts = i.keyRisk.split(";").map { it.trim() }.filter { it.isNotEmpty() }
-                    val short = if (parts.size > 2) parts.take(2).joinToString("; ").trimEnd('.') + "." else i.keyRisk
-                    T("Key risk", 15.sp, weight = FontWeight.SemiBold)
-                    T(if (full) i.keyRisk else short, 13.sp, C.muted, lineHeight = 19.sp, modifier = Modifier.padding(top = 2.dp))
-                    if (parts.size > 2) MoreLink(if (full) "Short risk note" else "Full risk note") { full = !full }
-                    Spacer(Modifier.height(10.dp))
-                }
-                if (i.missing.isNotEmpty()) {
-                    T("Missing", 15.sp, weight = FontWeight.SemiBold)
-                    FlowRow(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        i.missing.forEach { m -> Box(Modifier.clip(RoundedCornerShape(9.dp)).background(C.amber.copy(alpha = 0.13f)).padding(horizontal = 9.dp, vertical = 4.dp)) { T(m, 12.sp, C.amber) } }
+                i.pmUpdate?.takeIf { it.callBefore != null && it.callBefore != it.callAfter }?.let { pm ->
+                    Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        TierChip(pm.callBefore ?: "", ipoActionColor(pm.callBefore ?: ""), 10.sp)
+                        T("  →  ", 12.sp, C.dim); TierChip(pm.callAfter ?: "", ipoActionColor(pm.callAfter ?: ""), 10.sp)
+                        T("  ${istTime(pm.asOf).takeLast(5)}", 12.sp, C.dim)
                     }
                 }
             }
         }
-        val src = (i.sources + i.gmpSources + listOfNotNull(i.subscription?.source)).distinct()
+        if (!i.upcoming) item {
+            val tiles = listOf(
+                "1 lot" to (i.lot?.let { l -> "$l sh" + (i.priceHigh?.let { " · ₹${fmt(it * l, 0)}" } ?: "") } ?: "–"),
+                "Profit / lot" to (i.profitLot?.let { "₹${fmt(it, 0)}" } ?: "–"),
+                "Issue" to (i.issueCr?.let { "₹${fmt(it, 0)} cr" } ?: "–"),
+                "Fresh / OFS" to (if (i.freshCr != null && i.ofsCr != null && i.freshCr + i.ofsCr > 0)
+                    "${fmt(i.freshCr / (i.freshCr + i.ofsCr) * 100, 0)}% / ${fmt(i.ofsCr / (i.freshCr + i.ofsCr) * 100, 0)}%" else "–"))
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                tiles.chunked(2).forEach { row ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        row.forEach { (k, v) ->
+                            Column(Modifier.weight(1f).clip(RoundedCornerShape(S.tile)).background(C.card).padding(12.dp)) {
+                                T(k, 12.sp, C.dim); T(v, 15.sp, if (k == "Profit / lot" && (i.profitLot ?: 0.0) > 0) TierC.lightGreen else C.white, FontWeight.SemiBold, maxLines = 1)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        val src = (i.sources + i.gmpSources + listOfNotNull(i.subscription?.source?.takeIf { it.startsWith("http") })).distinct()
         if (src.isNotEmpty()) item {
             var open by remember { mutableStateOf(false) }
             Card(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth(), pad = 0.dp) {
-                Box(Modifier.padding(horizontal = S.cardPad)) { ToggleRow("Sources", "${src.size} links", open, { open = !open }, divider = false) }
+                Box(Modifier.padding(horizontal = S.cardPad)) { ToggleRow("Sources", "${src.size}", open, { open = !open }, divider = false) }
                 if (open) Column(Modifier.padding(start = S.cardPad, end = S.cardPad, bottom = 10.dp)) {
                     src.forEach { s -> T(s.removePrefix("https://").removePrefix("www.").take(64) + " ›", 12.sp, C.blue, maxLines = 1,
                         modifier = Modifier.fillMaxWidth().clickable { runCatching { uri.openUri(s) } }.padding(vertical = 6.dp)) }
                 }
             }
         }
-        item { T("GMP is unofficial grey-market data, not a guaranteed return.", 11.sp, C.dim, modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp)) }
+    }
+}
+
+/** Issue days as boxes (today outlined, red on the last day, closing time inside), then the listing day (dashed). */
+@Composable
+private fun IpoDays(i: IpoOpen, modifier: Modifier) {
+    val today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kolkata")).toString()
+    val days = i.tradingDays.ifEmpty { listOfNotNull(i.openDate.ifBlank { null }, i.lastDate.ifBlank { null }).distinct() }
+    if (days.isEmpty()) return
+    fun lab(d: String) = runCatching { java.time.LocalDate.parse(d).let { "${it.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, Locale.ENGLISH)} ${it.dayOfMonth}" } }.getOrDefault(d)
+    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        days.takeLast(5).forEach { d ->
+            val isToday = d == today; val last = d == i.lastDate
+            val edge = when { isToday && last -> C.red; isToday -> C.blue; else -> Color.Transparent }
+            Column(Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(if (isToday && last) C.red.copy(alpha = 0.12f) else C.chip)
+                .border(1.5.dp, edge, RoundedCornerShape(10.dp)).padding(vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                T(lab(d), 12.sp, if (isToday) C.white else if (d < today) C.dim else C.grey, if (isToday) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1)
+                if (last) T(i.closeTime ?: "5:00 PM", 11.sp, if (isToday) TierC.lightRed else C.dim, maxLines = 1)
+            }
+        }
+        i.listingDate?.let { ld ->
+            Column(Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).border(1.dp, C.line, RoundedCornerShape(10.dp)).padding(vertical = 6.dp),
+                horizontalAlignment = Alignment.CenterHorizontally) {
+                T(lab(ld), 12.sp, C.grey, maxLines = 1); T("Lists", 11.sp, C.dim, maxLines = 1)
+            }
+        }
+    }
+}
+
+/** Overall subscription at the end of each issue day, as columns with the value on top. */
+@Composable
+private fun SubDays(days: List<Pair<String, Double>>, modifier: Modifier) {
+    val tm = rememberTextMeasurer()
+    Canvas(modifier) {
+        val n = days.size; val gap = 10.dp.toPx(); val w = (size.width - gap * (n - 1)) / n
+        val top = 16.dp.toPx(); val base = size.height - 14.dp.toPx()
+        val hi = days.maxOf { it.second }.coerceAtLeast(1.0)
+        days.forEachIndexed { k, (d, v) ->
+            val h = ((v / hi) * (base - top)).toFloat().coerceAtLeast(2.dp.toPx())
+            val x = k * (w + gap)
+            drawRoundRect(if (k == n - 1) C.teal else Color.White.copy(alpha = 0.14f), Offset(x, base - h), Size(w, h), CornerRadius(4.dp.toPx()))
+            chartText(tm, String.format(Locale.US, "%.1f×", v), x + w / 2, base - h - 4.dp.toPx(), if (k == n - 1) C.white else C.dim, 11.sp, anchor = Anchor.Middle)
+            chartText(tm, shortDate(d), x + w / 2, size.height - 1.dp.toPx(), C.dim, 10.sp, anchor = Anchor.Middle)
+        }
     }
 }
 
 /** GMP points (date, ₹) read from the note ("₹20 (15 Nov) to ₹37 (18 Nov)") plus the observed value; empty when the note has none. */
 fun gmpTrend(i: IpoOpen): List<Pair<java.time.LocalDate, Double>> {
+    if (i.gmpHistory.size >= 2) {
+        val pts = i.gmpHistory.mapNotNull { r -> runCatching { java.time.LocalDate.parse(r[0].content.take(10)) to r[1].content.toDouble() }.getOrNull() }
+            .groupBy { it.first }.map { (d, v) -> d to v.last().second }.toMutableList()
+        val today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kolkata"))
+        if (i.gmpHigh != null && pts.none { it.first == today }) pts += today to i.gmpHigh
+        if (pts.size >= 2) return pts.sortedBy { it.first }.takeLast(10)
+    }
     val obs = runCatching { java.time.OffsetDateTime.parse(i.gmpObserved!!).atZoneSameInstant(java.time.ZoneId.of("Asia/Kolkata")).toLocalDate() }.getOrNull()
         ?: runCatching { java.time.LocalDate.parse(i.gmpObserved!!.take(10)) }.getOrNull() ?: return emptyList()
     val fm = java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy", Locale.ENGLISH)
@@ -451,19 +507,26 @@ fun gmpTrend(i: IpoOpen): List<Pair<java.time.LocalDate, Double>> {
 
 /** GMP line by date: smooth line, soft yellow fill, every point labelled ₹ and dated underneath. */
 @Composable
-private fun GmpLine(pts: List<Pair<java.time.LocalDate, Double>>, modifier: Modifier) {
+private fun GmpLine(pts: List<Pair<java.time.LocalDate, Double>>, modifier: Modifier, threshold: Double? = null, peak: Double? = null) {
     val tm = rememberTextMeasurer()
     Canvas(modifier) {
         val l = 16.dp.toPx(); val r = size.width - 16.dp.toPx(); val t = 20.dp.toPx(); val b = size.height - 18.dp.toPx()
         val d0 = pts.first().first; val span = max(1L, java.time.temporal.ChronoUnit.DAYS.between(d0, pts.last().first)).toFloat()
-        val hi = pts.maxOf { it.second }
+        val hi = maxOf(pts.maxOf { it.second }, threshold ?: 0.0)
         val o = pts.map { (d, v) -> Offset(l + java.time.temporal.ChronoUnit.DAYS.between(d0, d) / span * (r - l), ChartMath.lerp(v, 0.0, hi, b, t)) }
+        threshold?.let { th ->
+            val y = ChartMath.lerp(th, 0.0, hi, b, t)
+            drawLine(Color.White.copy(alpha = 0.3f), Offset(l, y), Offset(r, y), 1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f)))
+            chartText(tm, "20%", r, y - 3.dp.toPx(), C.dim, 10.sp, anchor = Anchor.End)
+        }
+        val pk = pts.indexOfFirst { it.second == (peak ?: pts.maxOf { p -> p.second }) }
         val line = smoothPath(o)
         val area = smoothPath(o).apply { lineTo(o.last().x, b); lineTo(o.first().x, b); close() }
         drawPath(area, Brush.verticalGradient(listOf(TierC.yellow.copy(alpha = 0.35f), TierC.yellow.copy(alpha = 0f)), startY = t, endY = b))
         drawPath(line, TierC.yellow, style = Stroke(2.dp.toPx(), cap = StrokeCap.Round))
         var lastX = -1e9f
         o.forEachIndexed { k, p ->
+            if (k == pk && k != o.lastIndex) drawCircle(Color.White, 5.dp.toPx(), p, style = Stroke(1.5.dp.toPx()))
             drawCircle(TierC.yellow, 3.dp.toPx(), p)
             chartText(tm, "₹${fmt(pts[k].second, 0)}", p.x, p.y - 8.dp.toPx(), C.white, 11.sp, FontWeight.SemiBold, Anchor.Middle)
             if (p.x - lastX > 36.dp.toPx() || k == o.lastIndex) {

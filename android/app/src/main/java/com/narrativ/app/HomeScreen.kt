@@ -37,6 +37,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
@@ -173,7 +174,7 @@ fun Top10Card(st: AppState, list: List<P>, ipos: List<IpoOpen> = emptyList()) {
                     T(i.symbol ?: i.name, 16.sp, weight = FontWeight.Bold, maxLines = 1)
                     T("IPO · ${i.board} · closes ${shortDate(i.lastDate)}", 13.sp, C.dim, maxLines = 1)
                 }
-                StatusChip(sentence(i.action), color = if (i.action == "APPLY") TierC.lightGreen else TierC.yellow)
+                StatusChip(sentence(i.action), color = if (i.action == "APPLY") TierC.lightGreen else C.blue)
             }
             if (k < n - 1) HLineDivider(Modifier.padding(horizontal = S.cardPad))
         }
@@ -240,7 +241,7 @@ private fun IpoRow(st: AppState, open: List<IpoOpen>) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 T("${open.size} IPO${if (open.size == 1) "" else "s"} open", 17.sp, weight = FontWeight.Bold)
-                T(pick?.let { "${it.name}: ${sentence(it.action)} · closes ${shortDate(it.lastDate)}" } ?: "None to apply today", 13.sp, C.dim, maxLines = 1)
+                T(pick?.let { "${it.name}: ${sentence(it.action)} · ${ipoCloses(it.lastDate).first}" } ?: "None to apply", 13.sp, C.dim, maxLines = 1)
             }
             Icon(if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ChevronRight, null, tint = C.dim, modifier = Modifier.size(18.dp))
         }
@@ -251,11 +252,11 @@ private fun IpoRow(st: AppState, open: List<IpoOpen>) {
                 Row(Modifier.fillMaxWidth().clickable { st.go(Screen.Ipo(i.name)) }.padding(vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         T(i.name, 14.sp, if (i.upcoming) C.dim else C.white, FontWeight.Medium, maxLines = 1)
-                        T(if (i.upcoming) (i.why ?: "Opens later") else "${i.board} · closes ${shortDate(i.lastDate)}" + if (i.finalDay) " · final day" else "",
+                        T(if (i.upcoming) (i.why ?: "Opens later") else "${i.board} · ${ipoCloses(i.lastDate).first}",
                             12.sp, if (i.finalDay) TierC.lightRed else C.dim, maxLines = 1)
                     }
                     if (!i.upcoming && i.action.isNotEmpty()) StatusChip(sentence(i.action), color = when (i.action) {
-                        "APPLY" -> TierC.lightGreen; "SELECTIVE APPLY" -> TierC.yellow; "AVOID" -> TierC.lightRed; else -> C.dim })
+                        "APPLY" -> TierC.lightGreen; "WAIT" -> C.blue; "AVOID" -> TierC.lightRed; else -> C.dim })
                 }
             }
             T("GMP is unofficial grey-market data, not a guaranteed return.", 11.sp, C.dim, modifier = Modifier.padding(top = 4.dp))
@@ -569,53 +570,56 @@ fun OpenIposSection(st: AppState) {
         x.upcoming.filter { (it.lastDate ?: "") >= today }.map { IpoOpen(name = it.name, board = it.board, priceLow = it.priceLow, priceHigh = it.priceHigh, openDate = it.openDate ?: "",
             lastDate = it.lastDate ?: "", upcoming = true, why = "Opens ${shortDate(it.openDate)}" + (it.gmp?.let { g -> " · GMP $g" } ?: ""), sources = listOfNotNull(it.source),
             gmpNote = it.note, gmpObserved = it.gmpObserved) }
-    SectionHeader("Open IPOs", "Checked ${x.checkedAt?.replace('T', ' ')?.take(16) ?: "–"} IST · subscription updated 14:10 · tap for details")
-    if (open.isEmpty()) Empty(if (x.date == today) "No IPO open for subscription at the 08:30 check." else "Today's 08:30 check has not run yet (last report ${shortDate(x.date)}).")
+    SectionHeader("Open IPOs", x.checkedAt?.let { istTime(it) } ?: "")
+    if (open.isEmpty()) Empty(if (x.date == today) "No IPO open today" else "Last check ${shortDate(x.date)}")
     if (open.isNotEmpty() || soon.isNotEmpty()) LazyRow(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         items(open, key = { "io-" + it.name }) { IpoCard(st, it) }
         items(soon, key = { "iu-" + it.name }) { IpoCard(st, it) }
     }
-    T("GMP is unofficial grey-market data, not a guaranteed return.", 10.sp, C.dim, modifier = Modifier.padding(horizontal = 16.dp))
 }
 
 /** Same size and layout as StockCard: name + price, sub-line, chips, subscription where the chart sits, overall bar, teal line. */
 @Composable
 fun IpoCard(st: AppState, i: IpoOpen) {
     val dim = if (i.upcoming) 0.55f else 1f
-    Card(Modifier.width(176.dp).height(214.dp).alpha(dim), radius = 18.dp, pad = 12.dp, onClick = { st.go(Screen.Ipo(i.name)) }) {
+    Card(Modifier.width(160.dp).height(168.dp).alpha(dim), radius = 18.dp, pad = 12.dp, onClick = { st.go(Screen.Ipo(i.name)) }) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             T(i.symbol ?: i.name, 15.sp, weight = FontWeight.SemiBold, modifier = Modifier.weight(1f), maxLines = 1)
             T(if (i.priceHigh != null) "₹${fmt(i.priceHigh, 0)}" else "₹–", 13.sp, C.grey)
         }
-        T("${i.board} · " + (if (i.openDate.isNotEmpty()) "${shortDate(i.openDate)}–" else "") + shortDate(i.lastDate), 12.sp, C.grey, maxLines = 1)
-        Row(Modifier.height(22.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            T("IPO", 11.sp, C.amber, FontWeight.SemiBold)
-            if (i.rating.isNotEmpty()) TierChip(i.rating, ipoRateColor(i.rating), 10.sp)
-            if (i.action.isNotEmpty()) TierChip(i.action.replace("SELECTIVE APPLY", "SELECTIVE"), ipoActColor(i.action), 10.sp)
+        T(i.board, 12.sp, C.grey, maxLines = 1)
+        Box(Modifier.height(30.dp), contentAlignment = Alignment.CenterStart) {
+            if (i.upcoming) T("Opens ${shortDate(i.openDate)}", 12.sp, C.dim)
+            else if (i.action.isNotEmpty()) TierChip(i.action, ipoActColor(i.action), 11.sp)
         }
-        Spacer(Modifier.height(4.dp))
-        T("GMP " + (if (i.gmpHigh != null) "₹${fmt(i.gmpHigh, 0)}" + (i.gmpPctHigh?.let { " · ${fmt(it, 1)}%" } ?: "") else "–"), 12.sp, weight = FontWeight.SemiBold)
-        val sb = i.subscription
-        listOf("QIB" to sb?.qib, "NII" to sb?.nii, "Retail" to sb?.retail).forEach { (k, v) ->
-            Row(Modifier.height(13.dp), verticalAlignment = Alignment.CenterVertically) {
-                T(k, 10.sp, C.grey, modifier = Modifier.width(34.dp))
-                Box(Modifier.weight(1f).height(5.dp).clip(RoundedCornerShape(3.dp)).background(C.chip)) {
-                    if (v != null) Box(Modifier.fillMaxWidth((v / 10.0).coerceIn(0.03, 1.0).toFloat()).fillMaxHeight().background(if (v >= 1) TierC.darkGreen else C.amber))
-                }
-                T(v?.let { "${fmt(it, 1)}×" } ?: "–", 10.sp, C.grey, modifier = Modifier.padding(start = 4.dp).width(34.dp))
-            }
-        }
-        Spacer(Modifier.height(6.dp))
-        T(when {
-            i.upcoming -> i.why ?: "Opens later"
-            i.finalDay -> "FINAL DAY · overall ${sb?.overall?.let { "${fmt(it, 1)}×" } ?: "–"}"
-            else -> "Overall ${sb?.overall?.let { "${fmt(it, 1)}×" } ?: "–"} · closes ${shortDate(i.lastDate)}"
-        }, 11.sp, if (i.finalDay) C.red else C.teal, maxLines = 2, lineHeight = 14.sp)
+        val gp = i.gmpPct ?: i.gmpPctHigh
+        T("GMP " + (gp?.let { "${fmt(it, 1)}%" } ?: "–"), 13.sp, weight = FontWeight.SemiBold)
+        if (i.rules.isNotEmpty()) RuleDots(i.rules, Modifier.padding(top = 8.dp))
+        Spacer(Modifier.weight(1f))
+        if (!i.upcoming) ipoCloses(i.lastDate).let { (txt, col) -> T(txt, 12.sp, col, maxLines = 1) }
     }
 }
 
-fun ipoActColor(a: String) = when (a) { "APPLY" -> TierC.darkGreen; "SELECTIVE APPLY" -> C.amber; "WAIT" -> C.blue; else -> C.red }
-fun ipoRateColor(r: String) = when (r) { "SAFE" -> TierC.darkGreen; "MODERATE" -> C.amber; else -> C.red }
+/** One dot per rule: green passes, red fails, grey not known yet. */
+@Composable
+fun RuleDots(rules: List<IpoRule>, modifier: Modifier = Modifier, size: Dp = 8.dp) {
+    Row(modifier, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+        rules.forEach { r -> Box(Modifier.size(size).clip(CircleShape).background(when (r.ok) { true -> TierC.lightGreen; false -> C.red; null -> C.chip })) }
+    }
+}
+
+/** "Today 5 PM" (red), "Tomorrow 5 PM", else the weekday and date. */
+fun ipoCloses(last: String): Pair<String, Color> {
+    val today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kolkata"))
+    val d = runCatching { java.time.LocalDate.parse(last.take(10)) }.getOrNull() ?: return "–" to C.dim
+    return when (d) {
+        today -> "Today 5 PM" to C.red
+        today.plusDays(1) -> "Tomorrow 5 PM" to C.grey
+        else -> "${d.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.ENGLISH)} ${d.dayOfMonth}, 5 PM" to C.grey
+    }
+}
+
+fun ipoActColor(a: String) = when (a) { "APPLY" -> TierC.darkGreen; "WAIT" -> C.blue; else -> C.red }
 
 
 /** Top 10 as one ranked list (design clean-up #7, #1, #17): rank, code, industry and setup in words, price line, price and today's move. */

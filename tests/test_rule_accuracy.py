@@ -64,10 +64,28 @@ def test_audited_research_changed_after_the_audit_goes_pending():
     assert FN.stamp_audits(redone, stamps, TODAY) == {}  # a new audit is stamped with the research it judged
 
 
-def test_audit_first_seen_after_later_edits_is_pending_until_redone():
+def test_first_seen_review_with_a_later_updated_date_is_not_a_change():
+    stamps = {}  # 23 Nov 2026: rechecks that changed nothing (only `updated`) reset 10 passed reviews
+    assert FN.stamp_audits(_raw(updated="2026-11-18"), stamps, TODAY) == {}
+
+
+def test_editing_the_review_record_keeps_the_reviewed_baseline():
     stamps = {}
-    assert FN.stamp_audits(_raw(updated="2026-11-18"), stamps, TODAY) == {"X.NS": ["edited 2026-11-18"]}  # BLS, TALBROAUTO, CAPLIPOINT
-    assert FN.stamp_audits(_raw(updated="2026-11-18"), stamps, TODAY) == {"X.NS": ["edited 2026-11-18"]}
+    FN.stamp_audits(_raw(), stamps, TODAY)
+    # research changed and the audit object touched without a new date: still judged against what was reviewed
+    edited = _raw(story={"status": "weakening", "text": "y"}, audit={"date": "2026-11-16", "verdict": "pass", "summary": "s"})
+    assert FN.stamp_audits(edited, stamps, TODAY) == {"X.NS": ["story"]}
+
+
+def test_repair_stamps_uses_the_reviewed_version():
+    stamps = {"X.NS": {"audit": "a", "audit_date": "2026-11-16", "fields": {}, "edited_after": "2026-11-23"},
+              "Y.NS": {"audit": "b", "audit_date": "2026-11-16", "fields": {}, "edited_after": "2026-11-23"}}
+    th = _raw()["X.NS"]
+    out = FN.repair_stamps(stamps, lambda s, d: th if s == "X.NS" else None)
+    assert out == {"X.NS": "baseline from history", "Y.NS": "kept (no history)"}
+    assert FN.stamp_audits({"X.NS": th}, stamps, TODAY, ["X.NS"]) == {}  # unchanged since the review: verified again
+    changed = {"X.NS": th | {"story": {"status": "broken", "text": "z"}}}
+    assert FN.stamp_audits(changed, stamps, TODAY, ["X.NS"]) == {"X.NS": ["story"]}
 
 
 def test_future_dated_audit_is_not_valid():
@@ -138,9 +156,9 @@ def test_lender_type():
 
 
 def test_insurer_exempt_with_label_and_broker_gated():
-    d = FN.apply_buy_rules({"d": "Hold", "candidate": "Buy", "why": []}, {"cfo_to_ebitda_pct": {"v": 20, "exact": 20.0, "in": {}}}, "insurer", TRIG, {}, TODAY)
+    d = FN.apply_buy_rules({"d": "Hold", "candidate": "Buy", "why": []}, {"cfo_to_ebitda_pct": {"v": -20, "exact": -20.0, "in": {}}}, "insurer", TRIG, {}, TODAY)
     assert "gates" not in d and any("not applied: insurer" in w for w in d["why"])
-    d = FN.apply_buy_rules({"d": "Hold", "candidate": "Buy", "why": []}, {"cfo_to_ebitda_pct": {"v": 20, "exact": 20.0, "in": {}}}, "", TRIG, {}, TODAY)
+    d = FN.apply_buy_rules({"d": "Hold", "candidate": "Buy", "why": []}, {"cfo_to_ebitda_pct": {"v": -20, "exact": -20.0, "in": {}}}, "", TRIG, {}, TODAY)
     assert d["gates"][0].startswith("R1")
 
 

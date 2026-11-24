@@ -4,7 +4,7 @@ At each month end T it rebuilds what the pipeline would have seen on T, with not
   - filings: only quarters whose XBRL was filed on or before T (data/financials, `filed` per quarter)
   - prices: closes up to T (the exchange-close store, data/source_cache/prices.pkl)
 and runs the same functions as run.py: metrics, the seven levels, entry setup, price signals (T11), the Buy gates that code
-decides (R1 cash conversion, R2 other income, R4 dated trigger from price/results signals, R6 re-rating leg), the
+decides (R1 positive operating cash flow, R2 other income, R4 dated trigger from price/results signals, R6 re-rating leg), the
 readiness ranking and the Top 10 caps (portfolio.top10).
 
 What it cannot replay: Claude's review and research (guidance, order books, drivers, verdicts), shareholding, analyst
@@ -146,7 +146,7 @@ def _score(T: str) -> dict:
             "eligible": not out_l and good("surv", 3) and good("qual", 3),
             "mos": tt["val"] in (1, 2, 3),  # no research: credibility unknown, so valuation tier 1-3 (decision rule 6)
             "trend": stage not in ("Downtrend", None),
-            "R1": bool(exempt) or cc is None or cc >= 50, "R2": bool(exempt) or oi is None or oi <= 25, "R4": bool(trig), "R4u": bool(trig) or bool(up["U1"][0] or up["U2"][0] or up["U3"][0]),
+            "R1": bool(exempt) or cc is None or cc > FN.R1_MIN, "R1_50": bool(exempt) or cc is None or cc >= 50, "R1_25": bool(exempt) or cc is None or cc >= 25, "R2": bool(exempt) or oi is None or oi <= 25, "R4": bool(trig), "R4u": bool(trig) or bool(up["U1"][0] or up["U2"][0] or up["U3"][0]),
             "R6": not (tt["val"] == 3 and tt["disc"] in (4, 5)),
             "rs": float(rs_all.get(s, 0.5)) * 100,
             "near": max(0.0, min(100.0, (1 - (1 - pxl / hi) / 0.30) * 100)) if hi and pxl else 50.0,
@@ -212,6 +212,9 @@ for u in ("U1", "U2", "U3", "U4", "U5"):
     VARIANTS[f"rank: +10 for {u} {UP.NAMES[u]}"] = (CUR, {**BASE_W, "_boost": {u: 10}})
 VARIANTS["rank: +10 U1, +10 U2, +10 U3, +5 U4, +10 U5"] = (CUR, {**BASE_W, "_boost": {"U1": 10, "U2": 10, "U3": 10, "U4": 5, "U5": 10}})
 VARIANTS["U1 or U2 or U3 counts as R4 trigger"] = (["eligible", "mos", "trend", "R1", "R2", "R4u", "R6"], BASE_W)
+# R1 softer levels (owner, 23 Nov 2026: R1 blocks the most candidates; replay showed the blocked ones beat the passed ones)
+VARIANTS["R1 at 50% cash conversion (17-23 Nov 2026)"] = (["eligible", "mos", "trend", "R1_50", "R2", "R4", "R6"], BASE_W)
+VARIANTS["R1 at 25% cash conversion"] = (["eligible", "mos", "trend", "R1_25", "R2", "R4", "R6"], BASE_W)
 # stricter entry: average daily traded value of at least Rs 1 crore / Rs 5 crore (can you buy and sell it)
 for g, lab in (("liq1", "₹1 cr"), ("liq5", "₹5 cr")):
     VARIANTS[f"plus turnover ≥ {lab} a day"] = (["eligible", "mos", "trend", "R1", "R2", "R4", "R6", g], BASE_W)
@@ -277,6 +280,22 @@ def conviction_split(res: list[dict], top: dict) -> dict:
     return out
 
 
+def gate_split(res: list[dict]) -> dict:
+    """Does each gate hold back winners? For every gate: stocks that pass all the other current gates, split into those the
+    gate passes vs those it blocks (all candidates, not just the Top 10, for sample size). A gate earns its place when the
+    blocked side beats the Nifty less often and by less (owner, 23 Nov 2026: more high-conviction Buys without losing accuracy)."""
+    gates = VARIANTS["current rules"][0]
+    out = {}
+    for g in gates:
+        if g == "eligible":
+            continue
+        others = [x for x in gates if x != g]
+        rows = [(r["T"], s, r["fwd"].get(s, {}), bool(rw[g])) for r in res for s, rw in r["rows"].items() if all(rw[x] for x in others)]
+        out[g] = {side: {k: _stats([(T, s, f) for T, s, f, ok in rows if ok == want], k) for k in H}
+                  for side, want in (("passes", True), ("blocked", False))}
+    return out
+
+
 def run(quick: bool = False) -> dict:
     t0 = time.time()
     _load(quick)
@@ -307,6 +326,7 @@ def run(quick: bool = False) -> dict:
         picks = [(r["T"], s, r["fwd"].get(s, {})) for r in res for s, rw in r["rows"].items() if f(rw)]
         out["baselines"][name] = {k: _stats(picks, k) for k in H}
     out["conviction"] = conviction_split(res, detail)
+    out["gates"] = gate_split(res)
     out["minutes"] = round((time.time() - t0) / 60, 1)
     OUT.write_text(json.dumps(out, indent=1))
     DETAIL.parent.mkdir(parents=True, exist_ok=True)
@@ -315,6 +335,9 @@ def run(quick: bool = False) -> dict:
         print(f"[replay] {name}: " + ", ".join(f"{k} win {v[k].get('win_pct')}% vs Nifty {v[k].get('avg_vs_nifty')} (n {v[k].get('n')})" for k in H))
     for name, v in out["baselines"].items():
         print(f"[replay] baseline {name}: " + ", ".join(f"{k} win {v[k].get('win_pct')}%" for k in H))
+    for g, sides in out["gates"].items():
+        print(f"[replay] gate {g}: " + " | ".join(
+            f"{side} " + ", ".join(f"{k} win {sides[side][k].get('win_pct')}% vs Nifty {sides[side][k].get('avg_vs_nifty')} (n {sides[side][k].get('n')})" for k in H) for side in sides))
     for pool, v in out["conviction"].items():
         for name, sides in v["inputs"].items():
             print(f"[replay] conviction {pool} {name}: " + " | ".join(

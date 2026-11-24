@@ -323,6 +323,52 @@ def _fy_values(s: dict, key: str) -> dict:
     return out
 
 
+def _gnpa_pct(p: dict) -> float | None:
+    """Gross NPA % of advances for one quarter: the filed ratio, else gross NPAs ÷ advances. Zero counts as not reported
+    (consolidated banking filings carry 0 in these fields; a bank with truly no bad loans does not exist in the data)."""
+    q, bs = p.get("q") or {}, p.get("bs") or {}
+    r = q.get("gnpa_ratio")
+    if r:
+        return r * 100 if r < 1 else r
+    if q.get("gnpa") and bs.get("advances"):
+        return q["gnpa"] / bs["advances"] * 100
+    return None
+
+
+def _lender_metrics(M: dict, s: dict, bq, bp: dict, basis: str) -> None:
+    """Banks (and any lender whose filing has these fields): gross NPA %, its 4-quarter trend, CET1 ratio, loan-book growth."""
+    lp_q, lp = next(iter(s["q"].items()))
+    src, url = _src(lp, basis), lp.get("url")
+    g = _gnpa_pct(lp)
+    if g is not None:
+        M["gnpa_pct_advances"] = _m(g, "Gross NPAs as % of advances (filed ratio)" if (lp.get("q") or {}).get("gnpa_ratio") else "Gross NPAs ÷ advances",
+                                    {"quarter": lp_q}, src, url, 2)
+    trend = [(qe, _gnpa_pct(p)) for qe, p in list(s["q"].items())[:6]]
+    trend = [(qe, x) for qe, x in trend if x is not None]
+    if len(trend) >= 5:
+        rising = 0
+        for (_, a), (_, b) in zip(trend, trend[1:]):  # newest first
+            if a > b + 0.005:
+                rising += 1
+            else:
+                break
+        M["gnpa_rising_q"] = _m(float(rising), "Quarters in a row gross NPA % rose (latest first)",
+                                {qe: round(x, 2) for qe, x in trend[:5]}, src, url, 0)
+    c = (lp.get("q") or {}).get("cet1_ratio")
+    if c:
+        M["cet1_pct"] = _m(c * 100 if c < 1 else c, "CET1 capital ratio (filed)", {"quarter": lp_q}, src, url, 2, "%")
+    if bp and (bp.get("bs") or {}).get("advances"):
+        pq, pp = None, None
+        want = _prev_q(_q_end(bq), 4)
+        for qe, p in s["q"].items():
+            if qe == want and (p.get("bs") or {}).get("advances"):
+                pq, pp = qe, p
+        if pp:
+            a1, a0 = bp["bs"]["advances"], pp["bs"]["advances"]
+            M["advances_yoy_pct"] = _m((a1 / a0 - 1) * 100, "Advances (loan book) growth over 12 months",
+                                       {"advances_cr": _cr(a1), "a_year_earlier_cr": _cr(a0), "dates": f"{pq} → {bq}"}, _src(bp, basis), bp.get("url"))
+
+
 def _latest_bs(s: dict, before: str | None = None):
     for qe, p in s["q"].items():
         if before and qe > before:
@@ -491,9 +537,8 @@ def compute(fin: dict, price: float, yahoo: dict | None = None, promoter_pct: fl
             if ebit_ttm is not None and eq + debt > 0 and not lender:
                 M["roce_pct"] = _m(ebit_ttm / (eq + debt) * 100, "EBIT (last 4 quarters) ÷ (equity + borrowings + lease liabilities)",
                                    {"ebit_ttm_cr": _cr(ebit_ttm), "capital_employed_cr": _cr(eq + debt)}, bsrc, burl)
-        if lender and bs.get("gnpa") is None and (bp.get("q") or {}).get("gnpa") is not None and bs.get("advances"):
-            M["gnpa_pct_advances"] = _m(bp["q"]["gnpa"] / bs["advances"] * 100, "Gross NPAs ÷ advances",
-                                        {"gnpa_cr": _cr(bp["q"]["gnpa"]), "advances_cr": _cr(bs["advances"])}, bsrc, burl, 2)
+        if lender:
+            _lender_metrics(M, s, bq, bp, basis)
         if lender:
             M.pop("de", None)
         if mcap is not None and ebitda_ttm and ebitda_ttm > 0:
