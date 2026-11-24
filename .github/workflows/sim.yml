@@ -41,6 +41,7 @@ jobs:
         env:
           PYTHONUNBUFFERED: "1"
           MOD: ${{ inputs.module }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           [[ "$MOD" =~ ^sim_[a-z0-9_]+$ ]] || { echo "module must be sim_<name>"; exit 1; }
           python -m "narrativ.$MOD"
