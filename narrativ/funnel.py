@@ -1182,6 +1182,18 @@ def setup(df, t, target):
     return out
 
 
+LIVE_SETUPS = ("Breakout", "Pullback", "Base")
+
+
+def setup_tier(su: dict | None, extended) -> int:
+    """Entry-setup tier of the readiness ranking (RULES.md Ranking step 2), shared by run.py `readiness` and the history
+    replay (narrativ/replay.py) so both rank alike: 0 live setup (breakout, pullback, base); 2 price extended, or no setup
+    because the trend is broken ("No entry") or the price is extended; 1 everything else (wait)."""
+    su = su or {}
+    bad = bool(extended) or (su.get("type") == "No setup" and str(su.get("note") or "").startswith(("No entry", "Extended")))
+    return 2 if bad else 0 if su.get("type") in LIVE_SETUPS else 1
+
+
 def bands(su: dict | None, price) -> dict | None:
     """The dossier's entry / exit band, derived from the entry setup so the app and Claude see one exit level: the setup's
     stop, the level calls.py closes a call at. Until Nov 2026 a separate breakout band (technicals) carried its own stop,
@@ -1863,11 +1875,26 @@ def buy_gates(Mx: dict, lender: bool, L: dict, th: dict | None, today) -> list[s
     return g
 
 
+def ungate(d0: dict | None) -> dict:
+    """The decision as it stood before the Buy gates held it (`gated_label`, set by apply_buy_rules), so the gates can be
+    applied again with new research: a verified pass is the label again; otherwise Hold with `candidate` (verification
+    pending), as funnel.decision returned it. A decision the gates did not hold is returned unchanged (a copy)."""
+    d0 = dict(d0 or {})
+    label = d0.pop("gated_label", None)
+    if not label:
+        return d0
+    gates = set(d0.pop("gates", None) or [])
+    why = [w for w in d0.get("why") or [] if w not in gates and not w.startswith("Scores say")]
+    if d0.get("verified") == "pass":
+        return {**d0, "d": label, "why": why}
+    return {**d0, "d": "Hold", "candidate": label, "why": [f"Rules say {label}: waiting for Claude's full review"] + why}
+
+
 def apply_buy_rules(d0: dict, Mx: dict, lender: bool, L: dict, th: dict | None, today, issues: list | None = None,
                     inst_down_q: int | None = None) -> dict:
     """What stands of a Buy / Strong Buy (verified, or a candidate) after the open data issues, R5 and the Buy gates.
     `issues`: open data issues that cannot be patched (corrections.apply) -> Hold until resolved (candidate kept)."""
-    d0 = dict(d0 or {})
+    d0 = ungate(d0)
     if issues and d0.get("d") in BUY:
         was = d0["d"]
         d0 = {**d0, "d": "Hold", "candidate": was,
@@ -1892,8 +1919,11 @@ def apply_buy_rules(d0: dict, Mx: dict, lender: bool, L: dict, th: dict | None, 
     if notes:
         d0 = {**d0, "why": list(d0.get("why", [])) + [n for n in notes if n not in (d0.get("why") or [])]}
     if g:
+        # `candidate` is dropped (no review queued, no candidate call, app shows Hold); `gated_label` keeps what the rules
+        # said, so republish.py can re-run the gates when Claude's research changes (e.g. other_income_recurring for R2, a
+        # driver with a verified due date for R4) instead of waiting for the evening run (25 Nov 2026)
         d0 = {k: x for k, x in d0.items() if k != "candidate"} | {
-            "d": "Hold", "gates": g,
+            "d": "Hold", "gates": g, "gated_label": label,
             "why": [f"Scores say {label}, but the Buy rules are not met (RULES.md):"] + g + [w for w in d0.get("why", []) if not w.startswith("Rules say")]}
     elif d0.get("d") in BUY:  # a passed review that lacks what R7 requires is not yet a verification
         miss = r7_missing((th or {}).get("audit"), Mx, lender, L)

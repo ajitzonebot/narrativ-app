@@ -1,18 +1,25 @@
+# Hand-written for the public repo (not generated). Source: the private repo's .github/workflow-src/republish.yml.
 name: Publish research
 
-# After each Claude research push: verify the stocks it changed and apply the Claude gate to their rating,
-# so a passed review shows as Buy within minutes instead of at the 17:10 run. No market data is downloaded.
+# Claude's research runs push docs/data/theses.json to the private repo. A push there can't start a job here,
+# so this checks every 30 minutes and publishes anything new: verify the changed stocks and re-rate them.
+# GitHub's */30 schedule often fires late or not at all; the Worker cron can also dispatch this workflow (same result).
+#
+# Own concurrency group (not "funnel"): a queued run of a group replaces the group's pending run, so sharing "funnel"
+# let a republish cancel a pending daily run. Instead this run skips while a daily run is in progress (checked at the
+# start and again just before the push), and daily.yml waits for a running republish before it checks out. A skipped
+# run leaves data/republish_base.txt as it was, so the next run publishes the same research.
 on:
-  push:
-    branches: [main]
-    paths: ["docs/data/theses.json"]
+  schedule:
+    - cron: '*/30 * * * *'
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+  actions: read   # read this repo's daily-funnel runs
 
 concurrency:
-  group: funnel
+  group: republish
   cancel-in-progress: false
 
 jobs:
@@ -20,36 +27,103 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 2   # the pushed commit and its parent; the range start (github.event.before) is fetched below
-      - name: Fetch the commit this push started from
-        # narrativ.republish diffs docs/data/theses.json against github.event.before. If that commit is not in the shallow
-        # history (a push of several commits), fetch just it; without it every stock would look changed.
+      - name: Quiet logs (public repo)
+        shell: bash
         run: |
-          B="${{ github.event.before }}"
-          if [ -n "$B" ] && [ "${B//0/}" != "" ] && ! git cat-file -e "$B^{commit}" 2>/dev/null; then
-            git fetch --no-tags --depth=1 origin "$B" || git fetch --no-tags --deepen=100 origin main
-          fi
+          cat > /home/runner/q.sh <<'EOF'
+          bash --noprofile --norc -eo pipefail "$1" >> "$RUNNER_TEMP/narrativ.log" 2>&1 && exit 0
+          echo "Step failed. The full log is saved in the private repo (logs/)."
+          exit 1
+          EOF
+      - name: Skip while a daily run is in progress
+        id: d
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          n=$(gh api -X GET "repos/$GITHUB_REPOSITORY/actions/workflows/daily.yml/runs" -f status=in_progress --jq .total_count 2>/dev/null || echo 0)
+          if [ "${n:-0}" != "0" ]; then echo "busy=true" >> $GITHUB_OUTPUT; fi
+      - uses: actions/checkout@v4
+        if: steps.d.outputs.busy != 'true'
+        with:
+          repository: ajitzonebot/Narrativ
+          token: ${{ secrets.NARRATIV_RW_TOKEN }}
+          fetch-depth: 300
+          persist-credentials: false
+      - name: Anything new since the last publish?
+        id: n
+        if: steps.d.outputs.busy != 'true'
+        env:
+          GIT_PUSH_TOKEN: ${{ secrets.NARRATIV_RW_TOKEN }}
+        run: |
+          base=$(cat data/republish_base.txt 2>/dev/null || true)
+          head=$(git log -1 --format=%H -- docs/data/theses.json)
+          echo "base=$base" >> $GITHUB_OUTPUT
+          echo "head=$head" >> $GITHUB_OUTPUT
+          if [ "$base" = "$head" ]; then echo "new=false" >> $GITHUB_OUTPUT; else echo "new=true" >> $GITHUB_OUTPUT; fi
+          h="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GIT_PUSH_TOKEN" | base64 | tr -d '\n')"
+          if [ -n "$base" ] && ! git cat-file -e "$base^{commit}" 2>/dev/null; then git -c http.https://github.com/.extraheader="$h" fetch --no-tags --deepen=1000 origin main || true; fi
       - uses: actions/setup-python@v5
+        if: steps.n.outputs.new == 'true'
         with:
           python-version: "3.12"
           cache: pip
-      - run: pip install -r requirements.txt
-      - uses: actions/cache/restore@v4
+      - if: steps.n.outputs.new == 'true'
+        run: pip install -r requirements.txt -r requirements-dev.txt
+      # The public copies have no push trigger: tests gate publishing here and in daily.yml (~15 s).
+      - name: Tests (ruff, pytest)
+        if: steps.n.outputs.new == 'true'
+        run: |
+          ruff check .
+          python -m pytest -q -p no:cacheprovider
+      - uses: actions/cache/restore@v4   # read-only: daily.yml owns the sources cache
+        if: steps.n.outputs.new == 'true'
         with:
           path: data/source_cache
-          key: sources-${{ github.run_id }}
-          restore-keys: sources-
+          key: sources-daily-${{ github.run_id }}
+          restore-keys: |
+            sources-daily-
+            sources-
       - name: Verify and re-rate changed stocks
+        if: steps.n.outputs.new == 'true'
         env:
           PYTHONUNBUFFERED: "1"
-        run: python -m narrativ.republish "${{ github.event.before }}"
+        run: python -m narrativ.republish "${{ steps.n.outputs.base }}"
       - name: Commit
+        if: steps.n.outputs.new == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GIT_PUSH_TOKEN: ${{ secrets.NARRATIV_RW_TOKEN }}
         run: |
+          n=$(gh api -X GET "repos/$GITHUB_REPOSITORY/actions/workflows/daily.yml/runs" -f status=in_progress --jq .total_count 2>/dev/null || echo 0)
+          if [ "${n:-0}" != "0" ]; then echo "a daily run started meanwhile: not pushing; the next run publishes this"; exit 0; fi
+          echo "${{ steps.n.outputs.head }}" > data/republish_base.txt
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/data data/research_log.json
+          git add docs/data data/research_log.json data/republish_base.txt
           git diff --cached --quiet && exit 0
           git commit -m "data: research published $(TZ=Asia/Kolkata date '+%F %H:%M') IST"
           bash scripts/push_retry.sh
+      - name: Save the log in the private repo
+        if: failure()
+        shell: bash
+        env:
+          GIT_PUSH_TOKEN: ${{ secrets.NARRATIV_RW_TOKEN }}
+        run: |
+          set +e
+          [ -d .git ] && [ -f "$RUNNER_TEMP/narrativ.log" ] || exit 0
+          mkdir -p logs
+          cp "$RUNNER_TEMP/narrativ.log" "logs/$GITHUB_WORKFLOW-$(date -u +%Y%m%d-%H%M).log"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add logs && git commit -qm "logs: $GITHUB_WORKFLOW failed" -- logs
+          git stash -u -q
+          h="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GIT_PUSH_TOKEN" | base64 | tr -d '\n')"
+          for i in 1 2 3; do git -c http.https://github.com/.extraheader="$h" pull -q --rebase origin main && git -c http.https://github.com/.extraheader="$h" push -q origin HEAD:main && break; sleep 5; done
+          exit 0
+
+env:
+  NARRATIV_REPO: ajitzonebot/Narrativ
+
+defaults:
+  run:
+    shell: bash /home/runner/q.sh {0}

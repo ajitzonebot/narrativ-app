@@ -82,3 +82,15 @@ def test_news_parse_and_match():
     assert f("helps reduce reliance on imports") == set()  # one-word name only when capitalised
     assert f("Dalmia Bharat approves buyback") == {"DALBHARAT.NS"}  # shared phrase goes to the exact name
     assert N._JUNK.search("ITC Share Price Highlights: ITC Stock Price History")
+
+
+def test_story_sections():
+    from narrativ import story as S
+    assert S.going({"pat_yoy_pct": {"v": 230.9}, "rev_yoy_pct": {"v": 17.5}})["text"] == "Profit up 231% and revenue up 18% on the same quarter last year."
+    assert S.going({"pat_yoy_pct": {"v": -6.0}})["tone"] == "bad"
+    assert S.one_line([1, 2, 1, 1, 2, 1, 5]) == "A strong business at a cheap price, and the market is starting to notice."
+    assert S.one_line([4, 4, 3, 3, 5, 3, 5]).startswith("A weak business with a shaky balance sheet at a fair price")
+    assert S.one_line([0] * 7) is None
+    bad = S.check({"what": "Lends with an AUM of 5,000 crore", "money": "Interest."}, "description 100")
+    assert any("jargon" in b for b in bad) and any("5000" in b for b in bad)
+    assert S.check({"what": "Makes cables for homes.", "money": "Sells cables to builders.", "plans": ["Grow 20% a year"]}, "grow 20%") == []

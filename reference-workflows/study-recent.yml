@@ -27,11 +27,13 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: pip install -r requirements.txt && pip install scikit-learn
-      - uses: actions/cache/restore@v4
+      - uses: actions/cache/restore@v4   # read-only: daily.yml owns the sources cache
         with:
           path: data/source_cache
-          key: sources-${{ github.run_id }}
-          restore-keys: sources-
+          key: sources-daily-${{ github.run_id }}
+          restore-keys: |
+            sources-daily-
+            sources-
       - name: Study
         env:
           PYTHONUNBUFFERED: "1"
@@ -39,6 +41,8 @@ jobs:
           mkdir -p data/study_recent
           python -m narrativ.study_recent ${{ inputs.quick == 'true' && '--quick' || '' }} 2>&1 | tee data/study_recent/run.log
       - name: Commit
+        env:
+          GIT_PUSH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

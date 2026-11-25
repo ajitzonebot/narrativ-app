@@ -472,8 +472,13 @@ def due_periods(quote: str, said_on: date | None) -> list[tuple[str, date]]:
     return out
 
 
-def due_support(due, quote: str, said_on) -> str | None:
-    """The phrase in the quote that states the due date (same month as the end of a period the quote names), or None."""
+PROMISE_SETTLE_DAYS = 61  # a promise's due may be the results date that settles the period (SEBI LODR: year 60 days, quarter 45)
+
+
+def due_support(due, quote: str, said_on, settle_days: int = 0) -> str | None:
+    """The phrase in the quote that states the due date (same month as the end of a period the quote names), or None.
+    `settle_days` (promises only): the due may also fall up to that many days after the period ends, the results date
+    that settles it ("FY27 revenue" due 2027-05-30)."""
     try:
         d = date.fromisoformat(str(due)[:10])
     except ValueError:
@@ -484,7 +489,8 @@ def due_support(due, quote: str, said_on) -> str | None:
         s = None
     if s and s > date.today():
         s = None
-    return next((ph for ph, end in due_periods(quote or "", s) if (end.year, end.month) == (d.year, d.month)), None)
+    return next((ph for ph, end in due_periods(quote or "", s)
+                 if (end.year, end.month) == (d.year, d.month) or (settle_days and end <= d <= end + timedelta(days=settle_days))), None)
 
 
 _PACK_DATES: dict = {}
@@ -602,12 +608,13 @@ def verify_all(theses: dict) -> tuple[dict, dict]:
                 rej.append({"id": p.get("id"), "field": "promise", "reason": why})
                 continue
             all_quotes += " " + p["quote"]
-            # a due date is shown only if its year is stated in the quote (e.g. 2026, '26, FY27)
-            d = p.get("due")
-            if d:
-                y = int(d[:4]); fy = y + 1 if int(d[5:7]) > 3 else y
-                qn = nums(p["quote"])
-                p = {**p, "due_verified": bool({str(y), str(y)[2:], str(fy)[2:], str(fy)} & qn)}
+            # a due date counts (`due_verified`: shown, promise checkpoint, conviction C1) only when the quote states that
+            # period, the same rule as drivers (due_support; relative phrases read against `made_on`), or the due is the
+            # results date settling it (within PROMISE_SETTLE_DAYS after the period). Until 25 Nov 2026 any number in the
+            # quote equal to the year's digits counted ("27%" verified a 2027 due date)
+            if p.get("due"):
+                basis = due_support(p["due"], p["quote"], p.get("made_on") or doc_date(sym, p.get("source")), PROMISE_SETTLE_DAYS)
+                p = {**p, "due_verified": basis is not None, "due_basis": basis}
             ups = []
             for u in p.get("updates", []):
                 w = check(u, ("text",))

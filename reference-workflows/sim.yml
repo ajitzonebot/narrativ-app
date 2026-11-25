@@ -38,6 +38,7 @@ jobs:
       - name: Commit
         if: always()  # a probe that times out still saves what it wrote
         env:
+          GIT_PUSH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MOD: ${{ inputs.module }}
         run: |
           git config user.name "github-actions[bot]"

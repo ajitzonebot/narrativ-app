@@ -196,6 +196,29 @@ def test_driver_due_verified_in_verify_all(doc, monkeypatch):
     assert sum(r["id"] == "driver due" for r in rep["X.NS"]["rejected"]) == 2
 
 
+def test_promise_due_verified_like_drivers(doc, monkeypatch):
+    """Promise due dates use due_support (25 Nov 2026): a number equal to the year's digits ("27%") no longer verifies a
+    2027 due date; the results date that settles a named period still does."""
+    monkeypatch.setattr(verify, "_PACK_DATES", {})
+    doc["u"] = ("We expect revenue growth of 27% this year. Growth Outlook - In FY27 Revenue Guidance Rs 1400- 1750crores. "
+                "So, comfortably we will reach our 30% to 35% of growth '27. The plant will start in the next quarter for sure.")
+    base = {"made_on": "2026-08-14", "call": "Q1 FY27 call", "kind": "results", "status": "pending", "source": "u", "updates": []}
+    th = {"X.NS": {"promises": [
+        {**base, "id": "a", "promise": "Revenue growth 27%", "due": "2027-03-31", "quote": "We expect revenue growth of 27% this year."},
+        {**base, "id": "b", "promise": "FY27 revenue Rs 1400-1750 crores", "due": "2027-05-30",
+         "quote": "Growth Outlook - In FY27 Revenue Guidance Rs 1400- 1750crores"},
+        {**base, "id": "c", "promise": "FY27 revenue Rs 1400-1750 crores", "due": "2027-03-31",
+         "quote": "Growth Outlook - In FY27 Revenue Guidance Rs 1400- 1750crores"},
+        {**base, "id": "d", "promise": "Growth 30% to 35%", "due": "2027-03-31",
+         "quote": "So, comfortably we will reach our 30% to 35% of growth '27."},  # '27 alone: fiscal or calendar?
+        {**base, "id": "e", "promise": "Plant starts", "due": "2026-12-31", "quote": "The plant will start in the next quarter for sure."},
+        {**base, "id": "f", "promise": "FY27 revenue", "due": "2027-08-31", "quote": "Growth Outlook - In FY27 Revenue Guidance Rs 1400- 1750crores"}]}}
+    out, _ = verify_all(th)
+    got = {p["id"]: p["due_verified"] for p in out["X.NS"]["promises"]}
+    assert got == {"a": False, "b": True, "c": True, "d": False, "e": True, "f": False}
+    assert due_support("2027-05-30", "In FY27 Revenue Guidance", None) is None  # drivers: same month as the period end only
+
+
 # ---- docling text: only from a file that records the same source URL ----
 
 @pytest.fixture

@@ -73,7 +73,13 @@ object Portfolio {
         }
         return p
     }
-    fun load(ctx: Context): PortStore = runCatching { json.decodeFromString<PortStore>(prefs(ctx).getString("portfolio", null) ?: "{}") }.getOrDefault(PortStore())
+    /** Last decoded holdings and their saved text: the Portfolio tab does not decode the same text again on the main thread. */
+    @Volatile private var loaded: Pair<String, PortStore>? = null
+    fun load(ctx: Context): PortStore {
+        val raw = prefs(ctx).getString("portfolio", null) ?: "{}"
+        loaded?.let { if (it.first == raw) return it.second }
+        return runCatching { json.decodeFromString<PortStore>(raw) }.getOrDefault(PortStore()).also { loaded = raw to it }
+    }
     fun save(ctx: Context, p: PortStore) = prefs(ctx).edit().putString("portfolio", json.encodeToString(p)).apply()
 
     /** One CSV line into fields (quotes and commas inside quotes handled). */
@@ -180,10 +186,11 @@ object Portfolio {
         return st.copy(snaps = (st.snaps + PortSnap(d, value, inv, ex?.prices?.get("NIFTY 50")?.getOrNull(0), idx)).takeLast(1000), flow = 0.0)
     }
 
-    /** Record one point a day (the data date of picks.json): value, invested, Nifty. Called by the daily job and on open. */
-    suspend fun snapshot(ctx: Context, repo: Repo) {
+    /** Record one point a day (the data date of picks.json): value, invested, Nifty. Called by the daily job and on open.
+     *  [picks]: the app's picks already loaded (the screen passes them, so picks.json is not downloaded again). */
+    suspend fun snapshot(ctx: Context, repo: Repo, picks: PicksFile? = null) {
         if (load(ctx).holdings.isEmpty()) return
-        val pf = repo.get<PicksFile>("data/picks.json", memo = true) ?: return
+        val pf = picks ?: repo.get<PicksFile>("data/picks.json") ?: return
         val ex = repo.get<ExtraPrices>("data/extra_prices.json")
         lock.withLock {
             val st = load(ctx)
@@ -194,8 +201,8 @@ object Portfolio {
 
     /** Replace the holdings with a fresh import. The series is closed first at the latest data date with the old holdings, and the
      *  money the new holdings add or remove is recorded as a cash flow, so buying more is not shown as a gain against the Nifty. */
-    suspend fun importHoldings(ctx: Context, repo: Repo, h: List<Holding>): PortStore {
-        val pf = repo.get<PicksFile>("data/picks.json", memo = true)
+    suspend fun importHoldings(ctx: Context, repo: Repo, h: List<Holding>, picks: PicksFile? = null): PortStore {
+        val pf = picks ?: repo.get<PicksFile>("data/picks.json")
         val ex = repo.get<ExtraPrices>("data/extra_prices.json")
         return lock.withLock {
             var st = load(ctx)
@@ -298,8 +305,8 @@ fun PortfolioScreen(st: AppState) {
     val ctx = LocalContext.current
     var store by remember { mutableStateOf(Portfolio.load(ctx)) }
     val scope = rememberCoroutineScope()
-    val extra by produceState<ExtraPrices?>(null) { value = st.repo.get<ExtraPrices>("data/extra_prices.json") }
-    LaunchedEffect(store.holdings) { if (store.holdings.isNotEmpty()) { Portfolio.snapshot(ctx, st.repo); store = withContext(Dispatchers.IO) { Portfolio.load(ctx) } } }
+    val extra by produceState(st.repo.peek<ExtraPrices>("data/extra_prices.json")) { st.repo.cacheFirst<ExtraPrices>("data/extra_prices.json") { if (it != null) value = it } }
+    LaunchedEffect(store.holdings) { if (store.holdings.isNotEmpty()) { Portfolio.snapshot(ctx, st.repo, st.picks); store = withContext(Dispatchers.IO) { Portfolio.load(ctx) } } }
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
@@ -309,13 +316,14 @@ fun PortfolioScreen(st: AppState) {
             }
             if (h.isEmpty()) st.toast = "No holdings found: pick the holdings CSV (columns Instrument, Qty., Avg. cost)"
             else {
-                store = withContext(Dispatchers.IO) { Portfolio.importHoldings(ctx, st.repo, h) }
+                store = withContext(Dispatchers.IO) { Portfolio.importHoldings(ctx, st.repo, h, st.picks) }
                 st.toast = "Imported ${h.size} holdings"
             }
         }
     }
     fun launchImport() = pick.launch(arrayOf("text/*", "application/vnd.ms-excel", "application/octet-stream"))
-    val picks = st.picks?.picks?.associateBy { it.s }.orEmpty()
+    val pf = st.picks
+    val picks = remember(pf) { pf?.picks?.associateBy { it.s }.orEmpty() }  // once per picks.json, not every recomposition
     val live = rememberLiveQuotes(st, store.holdings.map { it.s })
     fun now(h: Holding): Pair<Double?, Double?> = live[h.s]?.let { it.p to it.d1 } ?: Portfolio.price(h.s, picks, extra).let { (p, d) -> (p ?: h.fileLtp) to d }
     var sent by remember { mutableStateOf(false) }

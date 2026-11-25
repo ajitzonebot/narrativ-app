@@ -2,6 +2,9 @@
 name: ipo
 # Open-IPO check without Claude (narrativ/ipo.py): 08:30 and 15:30 IST Mon-Fri, started by the Cloudflare Worker crons
 # (exact time); the GitHub schedule below is a late backup. The 15:30 run makes the final-day call.
+# The backup skips when another ipo run started in the last 150 minutes and succeeded or is still running (the Worker's
+# run did this slot), so it only runs when the Worker's dispatch failed. 150 minutes covers GitHub's usual cron delay and
+# stays well inside the 7 hours between the two slots.
 on:
   schedule:
     - cron: "15 3 * * 1-5"
@@ -10,6 +13,7 @@ on:
 
 permissions:
   contents: write
+  actions: read   # the public job's own token reads this workflow's recent runs
 concurrency:
   group: ipo
 jobs:
@@ -25,19 +29,37 @@ jobs:
           echo "Step failed. The full log is saved in the private repo (logs/)."
           exit 1
           EOF
+      - name: Skip the backup schedule if the Worker's run did this slot
+        id: skip
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          since=$(date -u -d '-150 minutes' +%Y-%m-%dT%H:%M:%SZ)
+          n=$(gh api -X GET "repos/$GITHUB_REPOSITORY/actions/workflows/ipo.yml/runs" -f created=">=$since" -f per_page=20 \
+            --jq "[.workflow_runs[] | select(.id != $GITHUB_RUN_ID) | select(.conclusion == \"success\" or .status != \"completed\")] | length" 2>/dev/null || echo 0)
+          echo "ipo runs since $since (done or running): ${n:-0}"
+          if [ "${n:-0}" -gt 0 ]; then echo "skip=true" >> "$GITHUB_OUTPUT"; fi
       - uses: actions/checkout@v4
         with:
           repository: ajitzonebot/Narrativ
           token: ${{ secrets.NARRATIV_RW_TOKEN }}
+          persist-credentials: false
+        if: steps.skip.outputs.skip != 'true'
       - uses: actions/setup-python@v5
+        if: steps.skip.outputs.skip != 'true'
         with:
           python-version: "3.12"
           cache: pip
       - name: IPO check
+        if: steps.skip.outputs.skip != 'true'
         run: |
           pip install -q -r requirements.txt
           python -m narrativ.ipo
       - name: Commit
+        if: steps.skip.outputs.skip != 'true'
+        env:
+          GIT_PUSH_TOKEN: ${{ secrets.NARRATIV_RW_TOKEN }}
         run: |
           git config user.name "github-actions[bot]"; git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add docs/data/ipo_today.json docs/data/ipo_history.json
@@ -47,6 +69,8 @@ jobs:
       - name: Save the log in the private repo
         if: failure()
         shell: bash
+        env:
+          GIT_PUSH_TOKEN: ${{ secrets.NARRATIV_RW_TOKEN }}
         run: |
           set +e
           [ -d .git ] && [ -f "$RUNNER_TEMP/narrativ.log" ] || exit 0
@@ -56,7 +80,9 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add logs && git commit -qm "logs: $GITHUB_WORKFLOW failed" -- logs
           git stash -u -q
-          for i in 1 2 3; do git pull -q --rebase && git push -q && break; sleep 5; done
+          auth=()
+          [ -z "$(git config --get-all http.https://github.com/.extraheader)" ] && auth=(-c "http.https://github.com/.extraheader=AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GIT_PUSH_TOKEN" | base64 | tr -d '\n')")
+          for i in 1 2 3; do git "${auth[@]}" pull -q --rebase origin main && git "${auth[@]}" push -q origin HEAD:main && break; sleep 5; done
           exit 0
 
 env:

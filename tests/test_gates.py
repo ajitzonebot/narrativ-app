@@ -107,3 +107,34 @@ def test_outlook_counts_price_signals_before_removal():
     o = FN.outlook(*args, signals=[("T11", "Results beat", "+6.3% vs Nifty", False), ("T14", "Buyback announced", "filed", True)])
     assert not o.get("out") and o["nlive"] == 2 and [t["id"] for t in o["triggers"]] == ["T11", "T14"]
     assert o["t"] != 5 and o["s"] == 25  # headwind 0 + 10 + 15
+
+
+# ---------------------------------------------------------------- republish releases a stock the daily run's gates held
+def test_gated_stock_keeps_its_label_but_no_candidate():
+    d = FN.apply_buy_rules(CAND, mx(80, oi=40), False, TRIG, {}, TODAY)
+    assert d["d"] == "Hold" and d["gated_label"] == "Buy" and "candidate" not in d  # no review queued, no candidate call
+    assert FN.ungate(d) == CAND  # back to the decision before the gates
+    assert FN.apply_buy_rules(d, mx(80, oi=40), False, TRIG, {}, TODAY) == d  # gating again is stable
+
+
+def test_republish_releases_a_gated_candidate_when_r2_is_answered():
+    held = FN.apply_buy_rules(CAND, mx(80, oi=40), False, TRIG, {}, TODAY)  # the daily run: R2 holds, review pending
+    assert republish.gate(held, {}, "2026-11-01", TODAY, mx(80, oi=40), TRIG, False, []) is None  # nothing new: no change
+    oir = {"other_income_recurring": {"text": "JV share of profit", "quote": "q", "source": "u"}}
+    nd = republish.gate(held, PASS | oir, "2026-11-01", TODAY, mx(80, oi=40), TRIG, False, [])
+    assert nd["d"] == "Buy" and nd["verified"] == "pass" and "gates" not in nd and "gated_label" not in nd
+    assert not any(w.startswith(("Scores say", "R2")) for w in nd["why"])
+    # the recurring quote but no review yet: back to a candidate waiting for Claude's review
+    nd = republish.gate(held, oir, "2026-11-01", TODAY, mx(80, oi=40), TRIG, False, [])
+    assert nd["d"] == "Hold" and nd["candidate"] == "Buy" and "gates" not in nd
+
+
+def test_republish_releases_a_verified_buy_held_by_r4_once_a_dated_driver_verifies():
+    L = TRIG | {"out": {"triggers": None}}
+    verified = {"d": "Buy", "verified": "pass", "why": ["Verified by Claude's full review on 2026-11-19"], "missing": []}
+    held = FN.apply_buy_rules(verified, mx(80), False, L, PASS, TODAY)
+    assert held["d"] == "Hold" and held["gates"][0].startswith("R4") and held["gated_label"] == "Buy"
+    assert republish.gate(held, PASS, "2026-11-01", TODAY, mx(80), L, False, [])["d"] == "Hold"  # still no dated driver
+    th = PASS | {"drivers": [{"due": "2027-03-31", "due_verified": True, "text": "new plant"}]}
+    nd = republish.gate(held, th, "2026-11-01", TODAY, mx(80), L, False, [])
+    assert nd["d"] == "Buy" and "gates" not in nd

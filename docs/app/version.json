@@ -1,11 +1,21 @@
 {
- "versionCode": 75,
- "versionName": "2.24.0",
- "date": "2026-11-24",
- "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.24.0-b75/narrativ-v2.24.0-b75.apk",
+ "versionCode": 77,
+ "versionName": "2.25.0",
+ "date": "2026-11-25",
+ "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.25.0-b77/narrativ-v2.25.0-b77.apk",
  "sizeMb": 11.5,
- "sha256": "f70d2aff3958f039d0ab0c8c48096d80f65c1e6589df120b32b45dd1e4bbc39a",
+ "sha256": "fe6b6f20f2e15a04e308a6a8e1f1c7a7767b90b000cc9dc66bb268f0ba2005e0",
  "changelog": [
+  {
+   "version": "2.25.0",
+   "date": "2026-11-25",
+   "changes": [
+    {
+     "type": "new",
+     "text": "Narrativ: tap the Narrativ button on a stock for its story on one screen: what it does, how it makes money, how it's going, plans to grow, what could go wrong, in one line"
+    }
+   ]
+  },
   {
    "version": "2.24.0",
    "date": "2026-11-24",

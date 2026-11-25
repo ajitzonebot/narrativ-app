@@ -1,7 +1,8 @@
 name: filings-burst
 
 # One-off parallel backfill: N runners each take every N-th symbol. Each uploads only the files it changed;
-# one merge job commits them all (no push races). Use when many companies are due (new universe, first build).
+# one merge job commits them all (no push races). The shard artifacts hold only data/financials files, which the mirror
+# publishes anyway (paths.txt), so public artifacts expose nothing private. Use when many companies are due (new universe, first build).
 on:
   workflow_dispatch:
     inputs:
@@ -42,11 +43,14 @@ jobs:
     needs: shard
     if: always()
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with: { pattern: "shard-*", path: shards }
       - name: Commit
+        env:
+          GIT_PUSH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           for f in shards/*/shard.tgz; do tar xzf "$f"; done
           git config user.name "github-actions[bot]"

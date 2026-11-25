@@ -3,14 +3,16 @@
 At each month end T it rebuilds what the pipeline would have seen on T, with nothing from after T:
   - filings: only quarters whose XBRL was filed on or before T (data/financials, `filed` per quarter)
   - prices: closes up to T (the exchange-close store, data/source_cache/prices.pkl)
-and runs the same functions as run.py: metrics, the seven levels, entry setup, price signals (T11), the Buy gates that code
-decides (R1 positive operating cash flow, R2 other income, R4 dated trigger from price/results signals or RS top third, R6 re-rating leg), the
-readiness ranking and the Top 10 caps (portfolio.top10).
+and runs the same functions as run.py: metrics, the seven levels, entry setup, price signals (T11), the decision ladder's
+forward-driver step (a live code trigger as the driver, and a positive forward direction from those triggers), the Buy
+gates that code decides (R1 positive operating cash flow, R2 other income, R4 dated trigger from price/results signals or
+RS top third, R6 re-rating leg), the readiness ranking (funnel.setup_tier, as run.py) and the Top 10 caps (portfolio.top10).
 
 What it cannot replay: Claude's review and research (guidance, order books, drivers, verdicts), shareholding, analyst
 views, announcements and sector rotation. So a "candidate" here is a stock the code rules would send to Claude for a full
-review (good stability and quality, margin of safety, price not in a downtrend, gates passed), and the Top 10 is the
-readiness order of those candidates. The universe is today's listed stocks (stocks delisted since are missing: survivor
+review (good stability and quality, a live code trigger, 2+ triggers or 1 with a rising price, margin of safety, price not
+in a downtrend, gates passed), and the Top 10 is the readiness order of those candidates. Because a code trigger is
+required, R4's relative-strength pass never decides here (it only matters live, when Claude's driver is the driver). The universe is today's listed stocks (stocks delisted since are missing: survivor
 bias, which flatters every variant equally).
 
 Measures, per variant, for each Top 10 stock at each T: return over the next 3 / 6 / 12 months (63 / 126 / 252 trading
@@ -80,6 +82,16 @@ def _fin_at(fin: dict, T: str) -> dict:
     return {**fin, "quarters": q}
 
 
+def forward(trig: list[dict], stage: str | None) -> tuple[bool, bool]:
+    """(driver, fwd_pos) as funnel.decision decides them when code triggers are the only driver (24 Nov 2026): a scored
+    stock with no forward driver is Hold "No trigger yet"; Claude's drivers cannot be replayed, so the driver is a live
+    code trigger (T1-T15 except T4, as funnel.code_triggers; `trig` already leaves T4 out). Buy needs fwd_pos, which with
+    trigger drivers only is 2+ distinct triggers, or exactly 1 with the price in Stage 2 / Stage 1→2 (guidance raised or
+    reaffirmed, order book ≥ 1.5× and quoted guidance need research)."""
+    n = len({x.get("id") for x in trig or [] if x.get("id") != "T4"})
+    return n >= 1, n >= 2 or (n == 1 and stage in ("Stage 2", "Stage 1→2"))
+
+
 def _score(T: str) -> dict:
     """Everything the selection needs for one month end: per stock, gates, readiness inputs, forward returns."""
     Ts = pd.Timestamp(T)
@@ -142,18 +154,23 @@ def _score(T: str) -> dict:
         stage = next((i.get("v") for i in L["mom"]["items"] if i["id"] == "P1"), None)
         cc, oi = FN.cash_conversion(Mx)[0], MX.val(Mx, "other_income_pct_pbt")  # R1 on the unrounded value
         hi, pxl = t.get("hi52"), t.get("price")
+        drv, fwd_pos = forward(trig, stage)
         rows[s] = {
             "eligible": not out_l and good("surv", 3) and good("qual", 3),
+            "driver": drv, "fwd": fwd_pos,
             "mos": tt["val"] in (1, 2, 3),  # no research: credibility unknown, so valuation tier 1-3 (decision rule 6)
             "trend": stage not in ("Downtrend", None),
-            "R1": bool(exempt) or cc is None or cc > FN.R1_MIN, "R1_50": bool(exempt) or cc is None or cc >= 50, "R1_25": bool(exempt) or cc is None or cc >= 25, "R2": bool(exempt) or oi is None or oi <= 25, "R4": bool(trig) or float(rs_all.get(s, 0.5)) >= FN.R4_RS_MIN, "R4_trig": bool(trig), "R4u": bool(trig) or bool(up["U1"][0] or up["U2"][0] or up["U3"][0]),
+            "R1": bool(exempt) or cc is None or cc > FN.R1_MIN, "R1_50": bool(exempt) or cc is None or cc >= 50, "R1_25": bool(exempt) or cc is None or cc >= 25, "R2": bool(exempt) or oi is None or oi <= 25, "R4": bool(trig) or float(rs_all.get(s, 0.5)) >= FN.R4_RS_MIN, "R4_trig": bool(trig), "R4u": bool(trig) or float(rs_all.get(s, 0.5)) >= FN.R4_RS_MIN or bool(up["U1"][0] or up["U2"][0] or up["U3"][0]),
             "R6": not (tt["val"] == 3 and tt["disc"] in (4, 5)),
             "rs": float(rs_all.get(s, 0.5)) * 100,
             "near": max(0.0, min(100.0, (1 - (1 - pxl / hi) / 0.30) * 100)) if hi and pxl else 50.0,
             # confirmed breakout (study_recent 24 Nov 2026): within 10% of the 52-week high + RS top third + results beat T11
             "cb": bool(hi and pxl and pxl >= 0.9 * hi) and float(rs_all.get(s, 0.5)) >= 2 / 3 and any(x.get("id") == "T11" for x in trig),
             "vs": L["val"].get("s"), "pr": FN.priority(L),
-            "setup": 0 if su.get("type") in ("Breakout", "Pullback", "Base") else 2 if L["mom"].get("extended") else 1,
+            # same function as run.py readiness; until 25 Nov 2026 a "No setup" for a broken trend ("No entry") or an extended
+            # price ranked as Wait (tier 1) here, but last (tier 2) in the live run
+            "setup": FN.setup_tier(su, L["mom"].get("extended")),
+            "setup_old": 0 if su.get("type") in FN.LIVE_SETUPS else 2 if L["mom"].get("extended") else 1,
             "liq1": (t.get("traded_value_cr") or 0) >= 1, "liq5": (t.get("traded_value_cr") or 0) >= 5,
             "mc": MX.val(Mx, "mcap_cr"), "i": ind_of.get(s), "sec": (META.get(s) or {}).get("sec"),
             "_t": tt, "_out": next((f"{k}: {L[k].get('rm')}"[:70] for k in FN.LEVELS if L[k].get("out")), None),
@@ -193,44 +210,63 @@ def _score(T: str) -> dict:
 
 
 BASE_W = {"rs": 0.45, "near": 0.15, "vs": 0.40}
+# current rules: the code-decidable part of the live decision ladder and Buy gates. "driver" and "fwd" (25 Nov 2026) make a
+# candidate need a live code trigger as its forward driver and a positive forward direction, as funnel.decision does; before,
+# the replay passed stocks the live run holds at "No trigger yet". With a code trigger required, R4 always passes (a live
+# trigger is R4's first leg): R4's relative-strength pass (owner, 24 Nov 2026) only matters live, when Claude's verified
+# driver is the forward driver, and the replay cannot measure that.
+CUR = ["eligible", "mos", "trend", "driver", "fwd", "R1", "R2", "R4", "R6"]
+OLD = [g for g in CUR if g not in ("driver", "fwd")]  # the replay's current rules until 25 Nov 2026
+
+
+def _sub(gates: list[str], old: str, new: str | None = None) -> list[str]:
+    """`gates` with `old` replaced by `new` (or left out)."""
+    return [new if g == old else g for g in gates if g != old or new]
+
+
 VARIANTS = {  # name -> (gates and checks that must pass, ranking weights)
-    "current rules": (["eligible", "mos", "trend", "R1", "R2", "R4", "R6"], BASE_W),
-    "without R1 cash conversion": (["eligible", "mos", "trend", "R2", "R4", "R6"], BASE_W),
-    "without R2 other income": (["eligible", "mos", "trend", "R1", "R4", "R6"], BASE_W),
-    "without R4 dated trigger": (["eligible", "mos", "trend", "R1", "R2", "R6"], BASE_W),
-    "without R6 re-rating leg": (["eligible", "mos", "trend", "R1", "R2", "R4"], BASE_W),
-    "without margin of safety": (["eligible", "trend", "R1", "R2", "R4", "R6"], BASE_W),
-    "without trend check": (["eligible", "mos", "R1", "R2", "R4", "R6"], BASE_W),
-    "rank: momentum only": (["eligible", "mos", "trend", "R1", "R2", "R4", "R6"], {"rs": 1.0}),
-    "rank: valuation only": (["eligible", "mos", "trend", "R1", "R2", "R4", "R6"], {"vs": 1.0}),
-    "rank: near 52-week high only": (["eligible", "mos", "trend", "R1", "R2", "R4", "R6"], {"near": 1.0}),
-    "rank: overall priority": (["eligible", "mos", "trend", "R1", "R2", "R4", "R6"], {"pr": 1.0}),
-    "rank: no entry-setup tier": (["eligible", "mos", "trend", "R1", "R2", "R4", "R6"], {**BASE_W, "_nosetup": 1}),
+    "current rules": (CUR, BASE_W),
+    "(old) without driver requirement": (OLD, BASE_W),
+    "(old) without driver requirement, without R4 dated trigger": (_sub(OLD, "R4"), BASE_W),
+    "(old) without driver requirement, setup tier as before 25 Nov 2026": (OLD, {**BASE_W, "_oldsetup": 1}),
+    "without forward-direction check (driver only)": (_sub(CUR, "fwd"), BASE_W),
+    "without R1 cash conversion": (_sub(CUR, "R1"), BASE_W),
+    "without R2 other income": (_sub(CUR, "R2"), BASE_W),
+    "without R4 dated trigger": (_sub(CUR, "R4"), BASE_W),
+    "without R6 re-rating leg": (_sub(CUR, "R6"), BASE_W),
+    "without margin of safety": (_sub(CUR, "mos"), BASE_W),
+    "without trend check": (_sub(CUR, "trend"), BASE_W),
+    "rank: momentum only": (CUR, {"rs": 1.0}),
+    "rank: valuation only": (CUR, {"vs": 1.0}),
+    "rank: near 52-week high only": (CUR, {"near": 1.0}),
+    "rank: overall priority": (CUR, {"pr": 1.0}),
+    "rank: no entry-setup tier": (CUR, {**BASE_W, "_nosetup": 1}),
+    "rank: setup tier as before 25 Nov 2026": (CUR, {**BASE_W, "_oldsetup": 1}),
 }
 # upside checks U1-U5 (narrativ/upside.py), tested before they become rules: as a required gate, and as a ranking boost
-CUR = ["eligible", "mos", "trend", "R1", "R2", "R4", "R6"]
 for u in ("U1", "U2", "U3", "U4", "U5"):
     VARIANTS[f"plus {u} {UP.NAMES[u]} required"] = (CUR + [u], BASE_W)
-    VARIANTS[f"rank: +10 for {u} {UP.NAMES[u]}"] = (CUR, {**BASE_W, "_boost": {u: 10}})
-VARIANTS["rank: +10 U1, +10 U2, +10 U3, +5 U4, +10 U5"] = (CUR, {**BASE_W, "_boost": {"U1": 10, "U2": 10, "U3": 10, "U4": 5, "U5": 10}})
-VARIANTS["U1 or U2 or U3 counts as R4 trigger"] = (["eligible", "mos", "trend", "R1", "R2", "R4u", "R6"], BASE_W)
+    VARIANTS[f"rank: +10 more for {u} {UP.NAMES[u]}"] = (CUR, {**BASE_W, "_boost": {u: 10}})
+VARIANTS["rank: without the U1 boost (until 25 Nov 2026)"] = (CUR, {**BASE_W, "_no_u1": 1})
+VARIANTS["rank: +10 more each for U1 U2 U3 U5, +5 for U4"] = (CUR, {**BASE_W, "_boost": {"U1": 10, "U2": 10, "U3": 10, "U4": 5, "U5": 10}})
+VARIANTS["U1 or U2 or U3 also passes R4"] = (_sub(CUR, "R4", "R4u"), BASE_W)
+VARIANTS["U1/U2/U3 pass R4, +10 for U2"] = (_sub(CUR, "R4", "R4u"), {**BASE_W, "_boost": {"U2": 10}})
 # R1 softer levels (owner, 23 Nov 2026: R1 blocks the most candidates; replay showed the blocked ones beat the passed ones)
-VARIANTS["R1 at 50% cash conversion (17-23 Nov 2026)"] = (["eligible", "mos", "trend", "R1_50", "R2", "R4", "R6"], BASE_W)
-VARIANTS["R1 at 25% cash conversion"] = (["eligible", "mos", "trend", "R1_25", "R2", "R4", "R6"], BASE_W)
+VARIANTS["R1 at 50% cash conversion (17-23 Nov 2026)"] = (_sub(CUR, "R1", "R1_50"), BASE_W)
+VARIANTS["R1 at 25% cash conversion"] = (_sub(CUR, "R1", "R1_25"), BASE_W)
 # owner 24 Nov 2026, from the winners study: confirmed-breakout ranking boost and a softer R4
 VARIANTS["rank: +10 confirmed breakout"] = (CUR, {**BASE_W, "_boost": {"cb": 10}})
 VARIANTS["rank: +20 confirmed breakout"] = (CUR, {**BASE_W, "_boost": {"cb": 20}})
 VARIANTS["rank: confirmed breakouts first"] = (CUR, {**BASE_W, "_boost": {"cb": 1000}})
 VARIANTS["rank: confirmed breakouts ahead of setup tiers"] = (CUR, {**BASE_W, "_cbfirst": 1})
-VARIANTS["R4 dated trigger only (until 24 Nov 2026)"] = (["eligible", "mos", "trend", "R1", "R2", "R4_trig", "R6"], BASE_W)
-VARIANTS["without R4, +20 confirmed breakout"] = (["eligible", "mos", "trend", "R1", "R2", "R6"], {**BASE_W, "_boost": {"cb": 20}})
+VARIANTS["R4 dated trigger only (until 24 Nov 2026)"] = (_sub(CUR, "R4", "R4_trig"), BASE_W)
+VARIANTS["without R4, +20 confirmed breakout"] = (_sub(CUR, "R4"), {**BASE_W, "_boost": {"cb": 20}})
 # stricter entry: average daily traded value of at least Rs 1 crore / Rs 5 crore (can you buy and sell it)
 for g, lab in (("liq1", "₹1 cr"), ("liq5", "₹5 cr")):
-    VARIANTS[f"plus turnover ≥ {lab} a day"] = (["eligible", "mos", "trend", "R1", "R2", "R4", "R6", g], BASE_W)
+    VARIANTS[f"plus turnover ≥ {lab} a day"] = (CUR + [g], BASE_W)
 # ranking weights tried for RULES.md Ranking (momentum percentile, nearness to the 52-week high, valuation score)
 for rs_, nr_, vs_ in ((0.6, 0.2, 0.2), (0.5, 0.3, 0.2), (0.7, 0.3, 0.0), (0.45, 0.35, 0.2), (0.34, 0.33, 0.33), (0.55, 0.15, 0.3)):
-    VARIANTS[f"weights {round(rs_ * 100)}/{round(nr_ * 100)}/{round(vs_ * 100)}"] = (
-        ["eligible", "mos", "trend", "R1", "R2", "R4", "R6"], {"rs": rs_, "near": nr_, "vs": vs_})
+    VARIANTS[f"weights {round(rs_ * 100)}/{round(nr_ * 100)}/{round(vs_ * 100)}"] = (CUR, {"rs": rs_, "near": nr_, "vs": vs_})
 
 
 def _pick(rows: dict, gates: list[str], w: dict) -> list[str]:
@@ -240,7 +276,9 @@ def _pick(rows: dict, gates: list[str], w: dict) -> list[str]:
         r = rows[s]
         blend = sum(wt * (r[k] if r[k] is not None else 50) for k, wt in w.items() if not k.startswith("_")) + (5 if r["mb"] else 0)
         blend += sum(pts for u, pts in (w.get("_boost") or {}).items() if r.get(u))
-        tier = 0 if w.get("_nosetup") else r["setup"]
+        if not w.get("_no_u1") and r.get("U1"):  # live rule (RULES.md Ranking): every variant starts from it
+            blend += UP.U1_BOOST
+        tier = 0 if w.get("_nosetup") else r.get("setup_old", r["setup"]) if w.get("_oldsetup") else r["setup"]
         if w.get("_cbfirst") and r.get("cb"):
             tier = -1  # confirmed breakouts ahead of every setup tier
         return (tier, -blend)

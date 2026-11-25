@@ -281,7 +281,10 @@ fun QuadrantListScreen(st: AppState, q: String, sectors: Boolean) {
     val src = (if (sectors) rot?.sectors else rot?.industries).orEmpty()
     val qs = if (q == "Rising") setOf("Leading", "Improving") else setOf(q)
     val list = src.entries.filter { it.value.q in qs }.sortedByDescending { it.value.mom }
-    val live = st.picks?.picks.orEmpty().filter { it.out == null }
+    val pf = st.picks
+    val live = remember(pf) { pf?.picks.orEmpty().filter { it.out == null } }  // once per picks.json, not every recomposition
+    // stocks of each sector / industry in the same order as filtering `live` row by row gave
+    val byGroup = remember(live, sectors) { live.groupBy { if (sectors) SECTOR_OF[it.i ?: ""] else it.i } }
     val kind = if (sectors) "sectors" else "industries"
     val span = list.maxOfOrNull { max(abs(it.value.r1m ?: 0.0), abs(it.value.r3m ?: 0.0)) }?.takeIf { it > 0 } ?: 1.0
     // industries open their Why sheet (feedback #90); sectors have no reasons and keep opening Stocks
@@ -295,7 +298,7 @@ fun QuadrantListScreen(st: AppState, q: String, sectors: Boolean) {
             Card(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth(), pad = 0.dp) {
                 Legend(listOf("1 month" to C.teal, "3 months" to TierC.yellow), Modifier.padding(start = S.cardPad, top = 12.dp, bottom = 4.dp))
                 list.forEachIndexed { idx, (name, r) ->
-                    val members = live.filter { if (sectors) SECTOR_OF[it.i ?: ""] == name else it.i == name }
+                    val members = byGroup[name].orEmpty()
                     val tops = members.sortedByDescending { it.pr }.take(3)
                     val nb = members.count { isBuy(it) }
                     val open: () -> Unit = { if (sectors) st.go(Screen.Screener("sec:$name")) else { whyOf = name } }

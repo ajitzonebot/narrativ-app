@@ -4,7 +4,7 @@ Since 2 Aug 2025 every SEBI-registered rating agency (CRISIL, ICRA, CARE, India 
 uploads its rating actions to NSE by ISIN (circular NSE/CML/2025/33). NSE publishes them with the symbol, instrument,
 rating, outlook and the action (New / Re-affirm / Upgrade / Downgrade / Other) and a link to the agency's rationale:
 https://www.nseindia.com/api/credit-rating-sdd-reg30. One full load (30-day windows back to FIRST), then the last
-DAILY_DAYS every day, merged; the store lives in the Actions cache (a lost cache reloads in ~16 calls).
+DAILY_DAYS every day, merged; the store lives in the Actions cache with a durable copy in R2 (narrativ/dbsync.py DURABLE).
 
 Per stock (dossier "ratings"): the latest action per agency and instrument kind in 12 months, upgrades and downgrades,
 negative outlooks or watches. A downgrade in 12 months fails A5 (the same check, now from the agencies' own filings).
@@ -85,7 +85,7 @@ def refresh(today: date, max_minutes: float = 6) -> dict:
             reached = str(a)
     st["loaded_to"] = reached or str(windows[0][0])
     STORE.parent.mkdir(parents=True, exist_ok=True)
-    STORE.write_bytes(gzip.compress(json.dumps(st, separators=(",", ":"), ensure_ascii=False).encode()))
+    STORE.write_bytes(gzip.compress(json.dumps(st, separators=(",", ":"), ensure_ascii=False).encode(), mtime=0))  # same data, same bytes: R2 copy skipped
     print(f"[ratings] {len(st['rows'])} actions stored ({n_new} new), loaded back to {st['loaded_to']}, {time.time() - t0:.0f}s")
     return st
 

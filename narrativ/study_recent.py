@@ -100,8 +100,9 @@ NOT_BUILT = {
     "D1 industry_breadth": "not reachable from the runner (as instructed)",
     "promoter change in 2024": "promoter history starts with the Dec-2024 quarter for most stocks (known ~21 Jan 2025), so no 2024 buy date has it",
 }
-STOP_ORDER = ["mos", "trend", "R1", "R2", "R4", "R6"]
-STOP_NAME = {"mos": "L3 valuation: no margin of safety (tier 4-5 or unknown)", "trend": "price in downtrend / stage unknown",
+STOP_ORDER = ["driver", "mos", "trend", "fwd", "R1", "R2", "R4", "R6"]  # as replay "current rules" (driver / fwd from 25 Nov 2026)
+STOP_NAME = {"driver": "no forward driver (no live code trigger)", "fwd": "forward direction not positive (one trigger, price not rising)",
+             "mos": "L3 valuation: no margin of safety (tier 4-5 or unknown)", "trend": "price in downtrend / stage unknown",
              "R1": "gate R1 cash conversion", "R2": "gate R2 other income", "R4": "gate R4 no dated trigger",
              "R6": "gate R6 re-rating leg (fair value + heavily discovered)"}
 LEVEL_NAME = {"surv": "L1 survivability", "qual": "L2 quality", "val": "L3 valuation", "mgmt": "L4 management", "mom": "L5 momentum",

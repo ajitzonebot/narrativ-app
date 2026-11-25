@@ -51,6 +51,11 @@ fun MoneyScreen(st: AppState) {
     val why = rememberIndustryWhy(st)
     var whyOf by remember { mutableStateOf<String?>(null) }
     whyOf?.let { n -> IndustryWhySheet(st, n, rot?.industries?.get(n), why) { whyOf = null } }
+    // Buys in leading industries: one scan of all picks per picks.json / rotation.json, not on every recomposition
+    val tops = remember(pf, rot) {
+        val lead = rot?.industries.orEmpty().filter { it.value.q == "Leading" }.keys
+        pf.picks.filter { p -> p.out == null && (p.i ?: "") in lead && isBuy(p) }.sortedByDescending { it.pr }
+    }
     LazyColumn(Modifier.fillMaxSize().background(C.screen), contentPadding = PaddingValues(bottom = 110.dp)) {
         item { TopBar(st, "Market", back = st.stack.size > 1, big = st.stack.size == 1) }
         item {
@@ -126,8 +131,6 @@ fun MoneyScreen(st: AppState) {
                 }
             }
         }
-        val lead = rot.industries.filter { it.value.q == "Leading" }.keys
-        val tops = pf.picks.filter { p -> p.out == null && (p.i ?: "") in lead && isBuy(p) }.sortedByDescending { it.pr }
         item {
             Card(Modifier.padding(horizontal = 16.dp, vertical = 4.dp).fillMaxWidth(), pad = 0.dp) {
                 Row(Modifier.padding(start = S.cardPad, end = S.cardPad, top = 14.dp, bottom = 10.dp), verticalAlignment = Alignment.Bottom) {

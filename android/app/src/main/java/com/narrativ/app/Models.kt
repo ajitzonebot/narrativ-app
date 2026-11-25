@@ -207,6 +207,14 @@ import kotlinx.serialization.json.JsonPrimitive
                                   val metrics: List<List<String>> = emptyList(), val bullets: List<String> = emptyList(), val url: String? = null)
 /** A news headline matched by company name (last 30 days, newest first). time: ISO with offset. */
 @Serializable data class NewsItem(val title: String = "", val url: String? = null, val time: String? = null, val source: String? = null)
+/** Detail.narrativ: the one-screen story behind the "Narrativ" button on the stock page. Every field optional so older files parse. */
+@Serializable data class NarrativGoing(val text: String = "", val tone: String = "good")
+@Serializable data class NarrativPlan(val text: String = "", val due: String? = null)
+@Serializable data class NarrativSheet(val what: String? = null, val money: String? = null, val going: NarrativGoing? = null,
+                                       val plans: List<NarrativPlan> = emptyList(), val risks: List<String> = emptyList(),
+                                       @SerialName("one_line") val oneLine: String? = null, val written: String? = null,
+                                       val plain: Boolean = false)
+
 @Serializable data class Detail(val metrics: Map<String, JsonElement> = emptyMap(), val analyst: Analyst? = null,
                                 val levels: Map<String, Level> = emptyMap(), val verdict: String = "", val statement: String = "",
                                 val standouts: Standouts = Standouts(), val setup: Setup = Setup(),
@@ -216,7 +224,8 @@ import kotlinx.serialization.json.JsonPrimitive
                                 @SerialName("research_log") val researchLog: List<RLog> = emptyList(),
                                 val conviction: Conviction? = null,
                                 @SerialName("latest_call_card") val callCard: CallCard? = null,
-                                val news: List<NewsItem> = emptyList()) {
+                                val news: List<NewsItem> = emptyList(),
+                                val narrativ: NarrativSheet? = null) {
     fun m(key: String): Metric? = (metrics[key] as? JsonObject)?.let { runCatching { json.decodeFromJsonElement(Metric.serializer(), it) }.getOrNull() }
     fun v(key: String): Double? = m(key)?.takeIf { !it.nm }?.v
     fun str(key: String): String? = (metrics[key] as? JsonPrimitive)?.takeIf { it.isString }?.content

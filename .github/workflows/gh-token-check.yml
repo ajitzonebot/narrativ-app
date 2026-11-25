@@ -1,15 +1,19 @@
 # Generated from the private repo by .github/mirror/public_workflows.py: edit it there.
 name: gh-token-check
 
-# Can the Worker's GitHub token (NARRATIV_GH_TOKEN) start workflows? Starts the read-only d1-check as a harmless test.
+# Read-only check of the Worker's GitHub token (secret NARRATIV_WORKER_TOKEN; worker.yml gives it to the Worker as GH_TOKEN).
+# It needs exactly what worker/worker.js calls: read docs/ of the private repo (/data), list and create issues there
+# (feedback, scan), start workflows in this public repo (cron dispatch of daily.yml / ipo.yml). It must NOT be able to push.
+# Starts the read-only d1-check here as the dispatch test. Prints only HTTP codes and true/false.
 on: workflow_dispatch
 
-# No repo token needed: only the Cloudflare / Worker secrets are used.
+# No repo token needed: only the Worker token is used.
 permissions: {}
 
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Quiet logs (public repo)
         shell: bash
@@ -19,24 +23,30 @@ jobs:
           echo "Step failed. The full log is saved in the private repo (logs/)."
           exit 1
           EOF
-      - name: Dispatch d1-check with the Worker token
+      - name: Worker token permissions
+        shell: bash   # visible: prints HTTP codes only
         env:
-          T: ${{ secrets.NARRATIV_GH_TOKEN }}
+          T: ${{ secrets.NARRATIV_WORKER_TOKEN }}
+          DATA_REPO: ajitzonebot/Narrativ
         run: |
-          code=$(curl -s -o out.json -w "%{http_code}" -X POST -H "Authorization: Bearer $T" -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/ajitzonebot/Narrativ/actions/workflows/d1-check.yml/dispatches" -d '{"ref":"main"}')
-          echo "dispatch http=$code (204 = token can start workflows; 403 = add Actions: Read and write)"
-          cat out.json 2>/dev/null | head -c 300; echo
-          for path in "" "/actions/workflows" "/issues?per_page=1"; do
-            c=$(curl -s -o o2.json -w "%{http_code}" -H "Authorization: Bearer $T" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/ajitzonebot/Narrativ$path")
-            echo "GET repo$path http=$c"
-          done
-          c=$(curl -s -o o3.json -w "%{http_code}" -H "Authorization: Bearer $T" "https://api.github.com/repos/ajitzonebot/narrativ-app")
-          echo "GET narrativ-app http=$c push=$(jq -r '.permissions.push // "n/a"' o3.json)"
-          curl -s -I -H "Authorization: Bearer $T" "https://api.github.com/repos/ajitzonebot/Narrativ" | grep -i "x-accepted-github-permissions\|github-authentication-token-expiration" || true
+          [ -n "$T" ] || { echo "NARRATIV_WORKER_TOKEN is not set"; exit 1; }
+          H=(-H "Authorization: Bearer $T" -H "Accept: application/vnd.github+json")
+          code() { curl -s -o /dev/null -w "%{http_code}" "${H[@]}" "$@"; }
+          read_data=$(code "https://api.github.com/repos/$DATA_REPO/contents/docs/data/picks.json")
+          list_issues=$(code "https://api.github.com/repos/$DATA_REPO/issues?per_page=1")
+          dispatch=$(code -X POST "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/d1-check.yml/dispatches" -d '{"ref":"main"}')
+          # write probe that cannot succeed (no such commit): 403 = no Contents write (good), 422 = the token could push
+          push=$(code -X POST "https://api.github.com/repos/$DATA_REPO/git/refs" -d '{"ref":"refs/heads/token-check","sha":"0000000000000000000000000000000000000000"}')
+          echo "read private docs/: http=$read_data (want 200)"
+          echo "list private issues: http=$list_issues (want 200; creating needs Issues: Read and write)"
+          echo "dispatch d1-check here: http=$dispatch (want 204; 403 = add Actions: Read and write)"
+          echo "write probe on the private repo: http=$push (want 403)"
+          [ "$read_data" = 200 ] && [ "$list_issues" = 200 ] && [ "$dispatch" = 204 ] && [ "$push" = 403 ]
       - name: Save the log in the private repo
         if: failure()
         shell: bash
+        env:
+          GIT_PUSH_TOKEN: ${{ secrets.NARRATIV_RW_TOKEN }}
         run: |
           set +e
           [ -d .git ] && [ -f "$RUNNER_TEMP/narrativ.log" ] || exit 0
@@ -46,7 +56,9 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add logs && git commit -qm "logs: $GITHUB_WORKFLOW failed" -- logs
           git stash -u -q
-          for i in 1 2 3; do git pull -q --rebase && git push -q && break; sleep 5; done
+          auth=()
+          [ -z "$(git config --get-all http.https://github.com/.extraheader)" ] && auth=(-c "http.https://github.com/.extraheader=AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GIT_PUSH_TOKEN" | base64 | tr -d '\n')")
+          for i in 1 2 3; do git "${auth[@]}" pull -q --rebase origin main && git "${auth[@]}" push -q origin HEAD:main && break; sleep 5; done
           exit 0
 
 env:

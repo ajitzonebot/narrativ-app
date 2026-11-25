@@ -10,7 +10,7 @@ a trigger only after Claude confirms it in its review (RULES.md R4).
   Stage 3 Claude: research packs carry the best reader's rows on each document (Flash over Flash-Lite); Claude confirms or
           rejects each in context and looks for anything missed (RESEARCH.md).
 
-Daily (python -m narrativ.reader --daily), after the daily run (.github/workflows/reader.yml). Files:
+Daily (python -m narrativ.reader --daily), after the daily run (.github/workflow-src/reader.yml). Files:
   data/reader/docs.json   documents to read (written by run.py through narrativ.packs.doc_index)
   data/reader/store.json  per document URL: rows kept, rows dropped by reason, model, date, seconds, errors
   data/reader/stats.jsonl one line a day: documents read per stage, verified %, errors, agreement with Claude's reviews

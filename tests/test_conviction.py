@@ -91,6 +91,8 @@ def test_clean_review_needs_three_checks_debt_and_no_issues():
     th["audit"]["checks"] = [{"item": "Revenue", "ok": True}, {"item": "Equity", "ok": True}, {"item": "Gross NPA", "ok": True}]
     assert "C2" not in ok(run(th=th))  # no debt / lease check
     assert "C2" in ok(run(th=th, lender=True))  # lenders exempt from the debt check (as R1 / R2)
+    th["audit"]["checks"][2] = {"item": "Total financial obligations", "rule": "debt_leases", "ok": True}
+    assert "C2" in ok(run(th=th))  # the R7-tagged debt check counts whatever its item text (as funnel.r7_missing)
     th = thesis()
     th["audit"]["issues"] = [{"kind": "contingent", "text": "tax demand"}]
     assert "C2" not in ok(run(th=th))
@@ -142,7 +144,7 @@ def test_calls_store_rule_conviction_and_keep_claudes_apart():
 
 def test_replay_conviction_split_compares_met_and_not_met():
     from narrativ.replay import CV_CODE, conviction_split
-    gates = {g: True for g in ("eligible", "mos", "trend", "R1", "R2", "R4", "R6")}
+    gates = {g: True for g in ("eligible", "mos", "trend", "driver", "fwd", "R1", "R2", "R4", "R6")}
     res = [{"T": "2025-01-31", "rows": {"A": {**gates, "cv": {k: True for k in CV_CODE}}, "B": {**gates, "cv": {k: False for k in CV_CODE}}},
             "fwd": {"A": {"3m": (10.0, 5.0)}, "B": {"3m": (-4.0, -6.0)}}}]
     out = conviction_split(res, {"2025-01-31": ["A", "B"]})

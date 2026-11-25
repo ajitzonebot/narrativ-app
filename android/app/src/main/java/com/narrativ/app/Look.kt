@@ -57,10 +57,20 @@ fun reviewWord(v: String?): String = when (v) { "pass" -> "Pass"; "caution" -> "
 /** Today's Top 10 exactly as Home shows it: open IPOs first, then verified Buys in the pipeline's order. */
 data class TopTen(val ipos: List<IpoOpen>, val stocks: List<P>, val pendingReview: Int, val buys: Int)
 
+/** What [topTen] was last computed from (compared by identity) and its result: a scan of all picks only when one of them changes. */
+class TopTenMemo(val pf: PicksFile, val rot: RotationFile?, val ipo: IpoToday?, val today: String, val value: TopTen)
+
 fun topTen(st: AppState): TopTen? {
     val pf = st.picks ?: return null
-    val live = pf.picks.filter { it.out == null }
     val rot = st.rotation
+    val ipo = st.ipo
+    val today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kolkata")).toString()
+    st.topTenMemo?.let { m -> if (m.pf === pf && m.rot === rot && m.ipo === ipo && m.today == today) return m.value }
+    return computeTopTen(pf, rot, ipo, today).also { st.topTenMemo = TopTenMemo(pf, rot, ipo, today, it) }
+}
+
+private fun computeTopTen(pf: PicksFile, rot: RotationFile?, ipo: IpoToday?, today: String): TopTen {
+    val live = pf.picks.filter { it.out == null }
     val marketUp = pf.regime.niftyAbove == true
     fun setup(p: P): Int = listOf(
         marketUp,
@@ -74,8 +84,7 @@ fun topTen(st: AppState): TopTen? {
     val bySym = buys.associateBy { it.s }
     val ranked = pf.top10.mapNotNull { bySym[it] }.filter { it.verified() }.ifEmpty {
         buys.filter { it.verified() }.sortedWith(compareBy<P> { it.rk ?: Int.MAX_VALUE }.thenByDescending { setup(it) }.thenByDescending { it.pr }).take(10) }
-    val today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kolkata")).toString()
-    val ipoTop = st.ipo?.takeIf { it.date == today }?.actionable.orEmpty().filter { it.top10 }
+    val ipoTop = ipo?.takeIf { it.date == today }?.actionable.orEmpty().filter { it.top10 }
     return TopTen(ipoTop, ranked.take((10 - ipoTop.size).coerceAtLeast(0)), buys.count { !it.verified() }, buys.size)
 }
 

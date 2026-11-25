@@ -9,6 +9,7 @@ permissions: {}
 jobs:
   setup:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Create D1 database and R2 bucket
         env:

@@ -25,3 +25,6 @@ jobs:
           restore-keys: news-
       - name: Collect
         run: python -m narrativ.news collect
+        env:  # R2 copy of the news cache (dbsync restore list): restored when the Actions cache is empty
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

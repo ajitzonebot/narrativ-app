@@ -81,3 +81,16 @@ def test_sync_today_and_budget(tmp_path, monkeypatch):
     assert any(k[0] == str(last) for k in st.rows)
     r2 = BR.sync(st, last, px, isin, {}, {})
     assert r2["backfill_days"] == 10 and r2["days_left"] == r["days_left"] - 10
+
+
+def test_sync_todays_rows_go_through_the_given_upsert(tmp_path, monkeypatch):
+    """dbsync passes an upsert that skips rows unchanged since an earlier run the same day; the backfill still sizes by rows."""
+    px, isin, p = _setup(tmp_path)
+    real = BR.groups
+    monkeypatch.setattr(BR, "groups", lambda i: real(i, p))
+    monkeypatch.setattr(BR, "BACKFILL_BUDGET", 60)
+    st, seen = FakeStore(), []
+    last = px["UP1.NS"].index[-1].date()
+    r = BR.sync(st, last, px, isin, {}, {}, upsert=lambda t, c, rows, k: seen.append(rows) or 0)
+    assert len(seen) == 1 and len(seen[0]) == 6 and all(x[0] == str(last) for x in seen[0])
+    assert r["today"] == 0 and r["backfill_days"] == 10 and not any(k[0] == str(last) for k in st.rows)

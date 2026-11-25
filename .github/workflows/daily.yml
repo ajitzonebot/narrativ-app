@@ -9,7 +9,11 @@ on:
 permissions:
   contents: write
   issues: write
+  actions: read   # the public job's own token reads the public repo's run list (wait for republish)
 
+# Only daily and filings share this group. Publish research (republish.yml) has its own group, so a queued republish can
+# never replace (cancel) a pending daily run; instead republish skips while a daily run is in progress, and this run
+# waits for a running republish before it checks out.
 concurrency:
   group: funnel
   cancel-in-progress: false
@@ -27,10 +31,22 @@ jobs:
           echo "Step failed. The full log is saved in the private repo (logs/)."
           exit 1
           EOF
+      - name: Wait for a running research publish to finish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for i in $(seq 1 40); do
+            n=$(gh api -X GET "repos/$GITHUB_REPOSITORY/actions/workflows/republish.yml/runs" -f status=in_progress --jq .total_count 2>/dev/null || echo 0)
+            [ "${n:-0}" = "0" ] && exit 0
+            echo "republish running; waiting ($i)"
+            sleep 30
+          done
+          echo "republish still running after 20 minutes; going on"
       - uses: actions/checkout@v4
         with:
           repository: ajitzonebot/Narrativ
           token: ${{ secrets.NARRATIV_RW_TOKEN }}
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -41,17 +57,29 @@ jobs:
         # picks.json "date" is the last PRICE (trading) date, not the IST calendar day. GitHub's backup schedule can start after
         # midnight IST, so comparing with the IST date never matched and a full rerun stamped the previous prices with the next
         # day. Compare with the newest published NSE end-of-day file instead. If that cannot be determined, run (fail open).
+        # reader.yml and docling.yml check whether "Run funnel" ran (a skipped run still ends "success"): keep that step name.
         run: |
           latest=$(python3 -m scripts.latest_trading_date 2>/dev/null || true)
           have=$(python3 -c "import json;print(json.load(open('docs/data/picks.json')).get('date',''))" 2>/dev/null || true)
           echo "latest exchange date=${latest:-unknown} data date=${have:-none}"
           if [ "${{ github.event_name }}" = "schedule" ] && [ -n "$latest" ] && [ "$have" = "$latest" ]; then echo "already built for $latest"; echo "skip=true" >> $GITHUB_OUTPUT; fi
+      # Tests gate publishing: the public copies have no push trigger, so this is where code changes get tested (~15 s).
+      - name: Tests (ruff, pytest)
+        if: steps.skip.outputs.skip != 'true'
+        run: |
+          pip install -r requirements-dev.txt
+          ruff check .
+          python -m pytest -q -p no:cacheprovider
+      # This workflow owns the sources cache (prefix sources-daily-). Every other job restores it read-only.
+      # The second restore key finds the caches saved before the per-workflow prefixes (first run after the change only).
       - uses: actions/cache@v4
         if: steps.skip.outputs.skip != 'true'
         with:
           path: data/source_cache
-          key: sources-${{ github.run_id }}
-          restore-keys: sources-
+          key: sources-daily-${{ github.run_id }}
+          restore-keys: |
+            sources-daily-
+            sources-
       - uses: actions/cache/restore@v4
         if: steps.skip.outputs.skip != 'true'
         with:
@@ -69,6 +97,8 @@ jobs:
         run: python run.py
       - name: Commit results
         if: steps.skip.outputs.skip != 'true'
+        env:
+          GIT_PUSH_TOKEN: ${{ secrets.NARRATIV_RW_TOKEN }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -79,6 +109,8 @@ jobs:
       - name: Save the log in the private repo
         if: failure()
         shell: bash
+        env:
+          GIT_PUSH_TOKEN: ${{ secrets.NARRATIV_RW_TOKEN }}
         run: |
           set +e
           [ -d .git ] && [ -f "$RUNNER_TEMP/narrativ.log" ] || exit 0
@@ -88,7 +120,9 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add logs && git commit -qm "logs: $GITHUB_WORKFLOW failed" -- logs
           git stash -u -q
-          for i in 1 2 3; do git pull -q --rebase && git push -q && break; sleep 5; done
+          auth=()
+          [ -z "$(git config --get-all http.https://github.com/.extraheader)" ] && auth=(-c "http.https://github.com/.extraheader=AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GIT_PUSH_TOKEN" | base64 | tr -d '\n')")
+          for i in 1 2 3; do git "${auth[@]}" pull -q --rebase origin main && git "${auth[@]}" push -q origin HEAD:main && break; sleep 5; done
           exit 0
 
 env:

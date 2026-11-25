@@ -136,8 +136,10 @@ def backfill_dates(index: pd.DatetimeIndex, have: set) -> list:
     return [d for d in want if str(d.date()) not in have]
 
 
-def sync(st, today, px: dict, isin_of: dict, mcap: dict, momentum: dict) -> dict:
-    """Write today's rows and as much backfill as the budget allows. Never fatal for the caller (it wraps this)."""
+def sync(st, today, px: dict, isin_of: dict, mcap: dict, momentum: dict, upsert=None) -> dict:
+    """Write today's rows and as much backfill as the budget allows. Never fatal for the caller (it wraps this).
+    `upsert(table, cols, rows, keys) -> rows sent` writes today's rows (dbsync passes one that skips rows unchanged since
+    an earlier run the same day); default st.upsert."""
     grp = groups(isin_of)
     px = {s: d for s, d in px.items() if s in grp}
     if not px:
@@ -148,10 +150,11 @@ def sync(st, today, px: dict, isin_of: dict, mcap: dict, momentum: dict) -> dict
     last = close.index[-1]
     if last.date() > today:
         last = close.index[close.index.date <= today][-1]
-    n_today = st.upsert("industry_breadth", COLS, rows_for([last], fl, close, grp, mcap, momentum), KEYS)
+    today_rows = rows_for([last], fl, close, grp, mcap, momentum)
+    n_today = (upsert or st.upsert)("industry_breadth", COLS, today_rows, KEYS)
     have = {r["date"] for r in st.q("SELECT DISTINCT date FROM industry_breadth")}
     todo, rows = [], []
-    per_day = max(1, n_today)
+    per_day = max(1, len(today_rows))
     for d in backfill_dates(close.index[close.index <= last], have | {str(last.date())}):
         if len(rows) + per_day > BACKFILL_BUDGET:
             break

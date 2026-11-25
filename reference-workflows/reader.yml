@@ -4,6 +4,8 @@ name: reader
 # presentation; Gemini Flash reads the stocks Claude reviews next. Code verifies every quote; research packs get the rows for
 # Claude (stage 3). Runs after the daily run (one run per free-quota day: limits reset ~13:30 IST) and on weekends to work the
 # backlog until the whole universe is read.
+# Packs (docs/data/packs) race: the reader's saves reset to main and re-patch its rows, so they never conflict; a daily push
+# that meets a reader save keeps its own packs (scripts/push_retry.sh, PUSH_MINE) and the reader's next save re-patches.
 on:
   workflow_run:
     workflows: ["daily-funnel"]
@@ -14,30 +16,61 @@ on:
 
 permissions:
   contents: write
+  actions: read   # gate: read the daily run's steps
 
 concurrency:
   group: reader
   cancel-in-progress: false
 
 jobs:
-  read:
+  # A daily run that skipped (no new prices) still ends "success". Go on only if its "Run funnel" step ran
+  # (public run list, read with the public job's own token; unknown = go on).
+  gate:
     if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      go: ${{ steps.g.outputs.go }}
+    steps:
+      - id: g
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          c=""
+          [ -n "$RUN_ID" ] && c=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs" --jq '[.jobs[].steps[]? | select(.name == "Run funnel") | .conclusion] | first // ""' 2>/dev/null || true)
+          echo "daily run ${RUN_ID:-none}: Run funnel ${c:-n/a}"
+          if [ "$c" = "skipped" ]; then echo "go=false" >> "$GITHUB_OUTPUT"; else echo "go=true" >> "$GITHUB_OUTPUT"; fi
+
+  read:
+    needs: gate
+    if: needs.gate.outputs.go == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 200
     steps:
       - uses: actions/checkout@v4
         with:
           ref: main
+          persist-credentials: true   # narrativ.reader saves to main itself (git push inside the run)
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
       - run: pip install -r requirements.txt
-      - uses: actions/cache@v4
+      # The daily run's sources cache, read-only (only daily.yml saves it) ...
+      - uses: actions/cache/restore@v4
         with:
           path: data/source_cache
-          key: sources-reader-${{ github.run_id }}
-          restore-keys: sources-
+          key: sources-daily-${{ github.run_id }}
+          restore-keys: |
+            sources-daily-
+            sources-
+      # ... plus the reader's own document texts on top (its own prefix; saved at the end of the job).
+      - uses: actions/cache@v4
+        with:
+          path: data/source_cache/doctext
+          key: reader-doctext-${{ github.run_id }}
+          restore-keys: reader-doctext-
       - name: Read (Flash-Lite and Flash in parallel)
         env:
           PYTHONUNBUFFERED: "1"

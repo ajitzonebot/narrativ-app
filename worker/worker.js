@@ -1,6 +1,8 @@
 /**
  * Narrativ API (Cloudflare Worker).
- *  GET  /data/<path>   -> docs/<path> from the private repo (read with a server-side token, cached 5 min at the edge)
+ *  GET  /data/<path>   -> docs/<path> from the private repo (read with a server-side token). Held in isolate memory for
+ *                         DATA_TTL_MS (then re-checked with GitHub by ETag) and, on a custom domain only, 5 min at the edge.
+ *                         Sends an ETag and answers 304 to a matching If-None-Match (the app sends its copy's ETag).
  *  POST /feedback      -> issue in the private repo, label "feedback"
  *  POST /scan          -> issue "scan: SYMBOL", label "scan" (the daily pipeline queues it for Claude research)
  *  GET  /quotes?s=A,B -> delayed quotes (Yahoo chart endpoint, unofficial), 60 s edge cache, max 40 symbols
@@ -25,6 +27,62 @@ const IP_DAILY_CAP = 10;      // feedback + scan posts per IP per UTC day (best-
 const GLOBAL_DAILY_CAP = 100; // feedback + scan issues per rolling 24 h, counted from GitHub
 const SCAN_DEDUPE_DAYS = 7;
 const ipHits = new Map();     // ip -> { day, n }
+
+// /data in isolate memory. The Cache API is a no-op on workers.dev, so without this every /data request went to api.github.com.
+// Best-effort like ipHits: per isolate, gone when it is evicted. After DATA_TTL_MS a copy is re-checked with GitHub using its
+// ETag (GitHub answers 304 without the body; conditional 304s do not count against the token's rate limit).
+const DATA_TTL_MS = 60 * 1000;
+const DATA_MEM_BUDGET = 32 * 1024 * 1024; // bytes held across files (an isolate has 128 MB)
+const DATA_MEM_MAX_FILE = 4 * 1024 * 1024;
+const dataMem = new Map();     // encoded path -> { body: Uint8Array, etag, at }; Map order = least recently used first
+let dataMemBytes = 0;
+const dataPending = new Map(); // encoded path -> Promise of the one GitHub read in flight (concurrent requests share it)
+
+function dataMemSet(enc, e) {
+  const old = dataMem.get(enc);
+  if (old) {
+    dataMem.delete(enc);
+    dataMemBytes -= old.body.byteLength;
+  }
+  if (e.body.byteLength > DATA_MEM_MAX_FILE) return;
+  dataMem.set(enc, e);
+  dataMemBytes += e.body.byteLength;
+  for (const [k, v] of dataMem) {
+    if (dataMemBytes <= DATA_MEM_BUDGET) break;
+    dataMem.delete(k);
+    dataMemBytes -= v.body.byteLength;
+  }
+}
+
+async function sha256Hex(buf) {
+  const d = new Uint8Array(await crypto.subtle.digest("SHA-256", buf));
+  return Array.from(d.slice(0, 16), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+// One GitHub read of docs/<enc>: { body, etag, at }, or { status } when GitHub refused. A held copy's ETag goes as If-None-Match.
+async function readData(env, enc, held) {
+  const headers = { accept: "application/vnd.github.raw" };
+  if (held && held.etag) headers["if-none-match"] = held.etag;
+  const r = await gh(env, `/contents/docs/${enc}?ref=main`, { headers });
+  if (r.status === 304 && held) {
+    held.at = Date.now();
+    return held;
+  }
+  if (!r.ok) return { status: r.status };
+  const body = new Uint8Array(await r.arrayBuffer());
+  // GitHub's ETag is derived from the content; should it ever send none, hash the body instead
+  const etag = r.headers.get("etag") || `"${await sha256Hex(body)}"`;
+  const e = { body, etag, at: Date.now() };
+  dataMemSet(enc, e);
+  return e;
+}
+
+// If-None-Match against our ETag; weak and strong forms compare equal (Cloudflare may weaken an ETag when it compresses).
+function etagMatches(header, etag) {
+  if (!header || !etag) return false;
+  const norm = (t) => t.trim().replace(/^W\//, "");
+  return header.split(",").some((t) => t.trim() === "*" || norm(t) === norm(etag));
+}
 
 function bad(status, msg) {
   return new Response(JSON.stringify({ ok: false, error: msg }), { status, headers: JSON_HDR });
@@ -232,16 +290,41 @@ export default {
       if (!/^[\w\-./&]+\.json$/.test(path) || path.startsWith("/")) return bad(400, "path");  // whitelist has no backslash or %
       if (path.split("/").some((seg) => seg === "" || seg === "." || seg === "..")) return bad(400, "path");
       const enc = path.split("/").map(encodeURIComponent).join("/");  // & -> %26 for GitHub and the cache key
-      const cache = caches.default;
-      const key = new Request(`https://cache.narrativ/${enc}`);
-      let res = await cache.match(key);
-      if (!res) {
-        const r = await gh(env, `/contents/docs/${enc}?ref=main`, { headers: { accept: "application/vnd.github.raw" } });
-        if (!r.ok) return bad(r.status === 404 ? 404 : 502, `github ${r.status}`);
-        res = new Response(r.body, { headers: { ...JSON_HDR, "cache-control": "public, max-age=300" } });
-        ctx.waitUntil(cache.put(key, res.clone()));
+      const held = dataMem.get(enc);
+      if (held) {  // mark as recently used
+        dataMem.delete(enc);
+        dataMem.set(enc, held);
       }
-      return res;
+      let e = held && Date.now() - held.at < DATA_TTL_MS ? held : null;
+      if (!e) {
+        // edge cache: works only on a custom domain (on workers.dev match() always misses and put() is dropped)
+        const cache = caches.default;
+        const key = new Request(`https://cache.narrativ/${enc}`);
+        const hit = await cache.match(key);
+        if (hit) {
+          const body = new Uint8Array(await hit.arrayBuffer());
+          e = { body, etag: hit.headers.get("etag") || `"${await sha256Hex(body)}"`, at: Date.now() };
+        } else {
+          let p = dataPending.get(enc);
+          if (!p) {
+            p = readData(env, enc, held).finally(() => dataPending.delete(enc));
+            dataPending.set(enc, p);
+          }
+          let got;
+          try {
+            got = await p;
+          } catch {
+            got = held || { status: 502 };  // GitHub unreachable: the last copy this isolate holds, if any
+          }
+          if (got.status) return bad(got.status === 404 ? 404 : 502, `github ${got.status}`);
+          e = got;
+          const put = new Response(e.body.slice(), { headers: { ...JSON_HDR, "cache-control": "public, max-age=300", etag: e.etag } });
+          ctx.waitUntil(cache.put(key, put).catch(() => {}));
+        }
+      }
+      const hdr = { ...JSON_HDR, "cache-control": "public, max-age=300", etag: e.etag };
+      if (etagMatches(req.headers.get("if-none-match"), e.etag)) return new Response(null, { status: 304, headers: hdr });
+      return new Response(e.body.slice(), { headers: hdr });
     }
 
     if (req.method === "POST" && (url.pathname === "/feedback" || url.pathname === "/scan")) {

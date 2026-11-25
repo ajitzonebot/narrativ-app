@@ -9,6 +9,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -35,10 +36,10 @@ class IndustryWhyData(val reasons: IndReasonsFile?, val packs: IndPacksFile?)
 
 @Composable
 fun rememberIndustryWhy(st: AppState): IndustryWhyData {
-    val d by produceState(IndustryWhyData(null, null)) {
-        val r = runCatching { st.repo.get<IndReasonsFile>("data/industry_reasons.json", memo = true) }.getOrNull()
-        val p = runCatching { st.repo.get<IndPacksFile>("data/industry_packs.json", memo = true) }.getOrNull()
-        value = IndustryWhyData(r, p)
+    // cache-first, both files at once; each shows as soon as it is read
+    val d by produceState(IndustryWhyData(st.repo.peek<IndReasonsFile>("data/industry_reasons.json"), st.repo.peek<IndPacksFile>("data/industry_packs.json"))) {
+        launch { st.repo.cacheFirst<IndReasonsFile>("data/industry_reasons.json") { if (it != null) value = IndustryWhyData(it, value.packs) } }
+        launch { st.repo.cacheFirst<IndPacksFile>("data/industry_packs.json") { if (it != null) value = IndustryWhyData(value.reasons, it) } }
     }
     return d
 }

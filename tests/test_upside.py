@@ -44,3 +44,12 @@ def test_both_engines():
     c = UP.checks(rows, [[2024, 15], [2025, 18]], -5, None, 20, [25, 28, 30, 32, 35, 40], {"median": 30, "n": 8}, [])
     assert c["U1"][0] and c["U3"][0] and c["U5"][0] is True
     assert c["U4"] == (None, None)
+
+
+def test_replay_ranking_includes_u1_boost():
+    from narrativ import replay as R
+    rows = {s: {"eligible": True, "mos": True, "trend": True, "driver": True, "fwd": True, "R1": True, "R2": True, "R4": True, "R6": True, "rs": 50, "near": 50, "vs": 50,
+                "pr": 0, "setup": 0, "mb": False, "U1": s == "B", "i": s, "sec": s, "mc": 10000} for s in ("A", "B")}
+    rows["A"]["rs"] = 60  # A leads by 4.5 points without the boost
+    assert R._pick(rows, R.CUR, R.BASE_W)[0] == "B"
+    assert R._pick(rows, R.CUR, {**R.BASE_W, "_no_u1": 1})[0] == "A"

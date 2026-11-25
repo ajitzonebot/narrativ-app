@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.serializer
 import kotlin.math.abs
 import kotlin.math.max
 
@@ -119,8 +120,18 @@ fun SkelLines(n: Int = 3) = Column { repeat(n) { Skel(null, 14.dp, Modifier.padd
 /** data_issues.json "corrected". */
 @Serializable data class IssuesU(val corrected: Int = 0)
 
-private suspend inline fun <reified A : Any, reified B : Any> Repo.get2(path: String): Pair<A, B>? =
-    text(path)?.let { t -> runCatching { json.decodeFromString<A>(t) to json.decodeFromString<B>(t) }.getOrNull() }
+/** One file read as two types (cache-first, see Repo.cacheFirst): decoded once per text, off the main thread. */
+private suspend inline fun <reified A : Any, reified B : Any> Repo.cacheFirst2(path: String, noinline emit: (Pair<A, B>?) -> Unit) {
+    val sa = serializer<A>(); val sb = serializer<B>()
+    cacheFirstBy(path, sa.descriptor.serialName + "+" + sb.descriptor.serialName, { t -> json.decodeFromString(sa, t) to json.decodeFromString(sb, t) }, emit)
+}
+@Suppress("UNCHECKED_CAST")
+private inline fun <reified A : Any, reified B : Any> Repo.peek2(path: String): Pair<A, B>? =
+    (Repo.memoPeek(path, serializer<A>().descriptor.serialName + "+" + serializer<B>().descriptor.serialName) as? Pair<*, *>)
+        ?.takeIf { it.first is A && it.second is B } as Pair<A, B>?
+
+/** produceState start value for a [Fetched] file: the decoded copy already in memory, else null (loading). */
+inline fun <reified T : Any> Repo.peekF(path: String): Fetched<T>? = peek<T>(path)?.let { Fetched(it) }
 
 // ---------------------------------------------------------------- a03 Track record
 /** Outcome buckets, better = darker green (Home's How-we-know bar uses the same names and colours). */
@@ -129,8 +140,9 @@ private val MIX_GOAL = listOf(Triple("Multibagger", 2, TierC.darkGreen), Triple(
 
 @Composable
 fun TrackRecordScreen(st: AppState) {
-    val cf by produceState<Fetched<CallsFile>?>(null) { value = Fetched(st.repo.get<CallsFile>("data/calls.json")) }
-    val mat by produceState<CallsMat?>(null) { value = st.repo.get<CallsMat>("data/calls.json") }
+    // cache-first; the two reads of calls.json share one request
+    val cf by produceState(st.repo.peekF<CallsFile>("data/calls.json")) { st.repo.cacheFirst<CallsFile>("data/calls.json") { value = Fetched(it) } }
+    val mat by produceState(st.repo.peek<CallsMat>("data/calls.json")) { st.repo.cacheFirst<CallsMat>("data/calls.json") { value = it } }
     val c = cf?.v
     val v = c?.calls.orEmpty().filter { it.kind == "verified" }
     AccScreen(st, "Track record", if (v.isEmpty()) "Verified Buys vs Nifty" else "Verified Buys since ${skDay(v.minOf { it.date })}", "Track record") {
@@ -299,10 +311,13 @@ private data class SrcRow(val name: String, val figure: String, val pct: Double?
 @Composable
 fun DataPipelineScreen(st: AppState) {
     // Fetched: null while loading (placeholders), Fetched(null) when the file is missing or offline (empty text)
-    val hhF by produceState<Fetched<Pair<Health, HealthU>>?>(null) { value = Fetched(st.repo.get2<Health, HealthU>("data/health.json")) }
-    val iiF by produceState<Fetched<Pair<IssuesFile, IssuesU>>?>(null) { value = Fetched(st.repo.get2<IssuesFile, IssuesU>("data/data_issues.json")) }
-    val schedF by produceState<Fetched<Schedule>?>(null) { value = Fetched(st.repo.get<Schedule>("data/schedule.json")) }
-    val runsF by produceState<Fetched<List<RunRec>>?>(null) { value = Fetched(st.repo.get<List<RunRec>>("data/runs.json")) }
+    // cache-first: memory / phone copy at once, then the network copy if it changed
+    val hhF by produceState(st.repo.peek2<Health, HealthU>("data/health.json")?.let { Fetched(it) }) {
+        st.repo.cacheFirst2<Health, HealthU>("data/health.json") { value = Fetched(it) } }
+    val iiF by produceState(st.repo.peek2<IssuesFile, IssuesU>("data/data_issues.json")?.let { Fetched(it) }) {
+        st.repo.cacheFirst2<IssuesFile, IssuesU>("data/data_issues.json") { value = Fetched(it) } }
+    val schedF by produceState(st.repo.peekF<Schedule>("data/schedule.json")) { st.repo.cacheFirst<Schedule>("data/schedule.json") { value = Fetched(it) } }
+    val runsF by produceState(st.repo.peekF<List<RunRec>>("data/runs.json")) { st.repo.cacheFirst<List<RunRec>>("data/runs.json") { value = Fetched(it) } }
     val hh = hhF?.v; val ii = iiF?.v; val sched = schedF?.v; val runs = runsF?.v
     val scope = rememberCoroutineScope()
     val today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kolkata")).toString()

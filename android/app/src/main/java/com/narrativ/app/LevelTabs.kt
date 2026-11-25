@@ -436,7 +436,11 @@ fun PromisesSheet(st: AppState, sym: String, onDismiss: () -> Unit) {
     val ctx = LocalContext.current
     val r = st.research[sym]
     val proms = r?.promises.orEmpty()
-    val hist by produceState<StockHistory?>(null, sym) { value = st.repo.get<StockHistory>("data/stocks/${Repo.seg(sym)}.json") }
+    val hist by produceState(st.repo.peek<StockHistory>("data/stocks/${Repo.seg(sym)}.json"), sym) {
+        val path = "data/stocks/${Repo.seg(sym)}.json"
+        value = st.repo.peek<StockHistory>(path)  // another symbol: never keep the previous stock's history
+        st.repo.cacheFirst<StockHistory>(path) { if (it != null) value = it }
+    }
     BottomSheet(onDismiss, "Promises", aside = "Management") {
         if (r != null && proms.isNotEmpty()) SheetSection { PromiseMeter(r) }
         r?.noConcall?.let { T(it, 13.sp, C.dim, lineHeight = 18.sp, modifier = Modifier.padding(bottom = 10.dp)) }

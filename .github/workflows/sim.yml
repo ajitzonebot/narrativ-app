@@ -31,6 +31,7 @@ jobs:
         with:
           repository: ajitzonebot/Narrativ
           token: ${{ secrets.NARRATIV_RW_TOKEN }}
+          persist-credentials: false
           ref: main
       - uses: actions/setup-python@v5
         with:
@@ -49,6 +50,7 @@ jobs:
       - name: Commit
         if: always()  # a probe that times out still saves what it wrote
         env:
+          GIT_PUSH_TOKEN: ${{ secrets.NARRATIV_RW_TOKEN }}
           MOD: ${{ inputs.module }}
         run: |
           git config user.name "github-actions[bot]"
@@ -60,6 +62,8 @@ jobs:
       - name: Save the log in the private repo
         if: failure()
         shell: bash
+        env:
+          GIT_PUSH_TOKEN: ${{ secrets.NARRATIV_RW_TOKEN }}
         run: |
           set +e
           [ -d .git ] && [ -f "$RUNNER_TEMP/narrativ.log" ] || exit 0
@@ -69,7 +73,9 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add logs && git commit -qm "logs: $GITHUB_WORKFLOW failed" -- logs
           git stash -u -q
-          for i in 1 2 3; do git pull -q --rebase && git push -q && break; sleep 5; done
+          auth=()
+          [ -z "$(git config --get-all http.https://github.com/.extraheader)" ] && auth=(-c "http.https://github.com/.extraheader=AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GIT_PUSH_TOKEN" | base64 | tr -d '\n')")
+          for i in 1 2 3; do git "${auth[@]}" pull -q --rebase origin main && git "${auth[@]}" push -q origin HEAD:main && break; sleep 5; done
           exit 0
 
 env:

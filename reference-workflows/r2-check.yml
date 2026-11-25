@@ -9,6 +9,7 @@ permissions: {}
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Check token and R2 access
         env:

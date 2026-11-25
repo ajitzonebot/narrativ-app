@@ -10,7 +10,7 @@ RUN_REPO = "ajitzonebot/narrativ-app"
 
 # Weekdays. Cloudflare numbers day-of-week 1 = SUNDAY (not Monday), so "1-5" ran Sun-Thu and skipped Friday: use MON-FRI names.
 # worker.js compares event.cron with the IPO strings below (IPO_CRONS); keep them identical.
-# 11:40 UTC = 17:10 IST (after NSE close): starts .github/workflows/daily.yml.
-# 03:00 UTC = 08:30 IST and 10:00 UTC = 15:30 IST: start .github/workflows/ipo.yml (code-only IPO check; 15:30 = final-day call).
+# 11:40 UTC = 17:10 IST (after NSE close): starts daily.yml in ajitzonebot/narrativ-app.
+# 03:00 UTC = 08:30 IST and 10:00 UTC = 15:30 IST: start ipo.yml in ajitzonebot/narrativ-app (code-only IPO check; 15:30 = final-day call).
 [triggers]
 crons = ["40 11 * * MON-FRI", "0 3 * * MON-FRI", "0 10 * * MON-FRI"]

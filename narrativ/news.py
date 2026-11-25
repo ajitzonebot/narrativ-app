@@ -6,7 +6,8 @@ robots.txt disallows /rss for every crawler, so it is not used.
   industry feeds). Headline, link, time and the feed's one-line summary only; no article text is fetched.
 - RBI press releases and notifications (rate decisions, regulation); PIB (government press releases) when reachable.
 Each feed holds only its latest 15-60 items, so `collect` runs every 2 hours (news.yml) into a store in the Actions
-cache (data/news_cache, 60 days). The daily run (`build`) matches headlines to companies by name and writes:
+cache (data/news_cache, 60 days; the daily run keeps a copy in R2, news/news.json.gz). The daily run (`build`) matches
+headlines to companies by name and writes:
 - docs/data/news.json: per stock, the last 30 days of matched headlines (shown in the app; no rule uses news);
 - docs/data/industry_packs.json: for each Leading / Improving industry, its numbers, member headlines and the policy
   releases, for Claude to write the real-world reasons (tasks/research.md, docs/data/industry_why.json);
@@ -16,6 +17,7 @@ cache (data/news_cache, 60 days). The daily run (`build`) matches headlines to c
 import gzip
 import html
 import json
+import os
 import re
 import sys
 import time
@@ -105,6 +107,12 @@ def parse(xml: bytes, source: str, kind: str) -> list[dict]:
 
 
 def _load() -> dict:
+    if not STORE.exists() and os.environ.get("CLOUDFLARE_API_TOKEN"):  # Actions cache lost: start from the R2 copy (dbsync.DURABLE)
+        try:
+            from .dbsync import restore_caches
+            restore_caches(only={str(STORE)})
+        except Exception as e:  # noqa: BLE001
+            print(f"[news] R2 restore failed: {e}")
     if STORE.exists():
         try:
             return json.loads(gzip.decompress(STORE.read_bytes()))
@@ -128,7 +136,7 @@ def collect(now: datetime | None = None) -> dict:
     st["items"] = {k: v for k, v in st["items"].items() if (v.get("time") or "") >= cut}
     st["collected"] = now.isoformat(timespec="minutes")
     STORE.parent.mkdir(parents=True, exist_ok=True)
-    STORE.write_bytes(gzip.compress(json.dumps(st, ensure_ascii=False, separators=(",", ":")).encode()))
+    STORE.write_bytes(gzip.compress(json.dumps(st, ensure_ascii=False, separators=(",", ":")).encode(), mtime=0))
     print(f"[news] {new} new, {len(st['items'])} stored")
     return st
 

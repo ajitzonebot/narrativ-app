@@ -1,0 +1,56 @@
+# Hand-written for the public repo (not generated). Source: the private repo's .github/workflow-src/mirror.yml.
+name: mirror
+
+# Copies the open-source part of the private repo here every evening.
+# Only the paths in the private repo's .github/mirror/paths.txt are copied; everything else stays private.
+# It also replaces this repo's .github/workflows/ with the private repo's public-workflows/.github/workflows/ (the
+# complete set, written by .github/mirror/public_workflows.py), so workflow changes need no manual step.
+#
+# Tokens: GITHUB_TOKEN can never create or change files in .github/workflows/ (GitHub refuses the push), so the push
+# here uses NARRATIV_MIRROR_TOKEN: a fine-grained token for ajitzonebot/narrativ-app only, Contents: Read and write +
+# Workflows: Read and write. Without it the mirror still runs with GITHUB_TOKEN and leaves the workflows unchanged.
+# The private repo is only read (NARRATIV_RW_TOKEN, credentials not kept).
+on:
+  schedule:
+    - cron: '30 14 * * *'   # 20:00 IST, after the daily run
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: mirror
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: pub
+          token: ${{ secrets.NARRATIV_MIRROR_TOKEN || github.token }}
+      - uses: actions/checkout@v4
+        with:
+          repository: ajitzonebot/Narrativ
+          token: ${{ secrets.NARRATIV_RW_TOKEN }}
+          path: priv
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Copy the public paths (and the workflows, when the token allows it)
+        env:
+          SYNC_WORKFLOWS: ${{ secrets.NARRATIV_MIRROR_TOKEN != '' }}
+        run: |
+          if [ "$SYNC_WORKFLOWS" != "true" ]; then echo "::warning::NARRATIV_MIRROR_TOKEN not set: .github/workflows/ left unchanged"; fi
+          bash priv/.github/mirror/mirror.sh priv pub
+      - name: Commit if anything changed
+        run: |
+          cd pub
+          git config user.name "narrativ-mirror"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then echo "No changes."; exit 0; fi
+          git commit -qm "Mirror $(TZ=Asia/Kolkata date '+%d %b %Y')"
+          for i in 1 2 3; do git pull -q --rebase && git push -q && break; sleep 5; done
+          echo "Pushed: $(git show --stat --format= HEAD | tail -1)"

@@ -1,7 +1,13 @@
-# Hand-written for the public repo (not generated).
+# Hand-written for the public repo (not generated). Source: the private repo's .github/workflow-src/worker.yml.
 name: worker-deploy
 
 # Deploys the Cloudflare Worker from the private repo's worker/ folder. Run by hand after a Worker change.
+#
+# The Worker's GitHub token (Worker secret GH_TOKEN) comes from NARRATIV_WORKER_TOKEN, NOT from NARRATIV_RW_TOKEN: a
+# Worker is reachable from the internet, so it holds only what worker/worker.js calls:
+#   private ajitzonebot/Narrativ: Contents read (GET /contents/docs/... for /data), Issues read and write (feedback, scan)
+#   public ajitzonebot/narrativ-app: Actions read and write (cron dispatch of daily.yml / ipo.yml)
+# Check it with the gh-token-check workflow. NARRATIV_RW_TOKEN is used only by the failure-log step (push logs/).
 on:
   workflow_dispatch:
 
@@ -21,24 +27,31 @@ jobs:
           echo "Step failed. The full log is saved in the private repo (logs/)."
           exit 1
           EOF
+      - name: Check secrets
+        shell: bash   # visible on purpose: prints only which secrets are missing
+        env:
+          CF: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          WT: ${{ secrets.NARRATIV_WORKER_TOKEN }}
+          KEY: ${{ secrets.NARRATIV_APP_KEY }}
+        run: |
+          ok=1
+          [ -n "$CF" ] || { echo "::error::CLOUDFLARE_API_TOKEN is not set"; ok=0; }
+          # No fallback to NARRATIV_RW_TOKEN: the Worker must never hold the private repo's write token.
+          [ -n "$WT" ] || { echo "::error::NARRATIV_WORKER_TOKEN is not set. Create it (see public-workflows/README.md in the private repo: fine-grained token, Narrativ Contents read + Issues read/write, narrativ-app Actions read/write) and add it as an Actions secret here."; ok=0; }
+          # No default key: a published fallback would let anyone call the API. Fail instead of deploying with it.
+          [ -n "$KEY" ] || { echo "::error::NARRATIV_APP_KEY is not set"; ok=0; }
+          [ "$ok" = 1 ]
       - uses: actions/checkout@v4
         with:
           repository: ajitzonebot/Narrativ
-          token: ${{ secrets.NARRATIV_RW_TOKEN }}
-      - name: Check secrets
-        env:
-          CF: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          GHT: ${{ secrets.NARRATIV_RW_TOKEN }}
-          KEY: ${{ secrets.NARRATIV_APP_KEY }}
-        run: |
-          # No default key: a published fallback would let anyone call the API. Fail instead of deploying with it.
-          [ -n "$CF" ] && [ -n "$GHT" ] && [ -n "$KEY" ]
+          token: ${{ secrets.NARRATIV_WORKER_TOKEN }}   # Contents read is enough to deploy
+          persist-credentials: false
       - name: Deploy
         working-directory: worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          GH_TOKEN: ${{ secrets.NARRATIV_RW_TOKEN }}
+          GH_TOKEN: ${{ secrets.NARRATIV_WORKER_TOKEN }}
           APP_KEY: ${{ secrets.NARRATIV_APP_KEY }}
         run: |
           npx -y wrangler@4.20.0 deploy > "$RUNNER_TEMP/deploy.txt"
@@ -46,7 +59,7 @@ jobs:
           printf '%s' "$APP_KEY" | npx -y wrangler@4.20.0 secret put APP_KEY
           grep -oE 'https://[a-z0-9.-]+\.workers\.dev' "$RUNNER_TEMP/deploy.txt" | head -1 > "$RUNNER_TEMP/url.txt"
           [ -s "$RUNNER_TEMP/url.txt" ]
-      # Hard gate: the Worker is up, accepts the app key and can read the private repo.
+      # Hard gate: the Worker is up, accepts the app key and can read the private repo with the new token.
       - name: Smoke test (health, app key, /data)
         env:
           KEY: ${{ secrets.NARRATIV_APP_KEY }}
@@ -58,6 +71,8 @@ jobs:
       - name: Save the log in the private repo
         if: failure()
         shell: bash
+        env:
+          GIT_PUSH_TOKEN: ${{ secrets.NARRATIV_RW_TOKEN }}
         run: |
           set +e
           [ -d .git ] && [ -f "$RUNNER_TEMP/narrativ.log" ] || exit 0
@@ -67,7 +82,8 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add logs && git commit -qm "logs: $GITHUB_WORKFLOW failed" -- logs
           git stash -u -q
-          for i in 1 2 3; do git pull -q --rebase && git push -q && break; sleep 5; done
+          h="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GIT_PUSH_TOKEN" | base64 | tr -d '\n')"
+          for i in 1 2 3; do git -c http.https://github.com/.extraheader="$h" pull -q --rebase origin main && git -c http.https://github.com/.extraheader="$h" push -q origin HEAD:main && break; sleep 5; done
           exit 0
 
 env:

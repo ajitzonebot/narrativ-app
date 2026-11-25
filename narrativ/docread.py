@@ -1,7 +1,7 @@
 """Layout-aware reading with docling (docling-project/docling, MIT), for what pypdf cannot read well:
   - scanned PDFs (no text layer): OCR
   - investor presentations: tables keep their rows and columns (pypdf runs table cells together)
-Runs after the daily run (.github/workflows/docling.yml), at most MAX_DOCS documents and MAX_MINUTES a day, in this order:
+Runs after the daily run (.github/workflow-src/docling.yml), at most MAX_DOCS documents and MAX_MINUTES a day, in this order:
 documents of stocks in Claude's queue (presentations, and transcripts with poor text), then documents the readers could
 not read (no text layer). Output data/docling/<sha1(url)>.md (git, so every job sees the same text; its first line
 records the source URL, HEAD) and an index.

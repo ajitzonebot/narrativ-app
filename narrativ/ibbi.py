@@ -3,7 +3,7 @@
 https://ibbi.gov.in/public-announcement lists every public announcement (CIRP, liquidation, voluntary liquidation,
 pre-pack): date, corporate debtor, applicant, insolvency professional. robots.txt allows it. The full list (~15,000)
 is read BACKFILL_PAGES pages a run until the end, then each day pages from the newest until one holds only known
-notices. Store: Actions cache.
+notices. Store: Actions cache, with a durable copy in R2 (narrativ/dbsync.py DURABLE).
 
 Matching is by normalised company name (the list has no CIN):
 - a listed company as the corporate debtor of a CIRP or liquidation -> A4 fails (as the exchange filing would);
@@ -94,7 +94,7 @@ def refresh(max_minutes: float = 4) -> dict:
         time.sleep(PAUSE)
     st["next_page"] = p
     STORE.parent.mkdir(parents=True, exist_ok=True)
-    STORE.write_bytes(gzip.compress(json.dumps(st, separators=(",", ":"), ensure_ascii=False).encode()))
+    STORE.write_bytes(gzip.compress(json.dumps(st, separators=(",", ":"), ensure_ascii=False).encode(), mtime=0))  # same data, same bytes: R2 copy skipped
     print(f"[ibbi] {len(st['rows'])} notices ({new} new today), backfill {'done' if st.get('done') else f'at page {p}'}, {time.time() - t0:.0f}s")
     return st
 

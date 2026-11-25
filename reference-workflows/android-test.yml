@@ -1,5 +1,9 @@
 name: android-screenshots
 
+# UI check: installs the latest APK on an emulator and screenshots every screen (android/ci/shots.sh).
+# The screens show private data (picks, theses), and artifacts and logs in the public repo are public. So:
+# - no upload-artifact: the screenshots are pushed to the PRIVATE repo, branch ci-shots (one commit, replaced each run);
+# - the script's output (it runs with set -x) goes to the run's private log file, not the public log.
 on:
   workflow_dispatch:
 
@@ -32,8 +36,20 @@ jobs:
           profile: pixel_6
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: bash android/ci/shots.sh
-      - uses: actions/upload-artifact@v4
-        with:
-          name: screenshots
-          path: shots/
+          script: bash android/ci/shots.sh >> "$RUNNER_TEMP/narrativ.log" 2>&1
+      - name: Save the screenshots in the private repo (branch ci-shots)
+        if: always()
+        env:
+          GIT_PUSH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          [ -d shots ] || { echo "no screenshots"; exit 0; }
+          d=$(mktemp -d)
+          cp -r shots "$d/"
+          cd "$d"
+          git init -q -b ci-shots
+          git add shots
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -qm "ci: app screenshots $(TZ=Asia/Kolkata date '+%F %H:%M') IST (run $GITHUB_RUN_ID)"
+          h="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GIT_PUSH_TOKEN" | base64 | tr -d '\n')"
+          git -c http.https://github.com/.extraheader="$h" push -q -f "https://github.com/${{ github.repository }}.git" HEAD:refs/heads/ci-shots
+          echo "screenshots: $(ls shots | wc -l) files on branch ci-shots"

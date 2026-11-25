@@ -655,19 +655,22 @@ def main(limit: int | None) -> None:
         mb_of[s] = PF.multibagger(MX.val(Mx, "mcap_cr"), L["disc"]["t"], MX.val(Mx, "rev_yoy_pct"), e1.get("m") == 2,
                                   MX.val(Mx, "roce_pct"), trig, L["val"]["t"])
     print(f"[run] multibagger potential: {sum(mb_of.values())} stocks")
+    # U1 profit speeding up (narrativ/upside.py, RULES.md Ranking): +10 in the blend (owner, 25 Nov 2026, after the replay)
+    from narrativ import upside as UP
+    u1_of = {s: UP.profit_speeding((mx.get(s) or {}).get("quarterly")) for s in syms}
+    print(f"[run] U1 profit speeding up: {sum(1 for v in u1_of.values() if v[0])} stocks")
 
     # ---------- Readiness ranking (review order and Top 10 order) ----------
     # 1 industry rotation: Leading/Improving > neutral/unknown > Weakening > Lagging
     # 2 entry setup: live (breakout, pullback, base) > wait > extended / trend broken
     # 3 blend: 45% momentum (relative-strength percentile) + 15% nearness to the 52-week high (T13) + 40% valuation score;
-    #   -15 institutions sold 3+ quarters (R5), +5 mutual funds entering (T15), +5 multibagger potential (MB)  [RULES.md Ranking]
+    #   -15 institutions sold 3+ quarters (R5), +5 mutual funds entering (T15), +5 multibagger potential (MB),
+    #   +10 profit speeding up (U1)  [RULES.md Ranking]
     # 4 overall score
     def readiness(s):
         q = (rot_ind.get(ind_of.get(s)) or {}).get("q")
         ti = 0 if q in ("Leading", "Improving") else 2 if q == "Weakening" else 3 if q == "Lagging" else 1
-        su = ev[s]["setup"]
-        bad = bool(ev[s]["L"]["mom"].get("extended")) or (su.get("type") == "No setup" and str(su.get("note") or "").startswith(("No entry", "Extended")))
-        ts = 2 if bad else 0 if su.get("type") in ("Breakout", "Pullback", "Base") else 1
+        ts = FN.setup_tier(ev[s]["setup"], ev[s]["L"]["mom"].get("extended"))  # shared with the replay (narrativ/replay.py)
         rs = float(rs_all.get(s, 0.5)) * 100 if s in rs_all.index else 50.0
         vs = ev[s]["L"]["val"].get("s")
         t_ = tech.get(s) or {}
@@ -680,6 +683,8 @@ def main(limit: int | None) -> None:
             blend += 5
         if mb_of.get(s):  # MB multibagger potential
             blend += 5
+        if (u1_of.get(s) or (None,))[0]:  # U1 profit speeding up
+            blend += UP.U1_BOOST
         return (ti, ts, -round(blend, 2), -ev[s]["pr"])
     rank_of = {s: i + 1 for i, s in enumerate(sorted(syms, key=readiness))}
 
@@ -1044,13 +1049,18 @@ def main(limit: int | None) -> None:
     except Exception as e:  # noqa: BLE001
         print(f"[news] failed: {e}")
         news_of = {}
+    from narrativ import story as ST
+    pick_of = {r_["s"]: r_ for r_ in picks}
+    fwd_st = (json.loads((OUT / "forward.json").read_text()) if (OUT / "forward.json").exists() else {}).get("stocks", {})
+    story_st = ST._load()
+    H.source("Narrativ sheets", plain_written=len(story_st.get("stocks") or {}), held=len(story_st.get("held") or {}))
     for s in syms:
         if s not in detail_syms:
             continue
         e, Mx, f, t = ev[s], mx[s], fund.get(s) or {}, tech.get(s) or {}
         bd = (bulk.get(s) or [])[:5]
         det = {"metrics": Mx, "analyst": e["an"], "broker_targets": named_of.get(s), "levels": e["L"], "verdict": e["vd"], "decision": dec[s], "audit_flags": aflags.get(s) or None,
-               "conviction": conv.get(s), "commodity": CM.for_industry(cm, basic_of.get(s)) if CM else None,
+               "conviction": conv.get(s), "u1": (lambda u: {"ok": u[0], "v": u[1]} if u[0] is not None else None)(u1_of.get(s) or (None, None)), "commodity": CM.for_industry(cm, basic_of.get(s)) if CM else None,
                "ratings": rat.get(s), "insolvency": ins.get(s), "latest_call_card": cards.get(s), "news": news_of.get(s),
                "statement": FN.statement(e["vd"], e["L"]) if not e["out"] else f"Removed at L{e['out'][0]} {FN.LEVEL_NAMES[FN.LEVELS[e['out'][0] - 1]]}: {e['out'][1]}.",
                "standouts": standouts(e["L"]), "setup": e["setup"], "hist": [{k: (round(x, 2) if isinstance(x, float) else x) for k, x in h.items()} for h in e["hist"]],
@@ -1064,6 +1074,10 @@ def main(limit: int | None) -> None:
                          "next_results": cal.get(s), "bulk_deals": bd, "exchange": {k: x for k, x in (ex.get(s) or {}).items() if k != "events"},
                          "events": uniq_events((mem.get(s) or {}).get("events") or (ex.get(s) or {}).get("events") or [])[:60], "tags": list(s0i.loc[s, "tags"]),
                          "industry": ind_of.get(s), "rotation": (rot_ind.get(ind_of.get(s)) or {}).get("q"), "lender": e["lender"]}}
+        try:  # the app's Narrativ sheet (narrativ/story.py): plain-words story, model text only where it passed the checks
+            det["narrativ"] = ST.sheet(s, pick_of.get(s) or {}, Mx, det["stock"].get("summary"), theses, fwd_st, story_st)
+        except Exception as e_:  # noqa: BLE001
+            print(f"[story] {s}: {e_}")
         details[s] = FN.clean(det)
         write_if_changed(fin_dir / f"{s}.json", json.dumps(details[s], separators=(",", ":"), ensure_ascii=False))
         ype, ope = f.get("trailingPE"), MX.val(Mx, "pe")

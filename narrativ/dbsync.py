@@ -1,27 +1,74 @@
-"""Daily run -> D1 tables + R2 files. Called at the end of run.py; never fatal."""
+"""Daily run -> D1 tables + R2 files. Called at the end of run.py; never fatal. Design and volumes: db/README.md."""
 import gzip
+import hashlib
 import json
 import os
+import re
 import time
 from datetime import date, timedelta
 from pathlib import Path
 
 from . import events as EV
-from .store import Store, gz
+from .store import Store
 from .util import digest, file_digest, write_if_changed
 
 CR = 1e7
 MANIFEST = Path("data/d1_manifest.json")  # content hash of every row / object already written; committed with the daily data
 REFRESH_DAYS = int(os.environ.get("D1_REFRESH_DAYS", "7"))  # a table or object older than this is rewritten in full (self-heals drift)
 
+# Big or append-only tables: the drift guard looks up a few rows the manifest says were written (primary-key lookups)
+# instead of COUNT(*), which D1 bills as one row read per row in the table (snapshot alone grows ~2,400 rows a day).
+PROBE = {"snapshot": ("isin", "date"), "event": ("id",), "quarter": ("isin", "period_end", "basis"),
+         "industry_breadth": ("date", "level", "grp")}
+
+# Stores that live in the GitHub Actions cache (evicted after 7 days unused, or earlier by the 10 GB repo cap) and their
+# durable copy in R2. (local file, R2 key, "raw" = already gzip, uploaded as is | "gz" = gzipped on upload, unzipped on
+# restore). Uploaded only when the content hash changed (manifest); restored by restore_caches() when the local file is missing.
+DURABLE = (
+    ("data/source_cache/announcements.json.gz", "announcements/store.json.gz", "raw"),
+    ("data/source_cache/bse_announcements.json.gz", "announcements/bse_store.json.gz", "raw"),
+    ("data/source_cache/prices_meta.json", "prices/prices_meta.json.gz", "gz"),  # adjustments already applied: travels with prices
+    ("data/source_cache/delivery.json", "nse/delivery.json.gz", "gz"),
+    ("data/source_cache/indices.json", "nse/indices.json.gz", "gz"),
+    ("data/source_cache/shp.json", "nse/shp.json.gz", "gz"),
+    ("data/source_cache/corpfil.json", "nse/corpfil.json.gz", "gz"),
+    ("data/source_cache/index_hist.json", "nse/index_hist.json.gz", "gz"),
+    ("data/source_cache/bulk_deals.json", "nse/bulk_deals.json.gz", "gz"),
+    ("data/source_cache/ratings_sdd.json.gz", "nse/ratings_sdd.json.gz", "raw"),
+    ("data/source_cache/ibbi.json.gz", "ibbi/ibbi.json.gz", "raw"),
+    ("data/source_cache/bse_list.json", "bse/bse_list.json.gz", "gz"),
+    ("data/news_cache/news.json.gz", "news/news.json.gz", "raw"),
+)
+# Directories of small files that are kept for good (AlphaStreet FINAL transcripts and briefs do not change): one R2
+# bundle each, {file name: text} as gzipped JSON, re-uploaded only when a file was added or changed.
+DURABLE_DIRS = (
+    ("data/source_cache/alphastreet/transcripts", "alphastreet/transcripts.json.gz"),
+    ("data/source_cache/alphastreet/briefs", "alphastreet/briefs.json.gz"),
+)
+# Not copied (re-creatable or scratch): alphastreet/lists (valid for one day), bse_deliv (download folder, emptied after
+# parsing into delivery.json), bhav/ (last 15 public exchange files), doctext/ and roid/ (text read from public PDFs),
+# pinksheet.xlsx (World Bank file). surveillance.json is archived as one dated object a day, not restored.
+
+SURVEILLANCE_DAYS = 90   # R2 nse/surveillance-<date>.json.gz kept this long
+BACKUPS_KEEP = 12        # R2 backups/memory-<monday>.json.gz: the latest 12 weekly copies
+PRUNE_EVERY_DAYS = 7     # R2 listing is a Class A operation: prune weekly, not every run
+_DATED = re.compile(r"(\d{4}-\d{2}-\d{2})")
+
 
 def _cr(x):
     return None if x is None else round(x / CR, 2)
 
 
+def _json(p: Path) -> dict:
+    try:
+        return json.loads(p.read_text()) if p.exists() else {}
+    except Exception:  # noqa: BLE001
+        return {}
+
 
 class Manifest:
-    """What the last successful syncs wrote, as content hashes: {"schema": h, "tables": {t: {"at": date, "h": {key: hash}}}, "r2": {key: [hash, date]}}.
+    """What the last successful syncs wrote, as content hashes: {"schema": h, "tables": {t: {"at": date, "h": {key: hash},
+    "p": [probe keys]}}, "r2": {key: [hash, date]}, "done": {housekeeping task: date}}.
 
     A missing, unreadable or distrusted manifest means "send everything" (the original behaviour). Entries are recorded only for
     rows D1 accepted, so a failed or budget-cut write is retried on the next run."""
@@ -47,9 +94,20 @@ class Manifest:
         t = (self.data["tables"].get(table) or {})
         return dict(t.get("h") or {}) if t.get("h") and self._age(t.get("at")) < REFRESH_DAYS else {}
 
-    def set_rows(self, table: str, h: dict, full: bool) -> None:
+    def set_rows(self, table: str, h: dict, full: bool, probe: list | None = None) -> None:
         prev = self.data["tables"].get(table) or {}
-        self.data["tables"][table] = {"at": str(self.today) if full else prev.get("at") or str(self.today), "h": h}
+        t = {"at": str(self.today) if full else prev.get("at") or str(self.today), "h": h}
+        if probe or prev.get("p"):
+            t["p"] = probe or prev["p"]
+        self.data["tables"][table] = t
+        self.dirty = True
+
+    def due(self, task: str, every_days: int) -> bool:
+        """Housekeeping (retention) that runs at most once per `every_days`."""
+        return self._age((self.data.get("done") or {}).get(task)) >= every_days
+
+    def did(self, task: str) -> None:
+        self.data.setdefault("done", {})[task] = str(self.today)
         self.dirty = True
 
     def drop(self, table: str | None = None) -> None:
@@ -74,18 +132,23 @@ class Manifest:
 
 
 def upsert_changed(st: Store, man: Manifest, table: str, cols: list[str], rows: list[list], keys: list[str], keep: tuple = (),
-                   ignore: tuple = (), hash_of=None) -> tuple[int, int]:
+                   ignore: tuple = (), hash_of=None, short: bool = False) -> tuple[int, int]:
     """Upsert only the rows whose content hash differs from the manifest (all rows when the manifest has nothing for the table).
 
     `ignore` columns are left out of the hash (volatile values that alone are not worth a write; they ride along when the row
     is written for another reason). `hash_of(row)` replaces the column-based hash when a single field of a JSON column is volatile.
+    `short` stores a 12-character hash of the key in the manifest instead of the key itself (long keys such as URLs).
+    The manifest holds only the keys of `rows`: for an append-only table pass today's rows (reruns then skip what is unchanged).
     Returns (rows sent, rows unchanged and skipped)."""
     kidx = [cols.index(k) for k in keys]
     hidx = [i for i, c in enumerate(cols) if c not in ignore]
+    pidx = [cols.index(c) for c in PROBE.get(table, ())]
     old = man.rows(table)
     new, todo = {}, []
     for r in rows:
         k = "|".join(str(r[i]) for i in kidx)
+        if short:
+            k = digest(k, 12)
         h = digest(hash_of(r) if hash_of else [r[i] for i in hidx])
         new[k] = h
         if old.get(k) != h:
@@ -99,7 +162,8 @@ def upsert_changed(st: Store, man: Manifest, table: str, cols: list[str], rows: 
     # unchanged rows and rows D1 accepted record the new hash; rows that were not sent keep their old one (or none) so they retry
     final = {k: h for k, h in new.items() if k in ok or old.get(k) == h}
     final.update({k: old[k] for k in new if k not in final and k in old})
-    man.set_rows(table, final, full=not old and len(ok) == len(todo))
+    probe = sorted(([r[i] for i in pidx] for k, r in todo if k in ok), key=str)[:3] if pidx else None  # rows known to be in D1 now
+    man.set_rows(table, final, full=not old and len(ok) == len(todo), probe=probe)
     if err:
         raise err
     return len(ok), len(rows) - len(todo)
@@ -122,7 +186,13 @@ def sync(today: date, s0i, btypes: dict, lender: dict, picks: list, details: dic
         # drift guard: the manifest is trusted only while D1 still holds at least the rows it says were written
         for tb in list(man.data["tables"]):
             try:
-                if st.count(tb) < len(man.data["tables"][tb].get("h") or {}):
+                t = man.data["tables"][tb]
+                if tb in PROBE:  # big table: the sample rows the manifest recorded must still be there
+                    p = t.get("p") or []
+                    gone = bool(t.get("h")) and (not p or st.probe(tb, PROBE[tb], p) < len(p))
+                else:
+                    gone = st.count(tb) < len(t.get("h") or {})
+                if gone:
                     print(f"[store] {tb}: D1 holds fewer rows than the manifest; full resend")
                     man.drop(tb)
             except Exception as e:  # noqa: BLE001  (table missing: database was recreated)
@@ -220,11 +290,14 @@ def sync(today: date, s0i, btypes: dict, lender: dict, picks: list, details: dic
                 for qe, x in (rec.get("q") or {}).items():
                     rows.append([i, qe, "BSE summary", "bse", x.get("rev"), None, x.get("pat"), x.get("pat"), x.get("eps"), None, None, None,
                                  {"src": "BSE results summary", "fy": rec.get("fy")}, rec.get("checked"), 0, rec.get("url")])
-            return st.upsert("quarter", ["isin", "period_end", "basis", "kind", "revenue_cr", "ebitda_cr", "pat_cr", "pat_owners_cr", "eps",
-                                         "equity_cr", "borrowings_cr", "cash_cr", "extra", "filed_on", "audited", "source_url"], rows,
-                             ["isin", "period_end", "basis"])
+            # a rerun the same day re-reads the same filings: only rows whose content changed are sent again
+            return upsert_changed(st, man, "quarter", ["isin", "period_end", "basis", "kind", "revenue_cr", "ebitda_cr", "pat_cr", "pat_owners_cr",
+                                                       "eps", "equity_cr", "borrowings_cr", "cash_cr", "extra", "filed_on", "audited", "source_url"],
+                                  rows, ["isin", "period_end", "basis"], short=True)[0]
 
         def snapshot():
+            """One row per stock per trading date (history). A rerun the same day sends only the stocks whose row changed
+            (24 Nov 2026: 12 reruns re-sent all 2,360 rows each time); the manifest holds today's keys only."""
             rows = []
             for p in picks:
                 i = isin.get(p["s"])
@@ -234,12 +307,15 @@ def sync(today: date, s0i, btypes: dict, lender: dict, picks: list, details: dic
                 rows.append([i, d, p.get("p"), p.get("mc"), p.get("d1"), *t[:7], *sc[:7], p.get("vd"), p.get("pr"), p.get("su") or p.get("ss"),
                              (p.get("out") or {}).get("l"), (p.get("out") or {}).get("w"),
                              p.get("dc"), p.get("cand"), p.get("vf"), p.get("rk"), 1 if p.get("mb") else 0, p.get("cv")])
-            n = st.upsert("snapshot", ["isin", "date", "price", "mcap_cr", "chg_1d", "t1", "t2", "t3", "t4", "t5", "t6", "t7",
-                                       "s1", "s2", "s3", "s4", "s5", "s6", "s7", "verdict", "priority", "setup", "removed_level", "removed_reason",
-                                       *[c for c, _ in SNAP_NEW]],
-                          rows, ["isin", "date"])
-            # retention (decision 1-b): daily for 365 days, then Mondays only
-            st.q("DELETE FROM snapshot WHERE date < ? AND strftime('%w', date) != '1'", [str(today - timedelta(days=365))])
+            n = upsert_changed(st, man, "snapshot", ["isin", "date", "price", "mcap_cr", "chg_1d", "t1", "t2", "t3", "t4", "t5", "t6", "t7",
+                                                     "s1", "s2", "s3", "s4", "s5", "s6", "s7", "verdict", "priority", "setup", "removed_level",
+                                                     "removed_reason", *[c for c, _ in SNAP_NEW]],
+                               rows, ["isin", "date"], short=True)[0]
+            # retention (decision 1-b): daily for 365 days, then Mondays only. Once a day: without a date index the DELETE
+            # reads the whole table (~0.9M rows after a year, inside the 5M rows read a day of D1 Free).
+            if man.due("snapshot_retention", 1):
+                st.q("DELETE FROM snapshot WHERE date < ? AND strftime('%w', date) != '1'", [str(today - timedelta(days=365))])
+                man.did("snapshot_retention")
             return n
 
         def detail():
@@ -250,9 +326,11 @@ def sync(today: date, s0i, btypes: dict, lender: dict, picks: list, details: dic
                                   hash_of=lambda r: [r[0], {k: v for k, v in r[2].items() if k != "rk"}, r[3]])[0]
 
         def event():
-            # daily: the last 3 days; plus a gradual backfill of older history (newest first) inside the write budget.
-            # D1 counts each index update as a written row, so one event costs ~3 rows.
-            r = st.q("SELECT MIN(date) AS m FROM event WHERE exchange = 'NSE'")
+            # daily: the last 3 days, only rows that are new or changed since the last sync (manifest); plus, on the first
+            # sync of the day only, a gradual backfill of older history (newest first) inside the write budget.
+            # D1 counts each index update as a written row, so one event costs ~3 rows (table, primary key, event_isin_date).
+            backfill = not st.prior
+            r = st.q("SELECT MIN(date) AS m FROM event WHERE exchange = 'NSE'") if backfill else []  # reads the whole table
             oldest = (r[0]["m"] if r and r[0]["m"] else "9999")
             recent = str(today - timedelta(days=3))
             rows, seen = [], set()
@@ -283,10 +361,10 @@ def sync(today: date, s0i, btypes: dict, lender: dict, picks: list, details: dic
             rows.sort(key=lambda r: r[3] or "", reverse=True)
             cols = ["id", "isin", "symbol", "date", "exchange", "category", "subject", "doc_group", "rule", "severity", "type", "url", "first_seen"]
             new = [r for r in rows if (r[3] or "") >= recent]
-            old = [r for r in rows if (r[3] or "") < recent]
+            old = [r for r in rows if (r[3] or "") < recent] if backfill else []
             w0 = st.rows_written
-            sent = st.upsert("event", cols, new, ["id"], keep=("first_seen",))
-            cost = (st.rows_written - w0) / sent if sent else 4.0  # D1 rows written per event, indexes included
+            sent, same = upsert_changed(st, man, "event", cols, new, ["id"], keep=("first_seen",), ignore=("first_seen",), short=True)
+            cost = (st.rows_written - w0) / sent if sent else 3.0  # D1 rows written per event, indexes included
             # backfill whole days only (newest first), each day only if it fits, so MIN(date) is always a clean boundary
             stop = min(st.budget, 95_000 - st.prior) - 2_000
             days: dict = {}
@@ -297,7 +375,8 @@ def sync(today: date, s0i, btypes: dict, lender: dict, picks: list, details: dic
                 if st.rows_written + len(days[dt]) * cost * 1.2 > stop:
                     break
                 back += st.upsert("event", cols, days[dt], ["id"], keep=("first_seen",))
-            print(f"[store] events: {sent} recent + {back} backfill (of {len(old)} older; oldest stored {oldest}; {cost:.1f} D1 rows per event)")
+            print(f"[store] events: {sent} recent ({same} unchanged) + {back} backfill (of {len(old)} older; oldest stored {oldest}; "
+                  f"{cost:.1f} D1 rows per event)")
             return sent + back
 
         def checkpoint():
@@ -313,19 +392,73 @@ def sync(today: date, s0i, btypes: dict, lender: dict, picks: list, details: dic
                                   rows, ["isin", "id"])[0]
 
         def verdicts():
-            full = st.count("verdict_log") < 100
+            """priority: the funnel priority (run.py ev[s]["pr"]) on the verdict's date, from the stock's memory snapshots
+            (kept 400 days) or today's pick; NULL for an older change whose snapshot is gone."""
+            # full resend: a new table, or once to fill priority on rows written before it was recorded (25 Nov 2026)
+            once = man.due("verdict_priority_backfill", 10 ** 5)
+            full = once or st.count("verdict_log") < 100
+            pr_today = {p["s"]: p.get("pr") for p in picks}
             rows = []
             for s, rec in mem.items():
                 i = isin.get(s)
-                for v in (rec.get("verdicts") or []) if i else []:
+                if not i:
+                    continue
+                pr = {x.get("d"): x.get("pr") for x in rec.get("snapshots") or [] if isinstance(x, dict)}
+                if pr_today.get(s) is not None:
+                    pr.setdefault(d, pr_today[s])
+                for v in rec.get("verdicts") or []:
                     if full or v.get("d") == d:
-                        rows.append([i, v.get("d"), v.get("from"), v.get("v"), None, rec.get("tiers")])
-            return st.upsert("verdict_log", ["isin", "date", "verdict_from", "verdict_to", "priority", "tiers"], rows, ["isin", "date"])
+                        rows.append([i, v.get("d"), v.get("from"), v.get("v"), pr.get(v.get("d")), rec.get("tiers")])
+            n = st.upsert("verdict_log", ["isin", "date", "verdict_from", "verdict_to", "priority", "tiers"], rows, ["isin", "date"])
+            if once and n == len(rows):
+                man.did("verdict_priority_backfill")
+            return n
 
         def research():
             rows = [[isin[s], s, t.get("updated"), t.get("quarter"), t.get("source_type"), t.get("outlook_score"),
                      {k: v for k, v in t.items() if k != "scan_raw"}] for s, t in theses.items() if s in isin]
             return upsert_changed(st, man, "research", ["isin", "symbol", "updated", "quarter", "source_type", "outlook_score", "thesis"], rows, ["isin"])[0]
+
+        def forward():
+            """forward_item: every forward-looking statement we hold. Claude's drivers (status verified when the verifier
+            confirmed the due date from the quote, else open) and promises (their tracked status), and the free readers'
+            rows from every document read (status unconfirmed). first_seen is kept from the first write."""
+            rows = []
+
+            def add(sym, origin, key, kind, text, value, unit, due, direction, status, quote, url, doc_date):
+                i = isin.get(sym)
+                if i and text:
+                    rows.append([digest([sym, origin.split(":")[0], key], 20), i, kind, text, value if isinstance(value, (int, float)) else None,
+                                 unit, due, direction, status, origin, quote, url, doc_date, d, d])
+            for s, t in theses.items():
+                for x in t.get("drivers") or []:
+                    add(s, "claude", [x.get("text"), x.get("due")], x.get("kind"), x.get("text"), x.get("value"), x.get("unit"), x.get("due"),
+                        x.get("direction"), "verified" if x.get("due_verified") else "open", x.get("quote"), x.get("source"), x.get("date"))
+                for x in t.get("promises") or []:
+                    add(s, "promise", [x.get("id") or x.get("promise")], x.get("kind"), x.get("promise"), None, None, x.get("due"), None,
+                        x.get("status") or "open", x.get("quote"), x.get("source"), x.get("made_on"))
+            rp = Path("data/reader/store.json")
+            for url, e in (json.loads(rp.read_text()) if rp.exists() else {}).items():
+                r = next((e[m] for m in ("flash", "lite") if "rows" in (e.get(m) or {})), None)
+                for x in (r or {}).get("rows") or []:
+                    add(e.get("s"), f"reader:{r.get('model')}", [url, x.get("text"), x.get("due")], x.get("kind"), x.get("text"), x.get("value"),
+                        x.get("unit"), x.get("due"), x.get("direction"), "unconfirmed", x.get("quote") or x.get("text"), url, e.get("date"))
+            seen, uniq = set(), []
+            for r in rows:
+                if r[0] not in seen:
+                    seen.add(r[0])
+                    uniq.append(r)
+            cols = ["id", "isin", "kind", "metric", "value", "unit", "due", "direction", "status", "origin", "quote", "url", "doc_date",
+                    "first_seen", "last_checked"]
+            return upsert_changed(st, man, "forward_item", cols, uniq, ["id"], keep=("first_seen",), ignore=("first_seen", "last_checked"))[0]
+
+        def sheets():
+            """narrativ_sheet: each stock's Narrativ sheet text, one row per write date (history of rewrites)."""
+            sp = Path("data/story.json")
+            stories = (json.loads(sp.read_text()) if sp.exists() else {}).get("stocks") or {}
+            rows = [[isin[s], x.get("date"), s, x.get("what"), x.get("money"), x.get("plans"), x.get("model")]
+                    for s, x in stories.items() if s in isin and x.get("date")]
+            return upsert_changed(st, man, "narrativ_sheet", ["isin", "date", "symbol", "what", "money", "plans", "model"], rows, ["isin", "date"])[0]
 
         def market():
             if not md:
@@ -338,19 +471,27 @@ def sync(today: date, s0i, btypes: dict, lender: dict, picks: list, details: dic
             if not breadth_in:
                 return 0
             from . import breadth as BR
-            return BR.sync(st, today, *breadth_in)
+            return BR.sync(st, today, *breadth_in,
+                           upsert=lambda t, c, r, k: upsert_changed(st, man, t, c, r, k)[0])  # today's rows: reruns skip unchanged
+
+        def document():
+            """document: one row per document the pipeline knows (reader list, reader results, docling, research packs).
+            Only rows whose content changed are sent."""
+            return upsert_changed(st, man, "document", ["url", "isin", "date", "kind", "pages", "has_text", "text_key", "status"],
+                                  document_rows(isin), ["url"], short=True)[0]
 
         # daily essentials first; the big one-off backfills (events, quarters, breadth history) use what is left of the budget
         for name, fn in (("snapshot", snapshot), ("stock_detail", detail), ("market_day", market), ("research", research),
-                         ("checkpoint", checkpoint), ("verdict_log", verdicts), ("company", company), ("industry_breadth", breadth),
-                         ("event", event), ("quarter", quarter)):
+                         ("checkpoint", checkpoint), ("forward_item", forward), ("narrativ_sheet", sheets), ("verdict_log", verdicts),
+                         ("company", company), ("document", document), ("industry_breadth", breadth), ("event", event), ("quarter", quarter)):
             step(name, fn)
 
-        # R2: the two stores that today live only in the Actions cache (evicted after 7 days unused)
         def r2():
+            """R2: durable copies of the Actions-cache stores (DURABLE, DURABLE_DIRS), the daily price table, a daily copy of
+            some git-side stores and the weekly memory backup. Each object is uploaded only when its content hash changed."""
             out = {}
 
-            def put(key, h, make, ctype="application/octet-stream"):
+            def put(key, h, make, ctype="application/gzip"):
                 """Upload only when the content hash differs from what the manifest says is already in the bucket."""
                 if man.r2_fresh(key, h):
                     out[key] = "unchanged"
@@ -365,34 +506,44 @@ def sync(today: date, s0i, btypes: dict, lender: dict, picks: list, details: dic
 
             pk = Path("data/source_cache/prices.pkl")
             if pk.exists():
-                put("prices/prices.parquet", "pq1-" + file_digest(pk), lambda: _prices_parquet(pk))
-            for f, key in (("announcements.json.gz", "announcements/store.json.gz"), ("bse_announcements.json.gz", "announcements/bse_store.json.gz")):
-                p_ = Path("data/source_cache") / f
+                put("prices/prices.parquet", "pq1-" + file_digest(pk), lambda: _prices_parquet(pk), "application/octet-stream")
+            for f, key, how in DURABLE:
+                p_ = Path(f)
                 if p_.exists():
-                    put(key, file_digest(p_), p_.read_bytes, "application/gzip")
-            for f, key in (("delivery.json", "nse/delivery.json.gz"), ("surveillance.json", f"nse/surveillance-{d}.json.gz"), ("indices.json", "nse/indices.json.gz"), ("shp.json", "nse/shp.json.gz"), ("corpfil.json", "nse/corpfil.json.gz"),
-                           ("prices_meta.json", "prices/prices_meta.json.gz"), ("index_hist.json", "nse/index_hist.json.gz"),
-                           ("bulk_deals.json", "nse/bulk_deals.json.gz")):
-                p_ = Path("data/source_cache") / f
-                if p_.exists():
-                    raw = p_.read_bytes()
-                    put(key, digest(raw), lambda raw=raw: gzf(raw), "application/gzip")
+                    put(key, file_digest(p_), p_.read_bytes if how == "raw" else lambda p_=p_: gzf(p_.read_bytes()))
+            for folder, key in DURABLE_DIRS:
+                b = _bundle(Path(folder))
+                if b is not None:
+                    put(key, digest(b), lambda b=b: gzf(b))
+            sv = Path("data/source_cache/surveillance.json")
+            if sv.exists():  # one dated object a day (kept SURVEILLANCE_DAYS)
+                put(f"nse/surveillance-{d}.json.gz", file_digest(sv), lambda: gzf(sv.read_bytes()))
             for f in ("analyst.json", "analyst_history.json", "classification.json", "bse_results.json"):  # git-side stores, daily copy
                 p_ = Path("data") / f
                 if p_.exists():
-                    raw = p_.read_bytes()
-                    put(f"git/{f}.gz", digest(raw), lambda raw=raw: gzf(raw), "application/gzip")
-            if today.weekday() == 0:  # weekly backup of the git-side JSON memory (D1 export comes later)
-                out["backup"] = st.put(f"backups/memory-{d}.json.gz", gz(mem))
+                    put(f"git/{f}.gz", file_digest(p_), lambda p_=p_: gzf(p_.read_bytes()))
+            if today.weekday() == 0:  # weekly backup of the git-side JSON memory (kept BACKUPS_KEEP weeks)
+                raw = json.dumps(mem, separators=(",", ":"), ensure_ascii=False, default=str).encode()
+                put(f"backups/memory-{d}.json.gz", digest(raw), lambda: gzf(raw))
             return {k: v for k, v in out.items() if v != "unchanged"} | {"unchanged": sum(1 for v in out.values() if v == "unchanged")}
         step("r2", r2)
+
+        def prune():
+            if not man.due("r2_prune", PRUNE_EVERY_DAYS):
+                return "not due"
+            out, ok = prune_r2(st, today)
+            if ok:
+                man.did("r2_prune")
+            return out
+        step("r2_prune", prune)
         st.upsert("run_log", ["date", "stages", "counts", "usage"], [[d, stages, {**counts, **(extra_counts or {})},
                                                                      {**st.usage(), "d1_rows_written_today": st.prior + st.rows_written}]], ["date"], force=True)
     except Exception as e:  # noqa: BLE001
         print(f"[store] sync aborted: {e}")
     finally:
-        try:
-            man.data["r2"] = {k: v for k, v in man.data["r2"].items() if not k.startswith("nse/surveillance-") or k.endswith(f"-{d}.json.gz")}
+        try:  # dated objects are written once; only today's entry is worth remembering (a rerun skips it)
+            man.data["r2"] = {k: v for k, v in man.data["r2"].items()
+                              if not k.startswith(("nse/surveillance-", "backups/memory-")) or k.endswith(f"-{d}.json.gz")}
             man.save()
         except Exception as e:  # noqa: BLE001
             print(f"[store] manifest not saved: {e}")
@@ -412,14 +563,107 @@ def _prices_parquet(pk) -> bytes:
     return buf.getvalue()
 
 
-def restore_caches() -> None:
-    """If the Actions cache was evicted, pull the price and announcement stores back from R2."""
-    import io
-    from pathlib import Path
-    import pandas as pd
+def _bundle(folder: Path) -> bytes | None:
+    """{file name: text} of a folder as canonical JSON bytes; None when the folder is missing or empty."""
+    if not folder.is_dir():
+        return None
+    files = {f.name: f.read_text(errors="replace") for f in sorted(folder.iterdir()) if f.is_file()}
+    return json.dumps(files, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode() if files else None
+
+
+def _key_date(key: str) -> str | None:
+    m = _DATED.search(key)
+    return m[1] if m else None
+
+
+def prune_r2(st: Store, today: date) -> tuple[dict, bool]:
+    """Retention for dated R2 objects: surveillance snapshots older than SURVEILLANCE_DAYS, memory backups beyond the latest
+    BACKUPS_KEEP. Deletes are free on R2; each listing page is one Class A operation. Returns (deleted counts, listings ok)."""
+    out, ok = {}, True
+    sv = st.list_keys("nse/surveillance-")
+    if sv is None:
+        ok = False
+    else:
+        cut = str(today - timedelta(days=SURVEILLANCE_DAYS))
+        out["surveillance"] = sum(st.delete(k) for k in sv if (_key_date(k) or "9999") < cut)
+    bk = st.list_keys("backups/memory-")
+    if bk is None:
+        ok = False
+    else:
+        dated = sorted((k for k in bk if _key_date(k)), key=_key_date)
+        out["backups"] = sum(st.delete(k) for k in dated[:-BACKUPS_KEEP])
+    return out, ok
+
+
+def document_rows(isin: dict) -> list[list]:
+    """Rows for the D1 `document` table from what the pipeline records about each document:
+    data/reader/docs.json (documents to read: symbol, kind, date), data/reader/store.json (free-reader results),
+    data/docling/index.json (layout / OCR conversion), docs/data/packs/*.json (pages, has_text of documents in Claude's queue)
+    and the pypdf text cache data/source_cache/doctext/<sha1(url)>.txt / .pages (Actions cache).
+      status: read (a free reader extracted rows) > converted (docling text in git) > failed (reader or docling error,
+              nothing usable) > listed (known, not processed yet)
+      text_key: data/docling/<sha1(url)>.md when docling text exists (git); NULL otherwise (the pypdf text is only cached)
+      pages / has_text: NULL when no source recorded them."""
+    docs: dict = {}
+
+    def add(url, s=None, dt=None, kind=None, **kw):
+        if not url:
+            return
+        e = docs.setdefault(url, {})
+        for k, v in (("s", s), ("date", dt), ("kind", kind)):
+            if v and not e.get(k):
+                e[k] = v
+        e.update({k: v for k, v in kw.items() if v is not None})
+
+    for x in _json(Path("data/reader/docs.json")).get("docs") or []:
+        add(x.get("url"), x.get("s"), x.get("date"), x.get("kind"))
+    for u, e in _json(Path("data/reader/store.json")).items():
+        ms = [e[m] for m in ("lite", "flash") if isinstance(e.get(m), dict)]
+        read = any("rows" in m and not m.get("error") for m in ms)
+        err = any(m.get("error") for m in ms)
+        add(u, e.get("s"), e.get("date"), e.get("kind"), read=read or None, read_failed=(err and not read) or None,
+            no_text=any("no text" in str(m.get("error") or "") for m in ms) or None)
+    for u, e in _json(Path("data/docling/index.json")).items():
+        add(u, e.get("s"), None, e.get("kind"), docling=bool(e.get("ok")))
+    for f in sorted(Path("docs/data/packs").glob("*.json")):
+        p = _json(f)
+        for x in p.get("documents") or []:
+            add(x.get("url"), p.get("symbol"), x.get("date"), x.get("kind"), pages=x.get("pages"), has_text=x.get("has_text"))
+    txt = Path("data/source_cache/doctext")
+    rows = []
+    for u in sorted(docs):
+        e = docs[u]
+        h = hashlib.sha1(u.encode()).hexdigest()
+        pages = e.get("pages")
+        if pages is None and (txt / f"{h}.pages").exists():
+            try:
+                pages = int((txt / f"{h}.pages").read_text())
+            except ValueError:
+                pages = None
+        md = Path("data/docling") / f"{h}.md"
+        text_key = md.as_posix() if e.get("docling") and md.exists() else None
+        has_text = e.get("has_text")
+        if has_text is None:
+            has_text = True if text_key or (txt / f"{h}.txt").exists() else (False if e.get("no_text") else None)
+        status = ("read" if e.get("read") else "converted" if text_key else
+                  "failed" if e.get("read_failed") or e.get("docling") is False else "listed")
+        rows.append([u, isin.get(e.get("s")), e.get("date"), e.get("kind"), pages,
+                     None if has_text is None else int(bool(has_text)), text_key, status])
+    return rows
+
+
+def restore_caches(only: set | None = None) -> None:
+    """If the Actions cache was evicted, pull the stores back from R2: prices, every DURABLE file, every DURABLE_DIRS folder.
+    `only`: restore just these local paths (e.g. {"data/news_cache/news.json.gz"})."""
     st = None
+
+    def want(p) -> bool:
+        return only is None or str(p) in only
+
     pk = Path("data/source_cache/prices.pkl")
-    if not pk.exists():
+    if want(pk) and not pk.exists():
+        import io
+        import pandas as pd
         st = st or Store()
         data = st.get("prices/prices.parquet")
         if data:
@@ -429,36 +673,36 @@ def restore_caches() -> None:
             pk.parent.mkdir(parents=True, exist_ok=True)
             pd.to_pickle(store, pk)
             print(f"[store] restored prices for {len(store)} symbols from R2")
-    an = Path("data/source_cache/announcements.json.gz")
-    if not an.exists():
+    for f, key, how in DURABLE:
+        p_ = Path(f)
+        if not want(f) or p_.exists():
+            continue
         st = st or Store()
-        data = st.get("announcements/store.json.gz")
-        if data:
-            an.parent.mkdir(parents=True, exist_ok=True)
-            an.write_bytes(data)
-            print(f"[store] restored announcement store from R2 ({len(data) / 1e6:.1f} MB)")
-    bse_an = Path("data/source_cache/bse_announcements.json.gz")
-    if not bse_an.exists():
+        data = st.get(key)
+        if not data:
+            continue
+        try:
+            raw = data if how == "raw" else gzip.decompress(data)
+        except OSError as e:
+            print(f"[store] R2 {key} unreadable: {e}")
+            continue
+        p_.parent.mkdir(parents=True, exist_ok=True)
+        p_.write_bytes(raw)
+        print(f"[store] restored {f} from R2 ({len(raw) / 1e6:.1f} MB)")
+    for folder, key in DURABLE_DIRS:
+        d_ = Path(folder)
+        if not want(folder) or (d_.is_dir() and any(d_.iterdir())):
+            continue
         st = st or Store()
-        data = st.get("announcements/bse_store.json.gz")
-        if data:
-            bse_an.parent.mkdir(parents=True, exist_ok=True)
-            bse_an.write_bytes(data)
-            print("[store] restored BSE announcement store from R2")
-    pm = Path("data/source_cache/prices_meta.json")  # corporate-action adjustments already applied: must travel with prices
-    if not pm.exists():
-        st = st or Store()
-        data = st.get("prices/prices_meta.json.gz")
-        if data:
-            pm.parent.mkdir(parents=True, exist_ok=True)
-            pm.write_bytes(gzip.decompress(data))
-            print("[store] restored price adjustment log from R2")
-    for f in ("delivery.json", "indices.json", "shp.json", "corpfil.json", "index_hist.json", "bulk_deals.json"):  # NSE daily-file and shareholding stores
-        p_ = Path("data/source_cache") / f
-        if not p_.exists():
-            st = st or Store()
-            data = st.get(f"nse/{f}.gz")
-            if data:
-                p_.parent.mkdir(parents=True, exist_ok=True)
-                p_.write_bytes(gzip.decompress(data))
-                print(f"[store] restored {f} from R2")
+        data = st.get(key)
+        if not data:
+            continue
+        try:
+            files = json.loads(gzip.decompress(data))
+        except (OSError, ValueError) as e:
+            print(f"[store] R2 {key} unreadable: {e}")
+            continue
+        d_.mkdir(parents=True, exist_ok=True)
+        for name, text in files.items():
+            (d_ / Path(name).name).write_text(text)
+        print(f"[store] restored {len(files)} files into {folder} from R2")

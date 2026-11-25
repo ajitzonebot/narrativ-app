@@ -1,6 +1,6 @@
-"""Publish Claude's research within minutes instead of at the evening run.
+"""Publish Claude's research within about 30 minutes (the public repo's republish job polls every 30 minutes) instead of at the evening run.
 
-Runs after each research push (.github/workflows/republish.yml). For the stocks whose entry in docs/data/theses.json changed:
+Runs after each research push (.github/workflow-src/republish.yml). For the stocks whose entry in docs/data/theses.json changed:
 verify them (same verifier as the daily run), update their research entry, and apply the Claude gate to the decision the
 daily run already computed: rules said Buy / Strong Buy + verdict pass -> Buy / Strong Buy; caution / fail -> Hold.
 No market data is downloaded and no other stock is touched; the evening run recomputes everything as usual.
@@ -34,13 +34,17 @@ def gate(dec: dict, v: dict, filed: str | None, today, Mx: dict | None = None, L
     """New decision for one stock, or None when Claude's work does not change it. With the stock's levels `L`, the same
     open-data-issue hold and Buy gates as the daily run (FN.apply_buy_rules) are applied on top, with the new research:
     R2's quoted recurring other income and R4's dated drivers are re-checked, and a verified pass cannot release a stock
-    an open data issue (docs/data/data_issues.json) holds."""
+    an open data issue (docs/data/data_issues.json) holds.
+    A stock the daily run's gates held (`gated_label`) is taken back to its pre-gate decision (FN.ungate) and gated again,
+    so research that now meets a gate releases it between daily runs (25 Nov 2026: before, it waited for the evening run)."""
+    orig = dec
+    dec = FN.ungate(dec) if L is not None else dec
     nd = _verify(dec, v, filed, today)
     if L is None or not (dec.get("candidate") or dec.get("d") in BUY):
         return nd
     base = nd or dec
     ruled = FN.apply_buy_rules(base, Mx or {}, lender, L, v, today, issues)
-    return ruled if (nd is not None or ruled != base) else None
+    return ruled if (nd is not None or ruled != orig) else None
 
 
 def _verify(dec: dict, v: dict, filed: str | None, today) -> dict | None:
@@ -158,7 +162,7 @@ def main(before: str | None) -> None:
             dc[p.get("dc")] = dc.get(p.get("dc"), 0) + 1
         picks.setdefault("funnel", {})["decisions"] = dc
         from narrativ import portfolio as PF
-        picks["top10"] = PF.top10(picks["picks"])  # a newly passed stock joins the Top 10 within minutes
+        picks["top10"] = PF.top10(picks["picks"])  # a newly passed stock joins the Top 10 at the next poll
         picks["research_updated"] = datetime.now(timezone.utc).isoformat()
         (OUT / "picks.json").write_text(json.dumps(picks, separators=(",", ":"), ensure_ascii=False))
     (OUT / "research.json").write_text(json.dumps(research, ensure_ascii=False, separators=(",", ":")))

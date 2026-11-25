@@ -61,7 +61,7 @@ val SOURCES = listOf(
     Src("Corporate filings", "Dividends, preferential issues, loans and guarantees to the promoter side, promoter trades, use of raised funds", "NSE corporate actions, further issues, governance filings, insider trading, statements of deviation; BSE dividends", "Daily; insider trades the day a disclosure is announced", "NSE companies; BSE dividends"),
     Src("Analyst estimates", "Consensus target and EPS revisions (shown labelled); named broker targets", "Yahoo consensus; broker reports quoted in Claude's research", "Daily for rated stocks and after results, weekly for the rest", "Where covered"),
     Src("Market mood", "India VIX, Nifty vs 200-day, sector indices, breadth, 52-week highs and lows, put-call ratio, FII/DII flows", "NSE index closing file, F&O end-of-day file, own prices", "Daily", "Market-wide"),
-    Src("Research", "Full reviews of rule-Buy stocks (numbers checked against the filing), promises, guidance, drivers, red flags, story", "Claude reading filings and transcripts; quotes verified word-for-word", "5 runs a day; published within minutes", "Your requests and rule-Buy stocks first (full reviews), then the research queue"),
+    Src("Research", "Full reviews of rule-Buy stocks (numbers checked against the filing), promises, guidance, drivers, red flags, story", "Claude reading filings and transcripts; quotes verified word-for-word", "5 runs a day; published within about 30 minutes", "Your requests and rule-Buy stocks first (full reviews), then the research queue"),
     Src("Not connected yet", "Lenders' capital adequacy and NPA trend, order book to revenue, shareholding / surveillance / governance for BSE-only companies", "–", "–", "Shown as 'source not connected yet'"),
 )
 

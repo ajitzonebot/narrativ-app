@@ -6,8 +6,8 @@ only for stocks whose decision is already a verified Buy / Strong Buy, and only 
 Seven checks, each met or not, each with a one-line reason (like the Buy gates):
   C1 Two or more independent dated triggers in 18 months: verified drivers / promises with a verified due date, counted
      once per source document, plus each live price or results signal on the Outlook tab (T4 does not count, as R4)
-  C2 Clean independent review: audit pass, at least 3 checks of its own, all matching the filing, debt incl. leases
-     checked (lenders exempt), no issue and no data issue logged
+  C2 Clean independent review: audit pass, at least 3 checks of its own, all matching the filing, debt incl. leases (the
+     check tagged "rule": "debt_leases", or named so; lenders exempt), no issue and no data issue logged
   C3 Entry setup live: breakout, pullback or base, price not extended
   C4 Story intact and no open integrity item (Claude's quoted story check)
   C5 Institutions adding: institutional holding up (D5) or mutual funds entering (T15 / D6), not falling, no selling run
@@ -21,7 +21,7 @@ margin-of-safety gate; price in stage 2 and strong momentum did not help inside 
 import re
 from datetime import date, timedelta
 
-RULE = "conviction v1 (2026-11-20)"
+RULE = "conviction v1.1 (2026-11-25)"  # v1.1: C2 accepts the R7 "debt_leases" tag; C1 promise dates verified as drivers
 BUY = ("Buy", "Strong Buy")
 HORIZON_DAYS = 548  # 18 months, as RULES.md R4
 LENDERS = ("bank", "nbfc", "insurance")
@@ -104,7 +104,9 @@ def _c2(th, lender):
         return False, f"{len(bad)} check(s) did not match the filing: {', '.join(str(b) for b in bad[:2])}"
     if len(ch) < 3:
         return False, f"only {len(ch)} check(s) of its own (needs 3)"
-    if not lender and not any(_DEBT.search(str(c.get("item") or "")) for c in ch):
+    # the R7 debt check is tagged `"rule": "debt_leases"` (funnel._debt_checked accepts it whatever the item says); until
+    # 25 Nov 2026 C2 read only the item text, so a tagged check named e.g. "Total financial obligations" did not count
+    if not lender and not any(c.get("rule") == "debt_leases" or _DEBT.search(str(c.get("item") or "")) for c in ch):
         return False, "debt including leases not among the checks"
     if au.get("issues"):
         return False, f"{len(au['issues'])} issue(s) logged: {(au['issues'][0] or {}).get('kind', '')}"

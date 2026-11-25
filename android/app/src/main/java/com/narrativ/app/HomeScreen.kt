@@ -56,7 +56,17 @@ fun HomeScreen(st: AppState) {
     val scope = rememberCoroutineScope()
     var refreshing by remember { mutableStateOf(false) }
     var showEvidence by remember { mutableStateOf(false) }
-    val live = pf.picks.filter { it.out == null }
+    // Explore chip counts: one pass over all picks per picks.json, not on every recomposition
+    // feedback #81: same Outlook tier the stock's Outlook tab shows (p.t[6]: 1 Very strong, 2 Strong)
+    val chips = remember(pf) {
+        val live = pf.picks.filter { it.out == null }
+        val good = live.filter { p -> p.dc != "Sell" && p.dc != "Strong Sell" && p.tier(6) in 1..2 }
+            .sortedWith(compareBy<P> { it.tier(6) }.thenByDescending { it.pr })
+        val bq = live.count { it.bq != null }
+        val vc = live.groupingBy { it.vd }.eachCount()
+        listOf(Triple("Strong outlook", good.size, "syms:Strong outlook|" + good.joinToString(",") { it.s }), Triple("Beaten-up quality", bq, "bq")) +
+            listOf("Prime candidate", "Early story", "Undervalued quality", "Momentum play", "Value watch", "Quality, priced in").map { Triple(it, vc[it] ?: 0, "v:$it") }
+    }
     // one Top 10 for Home and the stock page rank (Look.kt topTen): open IPOs first, then verified Buys in the pipeline's order
     val tt = topTen(st)
     val ipoTop = tt?.ipos.orEmpty()
@@ -64,8 +74,9 @@ fun HomeScreen(st: AppState) {
     val pending = tt?.pendingReview ?: 0
     val today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kolkata")).toString()
     val ipoOpen = st.ipo?.takeIf { it.date == today }?.actionable.orEmpty()
-    val rp by produceState<ReplayFile?>(null) { value = runCatching { st.repo.get<ReplayFile>("data/replay.json") }.getOrNull() }
-    val cf by produceState<CallsFile?>(null) { value = runCatching { st.repo.get<CallsFile>("data/calls.json") }.getOrNull() }
+    // memory / phone copy at once (no wait on the network each time Home opens), then the network copy if it changed
+    val rp by produceState(st.repo.peek<ReplayFile>("data/replay.json")) { st.repo.cacheFirst<ReplayFile>("data/replay.json") { if (it != null) value = it } }
+    val cf by produceState(st.repo.peek<CallsFile>("data/calls.json")) { st.repo.cacheFirst<CallsFile>("data/calls.json") { if (it != null) value = it } }
 
     androidx.compose.material3.pulltorefresh.PullToRefreshBox(refreshing, { scope.launch { refreshing = true; st.load(); refreshing = false } },
         Modifier.fillMaxSize().background(C.screen)) {
@@ -112,14 +123,7 @@ fun HomeScreen(st: AppState) {
             }
             if (ipoOpen.isNotEmpty()) item { IpoRow(st, ipoOpen) }
             item {
-                // Explore: counts open Stocks with the matching preset
-                // feedback #81: same Outlook tier the stock's Outlook tab shows (p.t[6]: 1 Very strong, 2 Strong)
-                val good = live.filter { p -> p.dc != "Sell" && p.dc != "Strong Sell" && p.tier(6) in 1..2 }
-                    .sortedWith(compareBy<P> { it.tier(6) }.thenByDescending { it.pr })
-                val bq = live.count { it.bq != null }
-                val vc = live.groupingBy { it.vd }.eachCount()
-                val chips = listOf(Triple("Strong outlook", good.size, "syms:Strong outlook|" + good.joinToString(",") { it.s }), Triple("Beaten-up quality", bq, "bq")) +
-                    listOf("Prime candidate", "Early story", "Undervalued quality", "Momentum play", "Value watch", "Quality, priced in").map { Triple(it, vc[it] ?: 0, "v:$it") }
+                // Explore: counts open Stocks with the matching preset (chips, computed once per picks.json above)
                 Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
                     T("Explore", 21.sp, weight = FontWeight.Bold, modifier = Modifier.padding(start = 2.dp, top = 18.dp, bottom = 10.dp))
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -304,7 +308,7 @@ fun HowWeKnowSheet(st: AppState, rp: ReplayFile, cf: CallsFile?, onDismiss: () -
         }
         val v = rp.variants
         val helps = listOfNotNull(
-            v["without R4 dated trigger"]?.let { Triple("Dated trigger (R4)", cur.m6.winPct?.toDouble() to it.m6.winPct?.toDouble(), true) },
+            v["without R4 dated trigger"]?.let { Triple("Trigger or strength (R4)", cur.m6.winPct?.toDouble() to it.m6.winPct?.toDouble(), true) },
             v["rank: no entry-setup tier"]?.let { Triple("Entry setup first", cur.m6.winPct?.toDouble() to it.m6.winPct?.toDouble(), true) },
             v["without margin of safety"]?.let { Triple("Margin of safety", cur.m6.avgVsNifty to it.m6.avgVsNifty, false) })
         if (helps.isNotEmpty()) {
@@ -439,17 +443,30 @@ fun TargetBar(price: Double, a: Analyst, modifier: Modifier) {
     }
 }
 
-private val chartCache = mutableMapOf<String, Chart>()
+/** Charts seen recently (LRU), each with the data generation it was loaded in; kept across refreshes so a chart shows at once. */
+private val chartCache = object : LinkedHashMap<String, Pair<Int, Chart>>(16, 0.75f, true) {
+    override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Pair<Int, Chart>>?) = size > 48
+}
+@Volatile private var chartGen = 0
 
-/** Called when the published data is refreshed so a chart is fetched again instead of staying as of the first view. */
-fun clearChartCache() { chartCache.clear() }
+/** Called when the published data is refreshed: charts already held still show at once, and are checked again on their next view. */
+fun clearChartCache() { chartGen++ }
 
-suspend fun loadChart(st: AppState, sym: String): Chart? {
-    chartCache[sym]?.let { return it }
-    val p = "data/charts/${Repo.seg(sym)}.json"
-    val ch = st.repo.get<Chart>(p) ?: st.repo.get<Chart>(p, fresh = false)
-    if (ch != null) chartCache[sym] = ch
-    return ch
+/** The chart held in memory, if any (no I/O): the stock page's first frame shows it instead of a placeholder. */
+fun cachedChart(sym: String): Chart? = synchronized(chartCache) { chartCache[sym]?.second }
+
+/** [onChart] gets the held / phone copy at once, then the network copy when it differs; nothing when there is no chart anywhere. */
+suspend fun loadChart(st: AppState, sym: String, onChart: (Chart) -> Unit) {
+    val gen = chartGen
+    val hit = synchronized(chartCache) { chartCache[sym] }
+    if (hit != null) { onChart(hit.second); if (hit.first == gen) return }
+    var last = hit?.second
+    st.repo.cacheFirst<Chart>("data/charts/${Repo.seg(sym)}.json") { ch ->
+        if (ch != null) {
+            synchronized(chartCache) { chartCache[sym] = gen to ch }
+            if (ch != last) { last = ch; onChart(ch) }
+        }
+    }
 }
 
 

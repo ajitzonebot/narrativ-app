@@ -1,6 +1,6 @@
 """Print the latest NSE trading date (YYYY-MM-DD) whose end-of-day file is published, or nothing when it cannot be told.
 
-Used by .github/workflows/daily.yml to decide whether a scheduled run has anything new to build: if this date equals the date
+Used by .github/workflow-src/daily.yml to decide whether a scheduled run has anything new to build: if this date equals the date
 already in docs/data/picks.json (which run.py stamps with the last price date, not the IST calendar day), the rerun is skipped.
 The date comes from the file itself ("DATE1" column, see narrativ/bhav.py), never from the file name: on a holiday NSE can
 serve the previous day's file. Probes today (IST) and the previous days, newest first. Any failure prints nothing, so the

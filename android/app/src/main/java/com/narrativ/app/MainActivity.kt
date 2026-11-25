@@ -29,8 +29,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
@@ -92,7 +97,11 @@ class AppState(private val ctx: Context, startStack: List<Screen> = listOf(Scree
     var feedbackContext by mutableStateOf("Home")
     var showUpdate by mutableStateOf(false)
     var requested by mutableStateOf(prefs.getStringSet("requested", emptySet())!!.toSet())
-    var sent by mutableStateOf(runCatching { json.decodeFromString<List<Sent>>(prefs.getString("sent", "[]")!!) }.getOrDefault(emptyList()))
+    // decoded on first use (Settings), not while the app starts
+    private val sentState by lazy { mutableStateOf(runCatching { json.decodeFromString<List<Sent>>(prefs.getString("sent", "[]")!!) }.getOrDefault(emptyList())) }
+    var sent: List<Sent>
+        get() = sentState.value
+        set(v) { sentState.value = v }
     val stack = mutableStateListOf<Screen>().apply { addAll(startStack.ifEmpty { listOf(Screen.Home) }) }
     private val details = mutableStateMapOf<String, Detail?>()
 
@@ -105,7 +114,18 @@ class AppState(private val ctx: Context, startStack: List<Screen> = listOf(Scree
         watch = if (sym in watch) watch - sym else watch + sym
         prefs.edit().putStringSet("watch", watch).apply()
     }
-    fun pick(sym: String): P? = picks?.picks?.firstOrNull { it.s == sym }
+    /** Symbol -> pick of the current picks.json (first row wins, as the old linear search did), rebuilt only when picks change. */
+    @Volatile private var pickIdx: Pair<PicksFile, Map<String, P>>? = null
+    fun pick(sym: String): P? {
+        val pf = picks ?: return null
+        pickIdx?.let { if (it.first === pf) return it.second[sym] }
+        val m = HashMap<String, P>(pf.picks.size * 2)
+        pf.picks.forEach { m.putIfAbsent(it.s, it) }
+        pickIdx = pf to m
+        return m[sym]
+    }
+    /** Look.kt topTen: last result and what it was computed from. */
+    @Volatile var topTenMemo: TopTenMemo? = null
     fun levelName(k: String) = picks?.levelNames?.get(k) ?: LEVEL_TITLES[LEVELS.indexOf(k)]
 
     /** Phone copy (instant, may be a day old); the screen then swaps in [detail]. */
@@ -128,10 +148,12 @@ class AppState(private val ctx: Context, startStack: List<Screen> = listOf(Scree
         else if (before != null && (research.size to research.values.mapNotNull { it.updated }.maxOrNull()) != rb) toast = "New Claude research loaded"
     }
 
-    suspend fun load(fresh: Boolean = true) {
+    /** [picksText]: a picks.json request already started (App starts it during the phone-copy pass). */
+    suspend fun load(fresh: Boolean = true, picksText: Deferred<Pair<String, Boolean>?>? = null) {
         if (fresh) lastLoad = System.currentTimeMillis()
         loading = true; error = null
-        val got = repo.getSrc<PicksFile>("data/picks.json", fresh, memo = true)
+        val src = if (picksText != null) picksText.await() else repo.textSrc("data/picks.json", fresh)
+        val got = src?.let { (body, net) -> repo.decodeOff<PicksFile>("data/picks.json", body)?.let { Repo.Loaded(it, net) } }
         if (got != null && got.value.v >= 2) {
             picks = got.value; details.clear(); clearChartCache()
             if (fresh) {
@@ -146,14 +168,20 @@ class AppState(private val ctx: Context, startStack: List<Screen> = listOf(Scree
         } else if (picks == null) error = "Could not load data. Check internet."
         else if (fresh) { offline = true; lastLoad = System.currentTimeMillis() - 10 * 60_000L }
         loading = false
-        repo.get<Map<String, Research>>("data/research.json", fresh)?.let { research = it }
-        repo.get<RotationFile>("data/rotation.json", fresh)?.let { rotation = it }
-        repo.get<MemoryFile>("data/memory.json", fresh)?.let { memory = it }
-        repo.get<QueueFile>("data/queue.json", fresh)?.let { queue = it }
-        repo.get<IpoToday>("data/ipo_today.json", fresh)?.let { ipo = it }
-        repo.get<VersionInfo>("app/version.json", true)?.let { v ->
-            version = v
-            if (v.versionCode > BuildConfig.VERSION_CODE && prefs.getInt("dismissed", 0) < v.versionCode) showUpdate = true
+        // the rest together, not one after another; an unchanged file is not decoded again (Repo keeps the decoded copy).
+        // The phone-copy pass (fresh = false) never touches the network, version.json included.
+        coroutineScope {
+            launch { repo.get<Map<String, Research>>("data/research.json", fresh)?.let { research = it } }
+            launch { repo.get<RotationFile>("data/rotation.json", fresh)?.let { rotation = it } }
+            launch { repo.get<MemoryFile>("data/memory.json", fresh)?.let { memory = it } }
+            launch { repo.get<QueueFile>("data/queue.json", fresh)?.let { queue = it } }
+            launch { repo.get<IpoToday>("data/ipo_today.json", fresh)?.let { ipo = it } }
+            launch {
+                repo.get<VersionInfo>("app/version.json", fresh)?.let { v ->
+                    version = v
+                    if (v.versionCode > BuildConfig.VERSION_CODE && prefs.getInt("dismissed", 0) < v.versionCode) showUpdate = true
+                }
+            }
         }
     }
     fun dismissUpdate() { version?.let { prefs.edit().putInt("dismissed", it.versionCode).apply() }; showUpdate = false }
@@ -245,14 +273,15 @@ fun App(startRoute: String? = null, ci: Boolean = false) {
         onDispose { owner.lifecycle.removeObserver(obs) }
     }
     LaunchedEffect(Unit) {
+        val picksNet = async { st.repo.textSrc("data/picks.json") }  // the network check runs while the phone copy is shown
         if (st.ipoAlerts && !ci) {
             IpoAlerts.schedule(ctx)
             askNotifPerm()
         }
-        Portfolio.load(ctx)  // moves holdings saved by an older version into their own (not backed up) preferences file
+        withContext(Dispatchers.IO) { Portfolio.load(ctx) }  // moves holdings saved by an older version into their own (not backed up) preferences file
         if (!ci) Portfolio.schedule(ctx)  // one point a day for Settings › Portfolio (no-op without holdings)
         st.load(fresh = false)
-        st.load(fresh = true)
+        st.load(fresh = true, picksText = picksNet)
         if (ci && startRoute != "update") st.showUpdate = false
         if (routeDone) return@LaunchedEffect  // after a rotation the saved stack already holds the opened screen
         routeDone = true

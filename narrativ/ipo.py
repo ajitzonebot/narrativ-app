@@ -1,6 +1,6 @@
 """Open-IPO check without Claude (owner decision 2026-11-23; rules backtested on 223 IPOs, KNOWLEDGE.md).
 
-Runs at 08:30 and 15:30 IST on weekdays (Cloudflare Worker cron -> .github/workflows/ipo.yml) and writes
+Runs at 08:30 and 15:30 IST on weekdays (Cloudflare Worker cron -> .github/workflow-src/ipo.yml) and writes
 docs/data/ipo_today.json for the app (Home -> Open IPOs and the IPO screen).
 
 Sources (public pages only; robots.txt allows them):

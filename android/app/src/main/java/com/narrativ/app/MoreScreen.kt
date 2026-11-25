@@ -52,7 +52,7 @@ private fun SetRow(icon: ImageVector, title: String, sub: String, onClick: () ->
 @Composable
 fun SettingsScreen(st: AppState) {
     val v = st.version
-    val callsF by produceState<Fetched<CallsFile>?>(null) { value = Fetched(st.repo.get<CallsFile>("data/calls.json")) }
+    val callsF by produceState(st.repo.peekF<CallsFile>("data/calls.json")) { st.repo.cacheFirst<CallsFile>("data/calls.json") { value = Fetched(it) } }
     val calls = callsF?.v
     val newer = v != null && v.versionCode > BuildConfig.VERSION_CODE
     val buys = calls?.calls.orEmpty().count { it.kind == "verified" }
@@ -106,7 +106,7 @@ fun SettingsScreen(st: AppState) {
 /** Settings > Advanced: the operational screens, each row with a status dot and a small picture of its state. */
 @Composable
 fun AdvancedScreen(st: AppState) {
-    val runs by produceState<List<RunRec>?>(null) { value = st.repo.get<List<RunRec>>("data/runs.json") }
+    val runs by produceState(st.repo.peek<List<RunRec>>("data/runs.json")) { st.repo.cacheFirst<List<RunRec>>("data/runs.json") { value = it } }
     val q = st.queue
     val today = remember { java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kolkata")) }
     val cps = st.memory?.stocks.orEmpty().flatMap { it.checkpoints }

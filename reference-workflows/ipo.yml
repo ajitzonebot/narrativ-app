@@ -1,6 +1,9 @@
 name: ipo
 # Open-IPO check without Claude (narrativ/ipo.py): 08:30 and 15:30 IST Mon-Fri, started by the Cloudflare Worker crons
 # (exact time); the GitHub schedule below is a late backup. The 15:30 run makes the final-day call.
+# The backup skips when another ipo run started in the last 150 minutes and succeeded or is still running (the Worker's
+# run did this slot), so it only runs when the Worker's dispatch failed. 150 minutes covers GitHub's usual cron delay and
+# stays well inside the 7 hours between the two slots.
 on:
   schedule:
     - cron: "15 3 * * 1-5"
@@ -8,6 +11,7 @@ on:
   workflow_dispatch:
 permissions:
   contents: write
+  actions: read   # the public job's own token reads this workflow's recent runs
 concurrency:
   group: ipo
 jobs:
@@ -15,16 +19,33 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - name: Skip the backup schedule if the Worker's run did this slot
+        id: skip
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          since=$(date -u -d '-150 minutes' +%Y-%m-%dT%H:%M:%SZ)
+          n=$(gh api -X GET "repos/$GITHUB_REPOSITORY/actions/workflows/ipo.yml/runs" -f created=">=$since" -f per_page=20 \
+            --jq "[.workflow_runs[] | select(.id != $GITHUB_RUN_ID) | select(.conclusion == \"success\" or .status != \"completed\")] | length" 2>/dev/null || echo 0)
+          echo "ipo runs since $since (done or running): ${n:-0}"
+          if [ "${n:-0}" -gt 0 ]; then echo "skip=true" >> "$GITHUB_OUTPUT"; fi
       - uses: actions/checkout@v4
+        if: steps.skip.outputs.skip != 'true'
       - uses: actions/setup-python@v5
+        if: steps.skip.outputs.skip != 'true'
         with:
           python-version: "3.12"
           cache: pip
       - name: IPO check
+        if: steps.skip.outputs.skip != 'true'
         run: |
           pip install -q -r requirements.txt
           python -m narrativ.ipo
       - name: Commit
+        if: steps.skip.outputs.skip != 'true'
+        env:
+          GIT_PUSH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config user.name "github-actions[bot]"; git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add docs/data/ipo_today.json docs/data/ipo_history.json

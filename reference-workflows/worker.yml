@@ -1,81 +1,94 @@
+# Hand-written for the public repo (not generated). Source: the private repo's .github/workflow-src/worker.yml.
 name: worker-deploy
 
+# Deploys the Cloudflare Worker from the private repo's worker/ folder. Run by hand after a Worker change.
+#
+# The Worker's GitHub token (Worker secret GH_TOKEN) comes from NARRATIV_WORKER_TOKEN, NOT from NARRATIV_RW_TOKEN: a
+# Worker is reachable from the internet, so it holds only what worker/worker.js calls:
+#   private ajitzonebot/Narrativ: Contents read (GET /contents/docs/... for /data), Issues read and write (feedback, scan)
+#   public ajitzonebot/narrativ-app: Actions read and write (cron dispatch of daily.yml / ipo.yml)
+# Check it with the gh-token-check workflow. NARRATIV_RW_TOKEN is used only by the failure-log step (push logs/).
 on:
-  push:
-    paths: ["worker/**", ".github/workflows/worker.yml"]
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - name: Quiet logs (public repo)
+        shell: bash
+        run: |
+          cat > /home/runner/q.sh <<'EOF'
+          bash --noprofile --norc -eo pipefail "$1" >> "$RUNNER_TEMP/narrativ.log" 2>&1 && exit 0
+          echo "Step failed. The full log is saved in the private repo (logs/)."
+          exit 1
+          EOF
       - name: Check secrets
-        id: s
+        shell: bash   # visible on purpose: prints only which secrets are missing
         env:
           CF: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          GHT: ${{ secrets.NARRATIV_GH_TOKEN }}
+          WT: ${{ secrets.NARRATIV_WORKER_TOKEN }}
           KEY: ${{ secrets.NARRATIV_APP_KEY }}
         run: |
-          if [ -z "$CF" ] || [ -z "$GHT" ]; then echo "::warning::CLOUDFLARE_API_TOKEN / NARRATIV_GH_TOKEN not set yet; skipping deploy."; echo "ok=false" >> $GITHUB_OUTPUT; exit 0; fi
-          # No default key: a published fallback ("narrativ-app") would let anyone call the API. Fail instead of deploying with it.
-          if [ -z "$KEY" ]; then echo "::error::NARRATIV_APP_KEY secret is not set; refusing to deploy the Worker without an app key."; exit 1; fi
-          echo "ok=true" >> $GITHUB_OUTPUT
-      - name: Deploy
-        if: steps.s.outputs.ok == 'true'
-        id: d
-        uses: cloudflare/wrangler-action@v3
+          ok=1
+          [ -n "$CF" ] || { echo "::error::CLOUDFLARE_API_TOKEN is not set"; ok=0; }
+          # No fallback to NARRATIV_RW_TOKEN: the Worker must never hold the private repo's write token.
+          [ -n "$WT" ] || { echo "::error::NARRATIV_WORKER_TOKEN is not set. Create it (see public-workflows/README.md in the private repo: fine-grained token, Narrativ Contents read + Issues read/write, narrativ-app Actions read/write) and add it as an Actions secret here."; ok=0; }
+          # No default key: a published fallback would let anyone call the API. Fail instead of deploying with it.
+          [ -n "$KEY" ] || { echo "::error::NARRATIV_APP_KEY is not set"; ok=0; }
+          [ "$ok" = 1 ]
+      - uses: actions/checkout@v4
         with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          workingDirectory: worker
-          wranglerVersion: "4.20.0"
-          secrets: |
-            GH_TOKEN
-            APP_KEY
-          command: deploy
+          repository: ajitzonebot/Narrativ
+          token: ${{ secrets.NARRATIV_WORKER_TOKEN }}   # Contents read is enough to deploy
+          persist-credentials: false
+      - name: Deploy
+        working-directory: worker
         env:
-          GH_TOKEN: ${{ secrets.NARRATIV_GH_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          GH_TOKEN: ${{ secrets.NARRATIV_WORKER_TOKEN }}
           APP_KEY: ${{ secrets.NARRATIV_APP_KEY }}
-      # Hard gate: the Worker is up, accepts the app key and can read the repo with its GitHub token. None of this depends on Yahoo.
+        run: |
+          npx -y wrangler@4.20.0 deploy > "$RUNNER_TEMP/deploy.txt"
+          printf '%s' "$GH_TOKEN" | npx -y wrangler@4.20.0 secret put GH_TOKEN
+          printf '%s' "$APP_KEY" | npx -y wrangler@4.20.0 secret put APP_KEY
+          grep -oE 'https://[a-z0-9.-]+\.workers\.dev' "$RUNNER_TEMP/deploy.txt" | head -1 > "$RUNNER_TEMP/url.txt"
+          [ -s "$RUNNER_TEMP/url.txt" ]
+      # Hard gate: the Worker is up, accepts the app key and can read the private repo with the new token.
       - name: Smoke test (health, app key, /data)
-        if: steps.s.outputs.ok == 'true'
         env:
-          OUT: ${{ steps.d.outputs.command-output }}
           KEY: ${{ secrets.NARRATIV_APP_KEY }}
         run: |
-          URL=$(echo "$OUT" | grep -oE 'https://[a-z0-9.-]+\.workers\.dev' | head -1)
-          [ -z "$URL" ] && { echo "::error::could not read worker URL"; exit 1; }
+          URL=$(cat "$RUNNER_TEMP/url.txt")
           sleep 5
-          curl -sS --fail --retry 3 --retry-delay 5 --max-time 30 "$URL/health"; echo
+          curl -sS --fail --retry 3 --retry-delay 5 --max-time 30 "$URL/health"
           curl -sS --fail --retry 3 --retry-delay 5 --max-time 30 "$URL/data/data/picks.json" -H "X-App-Key: $KEY" -o /dev/null
-          echo "app key and /data OK"
-      # Soft check, by decision: /quotes depends on Yahoo's unofficial endpoint, so a Yahoo outage must not fail a deploy.
-      # curl --fail makes the failure real; it is reported as a warning annotation instead of a red run.
-      - name: Smoke test /quotes (soft)
-        if: steps.s.outputs.ok == 'true'
+      - name: Save the log in the private repo
+        if: failure()
+        shell: bash
         env:
-          OUT: ${{ steps.d.outputs.command-output }}
-          KEY: ${{ secrets.NARRATIV_APP_KEY }}
+          GIT_PUSH_TOKEN: ${{ secrets.NARRATIV_RW_TOKEN }}
         run: |
-          URL=$(echo "$OUT" | grep -oE 'https://[a-z0-9.-]+\.workers\.dev' | head -1)
-          if R=$(curl -sS --fail --max-time 30 "$URL/quotes?s=BLS,GOLDBEES" -H "X-App-Key: $KEY"); then printf '%s' "$R" | head -c 400; echo; else echo "::warning::/quotes smoke test failed (Yahoo outage or Worker bug); deploy kept"; fi
-      - name: Record API URL for the app build
-        if: always() && steps.s.outputs.ok == 'true' && steps.d.outcome == 'success'
-        env:
-          OUT: ${{ steps.d.outputs.command-output }}
-        run: |
-          URL=$(echo "$OUT" | grep -oE 'https://[a-z0-9.-]+\.workers\.dev' | head -1)
-          echo "Worker URL: $URL"
-          [ -z "$URL" ] && { echo "::error::could not read worker URL"; exit 1; }
-          echo "apiUrl=$URL" > android/api.properties
+          set +e
+          [ -d .git ] && [ -f "$RUNNER_TEMP/narrativ.log" ] || exit 0
+          mkdir -p logs
+          cp "$RUNNER_TEMP/narrativ.log" "logs/$GITHUB_WORKFLOW-$(date -u +%Y%m%d-%H%M).log"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add android/api.properties
-          git diff --cached --quiet && exit 0
-          git commit -m "app: api url"
-          bash scripts/push_retry.sh
+          git add logs && git commit -qm "logs: $GITHUB_WORKFLOW failed" -- logs
+          git stash -u -q
+          h="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GIT_PUSH_TOKEN" | base64 | tr -d '\n')"
+          for i in 1 2 3; do git -c http.https://github.com/.extraheader="$h" pull -q --rebase origin main && git -c http.https://github.com/.extraheader="$h" push -q origin HEAD:main && break; sleep 5; done
+          exit 0
+
+env:
+  NARRATIV_REPO: ajitzonebot/Narrativ
+
+defaults:
+  run:
+    shell: bash /home/runner/q.sh {0}

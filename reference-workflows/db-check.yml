@@ -9,6 +9,7 @@ permissions: {}
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: D1 counts and R2 objects
         env:
@@ -21,7 +22,7 @@ jobs:
           DB=$(curl -s "${H[@]}" "$API/d1/database?name=narrativ" | jq -r '.result[] | select(.name=="narrativ") | .uuid')
           curl -s "${H[@]}" "$API/d1/database?name=narrativ" | jq -c '.result[] | select(.name=="narrativ") | {num_tables, file_size_mb: (.file_size/1e6)}'
           Q() { curl -s -X POST "${H[@]}" "$API/d1/database/$DB/query" -d "$(jq -nc --arg s "$1" '{sql:$s}')" | jq -c '.result[0].results'; }
-          for t in company quarter snapshot stock_detail event checkpoint verdict_log research forward_item document market_day run_log; do
+          for t in company quarter snapshot stock_detail event checkpoint verdict_log research forward_item narrativ_sheet document market_day run_log; do
             echo "$t $(Q "SELECT COUNT(*) AS n FROM $t")"
           done
           echo "event range $(Q "SELECT MIN(date) AS oldest, MAX(date) AS newest, SUM(severity='red') AS red FROM event")"

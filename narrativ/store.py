@@ -48,7 +48,7 @@ class Store:
         self.s.headers.update({"Authorization": f"Bearer {tok}"})
         self.rows_written = self.calls = 0
         self.lock = threading.Lock()
-        self.r2_puts = self.r2_bytes = 0
+        self.r2_puts = self.r2_bytes = self.r2_deletes = 0
         self.db = None
         if self.ok:
             try:
@@ -180,7 +180,16 @@ class Store:
         return sent
 
     def count(self, table: str) -> int:
+        """Rows in a table. D1 bills this as one row read per row: use probe() on big tables."""
         r = self.q(f"SELECT COUNT(*) AS n FROM {table}")
+        return int(r[0]["n"]) if r else 0
+
+    def probe(self, table: str, cols, keys: list) -> int:
+        """How many of these primary keys (value lists in `cols` order) exist: primary-key lookups, a few rows read."""
+        if not keys:
+            return 0
+        where = " OR ".join("(" + " AND ".join(f"{c} = ?" for c in cols) + ")" for _ in keys)
+        r = self.q(f"SELECT COUNT(*) AS n FROM {table} WHERE {where}", [v for k in keys for v in k])
         return int(r[0]["n"]) if r else 0
 
     # ---------- R2 ----------
@@ -208,9 +217,50 @@ class Store:
             print(f"[store] R2 get {key}: {e}")
             return None
 
+    def list_keys(self, prefix: str) -> list[str] | None:
+        """Object keys under a prefix; None when the listing failed. Each page (up to 1,000 keys) is one Class A operation."""
+        if not self.ok:
+            return None
+        keys, cursor = [], None
+        try:
+            for _ in range(100):
+                params = {"prefix": prefix, "per_page": 1000, **({"cursor": cursor} if cursor else {})}
+                r = self.s.get(f"{self.base}/r2/buckets/{BUCKET}/objects", params=params, timeout=60)
+                js = r.json()
+                if not r.ok or js.get("success") is False:
+                    print(f"[store] R2 list {prefix}: http {r.status_code} {str(js.get('errors'))[:160]}")
+                    return None
+                res = js.get("result") or []
+                if isinstance(res, dict):
+                    res = res.get("objects") or []
+                keys += [o["key"] for o in res if isinstance(o, dict) and o.get("key")]
+                info = js.get("result_info") or {}
+                cursor = info.get("cursor")
+                if not info.get("is_truncated") or not cursor:
+                    break
+            return keys
+        except Exception as e:  # noqa: BLE001
+            print(f"[store] R2 list {prefix}: {e}")
+            return None
+
+    def delete(self, key: str) -> bool:
+        """Delete one object (free on R2). A key that is already gone counts as deleted."""
+        if not self.ok:
+            return False
+        try:
+            r = self.s.delete(f"{self.base}/r2/buckets/{BUCKET}/objects/{key}", timeout=60)
+            if r.ok or r.status_code == 404:
+                self.r2_deletes += 1
+                return True
+            print(f"[store] R2 delete {key}: http {r.status_code} {r.text[:160]}")
+        except Exception as e:  # noqa: BLE001
+            print(f"[store] R2 delete {key}: {e}")
+        return False
+
     def usage(self) -> dict:
         return {"d1_rows_written": self.rows_written, "d1_calls": self.calls, "d1_free_rows_per_day": 100_000,
-                "r2_puts": self.r2_puts, "r2_mb": round(self.r2_bytes / 1e6, 1), "r2_free_puts_per_month": 1_000_000}
+                "r2_puts": self.r2_puts, "r2_mb": round(self.r2_bytes / 1e6, 1), "r2_deletes": self.r2_deletes,
+                "r2_free_puts_per_month": 1_000_000}
 
 
 def gz(obj) -> bytes:

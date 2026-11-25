@@ -13,14 +13,61 @@ on:
 
 permissions:
   contents: write
+  actions: read   # gate: read the daily run's steps
 
 concurrency:
   group: docling
   cancel-in-progress: false
 
 jobs:
-  convert:
+  # A daily run that skipped (no new prices) still ends "success". Go on only if its "Run funnel" step ran
+  # (public run list, read with the public job's own token; unknown = go on).
+  gate:
     if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      go: ${{ steps.g.outputs.go }}
+    steps:
+      - name: Quiet logs (public repo)
+        shell: bash
+        run: |
+          cat > /home/runner/q.sh <<'EOF'
+          bash --noprofile --norc -eo pipefail "$1" >> "$RUNNER_TEMP/narrativ.log" 2>&1 && exit 0
+          echo "Step failed. The full log is saved in the private repo (logs/)."
+          exit 1
+          EOF
+      - id: g
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          c=""
+          [ -n "$RUN_ID" ] && c=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs" --jq '[.jobs[].steps[]? | select(.name == "Run funnel") | .conclusion] | first // ""' 2>/dev/null || true)
+          echo "daily run ${RUN_ID:-none}: Run funnel ${c:-n/a}"
+          if [ "$c" = "skipped" ]; then echo "go=false" >> "$GITHUB_OUTPUT"; else echo "go=true" >> "$GITHUB_OUTPUT"; fi
+      - name: Save the log in the private repo
+        if: failure()
+        shell: bash
+        env:
+          GIT_PUSH_TOKEN: ${{ secrets.NARRATIV_RW_TOKEN }}
+        run: |
+          set +e
+          [ -d .git ] && [ -f "$RUNNER_TEMP/narrativ.log" ] || exit 0
+          mkdir -p logs
+          cp "$RUNNER_TEMP/narrativ.log" "logs/$GITHUB_WORKFLOW-$(date -u +%Y%m%d-%H%M).log"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add logs && git commit -qm "logs: $GITHUB_WORKFLOW failed" -- logs
+          git stash -u -q
+          auth=()
+          [ -z "$(git config --get-all http.https://github.com/.extraheader)" ] && auth=(-c "http.https://github.com/.extraheader=AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GIT_PUSH_TOKEN" | base64 | tr -d '\n')")
+          for i in 1 2 3; do git "${auth[@]}" pull -q --rebase origin main && git "${auth[@]}" push -q origin HEAD:main && break; sleep 5; done
+          exit 0
+
+  convert:
+    needs: gate
+    if: needs.gate.outputs.go == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -36,6 +83,7 @@ jobs:
         with:
           repository: ajitzonebot/Narrativ
           token: ${{ secrets.NARRATIV_RW_TOKEN }}
+          persist-credentials: false
           ref: main
       - uses: actions/setup-python@v5
         with:
@@ -52,6 +100,8 @@ jobs:
         run: python -m narrativ.docread "${{ inputs.max_docs || '40' }}"
       - name: Commit results
         if: always()
+        env:
+          GIT_PUSH_TOKEN: ${{ secrets.NARRATIV_RW_TOKEN }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -62,6 +112,8 @@ jobs:
       - name: Save the log in the private repo
         if: failure()
         shell: bash
+        env:
+          GIT_PUSH_TOKEN: ${{ secrets.NARRATIV_RW_TOKEN }}
         run: |
           set +e
           [ -d .git ] && [ -f "$RUNNER_TEMP/narrativ.log" ] || exit 0
@@ -71,7 +123,9 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add logs && git commit -qm "logs: $GITHUB_WORKFLOW failed" -- logs
           git stash -u -q
-          for i in 1 2 3; do git pull -q --rebase && git push -q && break; sleep 5; done
+          auth=()
+          [ -z "$(git config --get-all http.https://github.com/.extraheader)" ] && auth=(-c "http.https://github.com/.extraheader=AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GIT_PUSH_TOKEN" | base64 | tr -d '\n')")
+          for i in 1 2 3; do git "${auth[@]}" pull -q --rebase origin main && git "${auth[@]}" push -q origin HEAD:main && break; sleep 5; done
           exit 0
 
 env:
