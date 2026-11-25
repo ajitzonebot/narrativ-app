@@ -333,8 +333,8 @@ fun ResearchSheet(st: AppState, sym: String, det: Detail?, onDismiss: () -> Unit
     val scope = rememberCoroutineScope()
     val log = det?.researchLog.orEmpty()
     val first = det?.verdictLog?.firstOrNull()
-    BottomSheet(onDismiss, "Claude's research", aside = if (log.isEmpty()) null else "${log.size} entries") {
-        if (log.isEmpty() && first == null) T("Claude has not studied this stock yet.", 13.sp, C.dim, modifier = Modifier.padding(bottom = 10.dp))
+    BottomSheet(onDismiss, "Narrativ.ai's research", aside = if (log.isEmpty()) null else "${log.size} entries") {
+        if (log.isEmpty() && first == null) T("Narrativ.ai has not studied this stock yet.", 13.sp, C.dim, modifier = Modifier.padding(bottom = 10.dp))
         else SheetSection {
             log.forEachIndexed { i, e ->
                 Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -364,11 +364,11 @@ fun ResearchSheet(st: AppState, sym: String, det: Detail?, onDismiss: () -> Unit
         if (inQueue || requested) SheetSection {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Rounded.HourglassTop, null, tint = C.grey, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp))
-                T(if (inQueue) "In Claude's queue" else "Full review requested", 15.sp, weight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                T(if (inQueue) "In Narrativ.ai's queue" else "Full review requested", 15.sp, weight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                 StatusChip(if (inQueue) queueLabel(st, sym) ?: "Research queue" else "Not in queue yet", color = C.grey, minWidth = 0.dp)
             }
             T(if (rv.pos > 0) "Estimated: ${expectedRun(rv.pos)}, in the app about an hour after it starts (about 6 stocks a run)."
-              else if (inQueue) "Queued for Claude's research notes; a full review runs when the rules rate it Buy."
+              else if (inQueue) "Queued for Narrativ.ai's research notes; a full review runs when the rules rate it Buy."
               else "Requests join the queue at the 17:10 daily run (weekdays) as full reviews; estimated the first research run after that.",
                 12.sp, C.dim, lineHeight = 17.sp, modifier = Modifier.padding(top = 6.dp))
         }

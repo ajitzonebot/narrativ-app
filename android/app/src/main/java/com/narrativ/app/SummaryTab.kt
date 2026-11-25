@@ -2,6 +2,7 @@
 
 package com.narrativ.app
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -9,6 +10,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.NorthEast
 import androidx.compose.material.icons.rounded.SouthEast
@@ -21,7 +23,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -239,15 +243,15 @@ fun SummaryTab(st: AppState, sym: String, p: P?, det: Detail?, chart: Chart?, lo
             repeat(2) { Card(Modifier.weight(1f), radius = S.tile) { Skel(70.dp, 11.dp); Spacer(Modifier.height(8.dp)); Skel(50.dp, 16.dp) } }
         }
     }
-    det?.let { PlanCard(it.setup, it.analyst) }
+    det?.let { PlanCard(it.setup, it.analyst, it.exitHit) }
     det?.let { KeyTiles(it, open) }
     WatchCard(st, sym, p, det)
     Card(Modifier.fillMaxWidth(), pad = S.cardPad) {
         val log = det?.researchLog.orEmpty()
         if (loading) Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            T("Claude's research", 14.sp, modifier = Modifier.weight(1f), maxLines = 1); Skel(90.dp, 12.dp)
+            T("Narrativ.ai's research", 14.sp, modifier = Modifier.weight(1f), maxLines = 1); Skel(90.dp, 12.dp)
         }
-        else LinkRow("Claude's research", if (log.isEmpty()) "not studied yet" else "${log.size} entr${if (log.size == 1) "y" else "ies"} · last ${skDay(log.maxOf { it.date })}") { sheet = "research" }
+        else LinkRow("Narrativ.ai's research", if (log.isEmpty()) "not studied yet" else "${log.size} entr${if (log.size == 1) "y" else "ies"} · last ${skDay(log.maxOf { it.date })}") { sheet = "research" }
         if (det != null) LinkRow("All ratios and formulas", divider = true) { sheet = "ratios" }
     }
     when (sheet) {
@@ -274,13 +278,13 @@ private fun DecisionCard(st: AppState, sym: String, p: P?, det: Detail?, onOpen:
                 when {
                     rv.verdict == "pass" -> Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Rounded.Check, null, tint = reviewColor(rv.verdict), modifier = Modifier.size(15.dp)); Spacer(Modifier.width(4.dp))
-                        T("Claude verified" + (rv.date?.let { " ${skDay(it)}" } ?: ""), 13.sp, reviewColor(rv.verdict), maxLines = 1)
+                        T("Narrativ.ai verified" + (rv.date?.let { " ${skDay(it)}" } ?: ""), 13.sp, reviewColor(rv.verdict), maxLines = 1)
                     }
-                    rv.verdict != null -> T("Claude's review: ${reviewWord(rv.verdict)}" + (rv.date?.let { " · ${skDay(it)}" } ?: ""), 13.sp, reviewColor(rv.verdict), maxLines = 1)
-                    rv.pos > 0 -> T("Claude's review: #${rv.pos} of ${rv.of} in the queue", 13.sp, C.dim, maxLines = 2)
-                    rv.pos != 0 -> T("In Claude's research queue", 13.sp, C.dim, maxLines = 1)
-                    rv.studied != null -> T("Claude's notes only, no full review yet", 13.sp, C.dim, maxLines = 2)
-                    else -> T("Rules only: not studied by Claude", 13.sp, C.dim, maxLines = 2)
+                    rv.verdict != null -> T("Narrativ.ai's review: ${reviewWord(rv.verdict)}" + (rv.date?.let { " · ${skDay(it)}" } ?: ""), 13.sp, reviewColor(rv.verdict), maxLines = 1)
+                    rv.pos > 0 -> T("Narrativ.ai's review: #${rv.pos} of ${rv.of} in the queue", 13.sp, C.dim, maxLines = 2)
+                    rv.pos != 0 -> T("In Narrativ.ai's research queue", 13.sp, C.dim, maxLines = 1)
+                    rv.studied != null -> T("Narrativ.ai's notes only, no full review yet", 13.sp, C.dim, maxLines = 2)
+                    else -> T("Rules only: not studied by Narrativ.ai", 13.sp, C.dim, maxLines = 2)
                 }
                 val cv = det?.conviction?.takeIf { it.level != null }
                 val level = cv?.level ?: p?.cv
@@ -358,7 +362,7 @@ private fun PriceCard(p: P?, det: Detail?, chart: Chart?, chartLoaded: Boolean =
             SegmentedControl(RANGES.map { it.first }, range, { range = it }, compact = true)
             Spacer(Modifier.weight(1f))
             val lo = det?.stock?.lo52; val hi = det?.stock?.hi52
-            if (lo != null && hi != null) T("52-week ${rangeStr(lo, hi)}", 12.sp, C.dim, maxLines = 1)
+            if (lo != null && hi != null) Range52(lo, hi, p?.p ?: all.lastOrNull())
         }
         if (all.size < 2) {
             if (!chartLoaded) Skel(null, 190.dp, Modifier.padding(top = 10.dp))
@@ -382,49 +386,108 @@ private fun PriceCard(p: P?, det: Detail?, chart: Chart?, chartLoaded: Boolean =
             if (an.mean >= bLo && an.mean <= bHi + 0.15 * (bHi - bLo).coerceAtLeast(bHi * 0.02))
                 lines += HLine(an.mean, C.white, "Analyst target ${skRs(an.mean)}" + (an.n?.let { " · $it analyst" + (if (it == 1) "" else "s") } ?: ""))
         }
+        // feedback #105: "H" / "L" dots at the highest and lowest close of the last 250 sessions, only when the shown window includes them
+        val marks = hiLoMarks(all, vals.size)
         val months = mapOf(22 to 1L, 65 to 3L, 130 to 6L, 260 to 12L)[n] ?: 12L
         val start = if (n >= all.size && chart?.d0 != null) skDate(chart.d0) else skToday().minusMonths(months)
         val startLabel = start?.let { if (months <= 3) skDay(it.toString()) else shortMonth(it.toString()) } ?: ""
         AreaLine(vals, Modifier.fillMaxWidth().height(190.dp).padding(top = 10.dp), color = col, fillAlpha = 0.22f, strokeWidth = 1.8.dp,
-            bands = bands, lines = lines, hollowEnd = true, xLabels = listOf(startLabel, "Now ${skRs(p?.p ?: vals.last())}"))
+            bands = bands, lines = lines, hollowEnd = true, xLabels = listOf(startLabel, "Now ${skRs(p?.p ?: vals.last())}"), marks = marks)
+    }
+}
+
+/** About 52 weeks of sessions, for the chart's "H" / "L" closes. */
+const val SESSIONS_52W = 250
+
+/**
+ * feedback #105: index (in the last [shown] closes of [all]) of the highest close ("H", label above) and lowest close ("L", label below)
+ * of the last [SESSIONS_52W] sessions; a mark outside the shown window is left out.
+ */
+fun hiLoMarks(all: List<Double>, shown: Int): List<PointMark> {
+    if (all.size < 2 || shown < 2) return emptyList()
+    val off = (all.size - SESSIONS_52W).coerceAtLeast(0)
+    val w = all.subList(off, all.size)
+    val ih = off + w.indices.maxBy { w[it] }; val il = off + w.indices.minBy { w[it] }
+    if (ih == il) return emptyList()
+    val start = all.size - shown.coerceAtMost(all.size)
+    return listOfNotNull(
+        PointMark(il - start, "L", above = false).takeIf { il >= start },
+        PointMark(ih - start, "H", above = true).takeIf { ih >= start },
+    )
+}
+
+/** feedback #105: "L ₹lo ──●── H ₹hi" in the chart's range row; the dot is today's price on the 52-week range. */
+@Composable
+private fun Range52(lo: Double, hi: Double, now: Double?) {
+    val f = if (now == null || hi <= lo) null else ((now - lo) / (hi - lo)).coerceIn(0.0, 1.0).toFloat()
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+        T("L ${skRs(lo)}", 12.sp, C.dim, maxLines = 1)
+        Canvas(Modifier.size(42.dp, 12.dp)) {
+            val x0 = 4.dp.toPx(); val x1 = size.width - 4.dp.toPx(); val cy = size.height / 2
+            drawLine(Color.White.copy(alpha = 0.25f), Offset(x0, cy), Offset(x1, cy), 1.5.dp.toPx(), cap = StrokeCap.Round)
+            f?.let { drawCircle(C.white, 4.dp.toPx(), Offset(x0 + it * (x1 - x0), cy)) }
+        }
+        T("H ${skRs(hi)}", 12.sp, C.dim, maxLines = 1)
     }
 }
 
 // ---------------------------------------------------------------- plan
+/** The Plan card's sources line, shown under "How these are set" in the (i) sheet. */
+const val PLAN_BASED = "Based on: Donchian / Turtle 55-day breakout; Wilder's average true range for the exit; O'Neil's 5% chase and 8% loss limits. " +
+    "Our replay: stocks with a live setup beat the Nifty more often (51–53% vs 31–43%)."
+
+/** feedback #92: the amber line while the stock cools off after its exit level broke; null when there is no exit_hit. */
+fun exitHitLine(e: ExitHit?): String? {
+    val stop = e?.stop ?: return null
+    val lvl = "₹" + skFx(stop, 2)
+    return "Exit level $lvl" + (e.date?.let { " hit on ${skDay(it)}" } ?: " hit") + ": wait for a close above $lvl or a new setup"
+}
+
 @Composable
-private fun PlanCard(s: Setup, an: Analyst? = null) {
+private fun PlanCard(s: Setup, an: Analyst? = null, exitHit: ExitHit? = null) {
+    var info by remember { mutableStateOf(false) }
+    val target = an?.takeIf { it.mean > 0 }
+    val rows = buildList {
+        if (s.lo != null && s.hi != null) add(Triple(if (s.type == "Breakout") "Buy on a close above" else "Buy between",
+            if (s.type == "Breakout") skRs(s.lo) else rangeStr(s.lo, s.hi), C.white))
+        else if (s.watchLo != null && s.watchHi != null) add(Triple("Buy on a dip to", rangeStr(s.watchLo, s.watchHi), C.white))
+        s.add?.let { add(Triple("Buy rest above", skRs(it), C.white)) }
+        if (s.add == null && s.watchLo != null) s.sma50?.let { add(Triple("Weakens below (50-day)", skRs(it), C.amber)) }
+        s.stop?.let { add(Triple("Exit if it closes below", skRs(it), TierC.lightRed)) }
+        when {
+            s.rrNote == "Above analyst target" -> add(Triple("Upside vs risk", "above target", C.amber))
+            s.rr != null -> add(Triple("Upside vs risk", mult(s.rr), C.white))
+        }
+        target?.let { a ->
+            val extra = listOfNotNull(a.upside?.let { skSgn(it) }, a.n?.let { "$it analyst" + if (it == 1) "" else "s" })
+            add(Triple("Analyst target", skRs(a.mean) + if (extra.isEmpty()) "" else " (${extra.joinToString(", ")})", C.white))
+        }
+    }
+    val how = planHow(s, showNote = rows.isNotEmpty())
     Card(Modifier.fillMaxWidth()) {
-        Row(Modifier.padding(bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        // feedback #98: "How these are set" moves from the card's foot into a sheet behind a small (i) in the header
+        Row(Modifier.fillMaxWidth().padding(bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             T("Plan", SECTION_TITLE, weight = FontWeight.SemiBold); Spacer(Modifier.width(8.dp))
             StatusChip(planName(s), color = setupColor(s.type, s.trendBroken()), minWidth = 0.dp)
-        }
-        val target = an?.takeIf { it.mean > 0 }
-        val rows = buildList {
-            if (s.lo != null && s.hi != null) add(Triple(if (s.type == "Breakout") "Buy on a close above" else "Buy between",
-                if (s.type == "Breakout") skRs(s.lo) else rangeStr(s.lo, s.hi), C.white))
-            else if (s.watchLo != null && s.watchHi != null) add(Triple("Buy on a dip to", rangeStr(s.watchLo, s.watchHi), C.white))
-            s.add?.let { add(Triple("Buy rest above", skRs(it), C.white)) }
-            if (s.add == null && s.watchLo != null) s.sma50?.let { add(Triple("Weakens below (50-day)", skRs(it), C.amber)) }
-            s.stop?.let { add(Triple("Exit if it closes below", skRs(it), TierC.lightRed)) }
-            when {
-                s.rrNote == "Above analyst target" -> add(Triple("Upside vs risk", "above target", C.amber))
-                s.rr != null -> add(Triple("Upside vs risk", mult(s.rr), C.white))
+            Spacer(Modifier.weight(1f))
+            if (how.isNotEmpty()) Box(Modifier.size(32.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.07f)).clickable { info = true },
+                contentAlignment = Alignment.Center) {
+                Icon(Icons.Outlined.Info, "How these are set", tint = C.dim, modifier = Modifier.size(20.dp))
             }
-            target?.let { a ->
-                val extra = listOfNotNull(a.upside?.let { skSgn(it) }, a.n?.let { "$it analyst" + if (it == 1) "" else "s" })
-                add(Triple("Analyst target", skRs(a.mean) + if (extra.isEmpty()) "" else " (${extra.joinToString(", ")})", C.white))
+        }
+        exitHitLine(exitHit)?.let { line ->
+            Row(Modifier.fillMaxWidth().padding(top = 2.dp, bottom = 6.dp).clip(RoundedCornerShape(10.dp)).background(C.amber.copy(alpha = 0.08f))
+                .padding(horizontal = 10.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(Modifier.padding(top = 5.dp).size(7.dp).clip(CircleShape).background(C.amber))
+                T(line, 12.5.sp, C.amber, lineHeight = 17.sp)
             }
         }
         if (rows.isEmpty()) T(s.note ?: "No buy zone today.", 13.sp, C.dim)
         rows.forEachIndexed { i, (k, v, c) -> KvRow(k, v, valueColor = c, divider = i < rows.lastIndex) }
-        val how = planHow(s, showNote = rows.isNotEmpty())
-        if (how.isNotEmpty()) {
-            T("How these are set", 13.sp, C.white, FontWeight.SemiBold, modifier = Modifier.padding(top = 12.dp, bottom = 4.dp))
-            how.forEach { T(it, 13.sp, C.muted, lineHeight = 19.sp, modifier = Modifier.padding(bottom = 4.dp)) }
-            T("Based on: Donchian / Turtle 55-day breakout; Wilder's average true range for the exit; O'Neil's 5% chase and 8% loss limits. " +
-                "Our replay: stocks with a live setup beat the Nifty more often (51–53% vs 31–43%).", LABEL, C.dim, lineHeight = 17.sp,
-                modifier = Modifier.padding(top = 4.dp))
-        }
+    }
+    if (info) BottomSheet({ info = false }, "How these are set") {
+        how.forEach { T(it, 14.sp, C.white, lineHeight = 20.sp, modifier = Modifier.padding(bottom = 10.dp)) }
+        T(PLAN_BASED, 12.sp, C.dim, lineHeight = 17.sp, modifier = Modifier.padding(top = 6.dp))
     }
 }
 
@@ -599,11 +662,11 @@ fun DecisionDetailsSheet(st: AppState, sym: String, p: P?, det: Detail?, onDismi
             }
         }
         // Claude's review
-        SheetSection("Review · Claude", audit?.date?.let { skDay(it) }) {
+        SheetSection("Review · Narrativ.ai", audit?.date?.let { skDay(it) }) {
             if (audit == null) {
                 val rv = reviewState(st, sym)
-                T(when { rv.verdict != null -> "Claude's review: ${reviewWord(rv.verdict)}"; rv.pos > 0 -> queueLabel(st, sym) ?: "In Claude's review queue"; rv.pos != 0 -> "In Claude's research queue"
-                         rv.studied != null -> "Claude's notes only (${skDay(rv.studied)}), no full review yet"; else -> "Rules only: not studied by Claude" }, 13.sp, C.dim)
+                T(when { rv.verdict != null -> "Narrativ.ai's review: ${reviewWord(rv.verdict)}"; rv.pos > 0 -> queueLabel(st, sym) ?: "In Narrativ.ai's review queue"; rv.pos != 0 -> "In Narrativ.ai's research queue"
+                         rv.studied != null -> "Narrativ.ai's notes only (${skDay(rv.studied)}), no full review yet"; else -> "Rules only: not studied by Narrativ.ai" }, 13.sp, C.dim)
             } else {
                 val oks = audit.checks.map { (it["ok"] as? JsonPrimitive)?.content == "true" }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -678,11 +741,11 @@ fun DecisionDetailsSheet(st: AppState, sym: String, p: P?, det: Detail?, onDismi
                 }
             }
             var more by remember { mutableStateOf(false) }
-            ToggleRow("Rule statement and Claude's thesis", r?.updated?.let { skDay(it) } ?: "", more, { more = !more }, Modifier.padding(top = 8.dp))
+            ToggleRow("Rule statement and Narrativ.ai's thesis", r?.updated?.let { skDay(it) } ?: "", more, { more = !more }, Modifier.padding(top = 8.dp))
             if (more) {
                 stmt?.let { T(it, 13.sp, lineHeight = 19.sp) }
                 r?.thesis?.let {
-                    T("Claude's thesis" + (r.updated?.let { u -> " · ${skDay(u)}" } ?: ""), LABEL, C.dim, modifier = Modifier.padding(top = 10.dp))
+                    T("Narrativ.ai's thesis" + (r.updated?.let { u -> " · ${skDay(u)}" } ?: ""), LABEL, C.dim, modifier = Modifier.padding(top = 10.dp))
                     T(it, 13.sp, lineHeight = 19.sp)
                 }
                 vl.takeIf { it.size > 1 }?.last()?.let { v -> T("Changed ${skDay(v.d)}: ${v.from} → ${v.v} (${v.cause})", 11.sp, C.amber, modifier = Modifier.padding(top = 8.dp)) }

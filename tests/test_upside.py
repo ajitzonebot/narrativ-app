@@ -46,10 +46,10 @@ def test_both_engines():
     assert c["U4"] == (None, None)
 
 
-def test_replay_ranking_includes_u1_boost():
+def test_replay_u1_boost_is_a_variant_only():
     from narrativ import replay as R
     rows = {s: {"eligible": True, "mos": True, "trend": True, "driver": True, "fwd": True, "R1": True, "R2": True, "R4": True, "R6": True, "rs": 50, "near": 50, "vs": 50,
                 "pr": 0, "setup": 0, "mb": False, "U1": s == "B", "i": s, "sec": s, "mc": 10000} for s in ("A", "B")}
     rows["A"]["rs"] = 60  # A leads by 4.5 points without the boost
-    assert R._pick(rows, R.CUR, R.BASE_W)[0] == "B"
-    assert R._pick(rows, R.CUR, {**R.BASE_W, "_no_u1": 1})[0] == "A"
+    assert R._pick(rows, R.CUR, {**R.BASE_W, "_boost": {"U1": 10}})[0] == "B"
+    assert R._pick(rows, R.CUR, R.BASE_W)[0] == "A"  # live ranking: no U1 boost (removed 25 Nov 2026)

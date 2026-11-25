@@ -96,3 +96,43 @@ def test_held_return_freezes_after_the_end():
     assert _held(c, "2026-11-10", 1, None, "2026-11-12") == 10.0
     assert _held(c, "2026-11-10", 3, None, "2026-11-12") == -1.0  # past the end: the 2026-11-12 close
     assert _held(c, "2026-11-10", 5, None, "2026-11-12") is None
+
+
+# ---------------------------------------------------------------- re-entry after an exit-level break (feedback #92)
+def test_reentry_date_from_closes_then_the_trading_calendar():
+    from datetime import date
+
+    from narrativ import holidays
+    assert holidays.nth_trading_day_after(date(2026, 11, 20), 10, {"2026-11-24"}) == date(2026, 12, 7)  # weekends + holiday
+    assert holidays.nth_trading_day_after(date(2026, 11, 20), 10, set()) == date(2026, 12, 4)
+    idx = pd.bdate_range("2026-11-02", periods=13)  # exit on 11-03; 11 closes after it
+    close = pd.Series(90.0, index=idx)
+    assert CALLS.reentry_after("2026-11-03", close, set()) == "2026-11-17"  # the 10th close after the exit
+    assert CALLS.reentry_after("2026-11-03", close.iloc[:5], set()) == "2026-11-17"  # 3 closes known, the rest by calendar
+    assert CALLS.reentry_after("2026-11-03", None, {"2026-11-10"}) == "2026-11-18"
+
+
+def test_exit_level_call_gets_reentry_after_and_exit_hit_while_cooling(tmp_path, monkeypatch):
+    monkeypatch.setattr("narrativ.holidays.load", lambda *a, **k: set())
+    closes = [100.0, 93.0] + [90.0] * 9
+    calls = run_update(tmp_path, monkeypatch, closes, [call(stop=95.0)], {"A.NS": {"d": "Buy"}}, {"A.NS": 85.0}, "2026-11-16")
+    assert calls[0]["reentry_after"] == "2026-11-17"  # the day the cooldown ends (a new call opens at that day's run)
+    idx = pd.bdate_range("2026-11-02", periods=len(closes))
+    close = pd.Series(closes, index=idx)
+    hit = CALLS.exit_hit(calls, "A.NS", "verified", close)
+    assert hit == {"stop": 95.0, "date": "2026-11-03", "reentry_after": "2026-11-17", "kind": "verified"}
+    assert CALLS.exit_hit(calls, "A.NS", "candidate", close) is None  # rated as the other kind: no exit on that kind
+    assert CALLS.exit_hit(calls, "A.NS", None, close) is None
+    assert CALLS.exit_hit(calls, "A.NS", "verified", pd.Series(closes[:-1] + [96.0], index=idx)) is None  # back above
+    held = [call(ended="2026-11-06", end_decision="Hold", stop=95.0)]
+    assert CALLS.exit_hit(held, "A.NS", "verified", close) is None  # ended because the decision moved, not on the exit level
+
+
+def test_reentry_after_backfilled_for_older_exit_calls(tmp_path, monkeypatch):
+    monkeypatch.setattr("narrativ.holidays.load", lambda *a, **k: set())
+    old = call(stop=95.0, ended="2026-11-03", end_decision="Exit level ₹95.00 broken")
+    calls = run_update(tmp_path, monkeypatch, [100.0, 93.0, 94.0], [old], {"A.NS": {"d": "Hold"}}, {}, "2026-11-04")
+    assert calls[0]["reentry_after"] == "2026-11-17"
+    other = call(ended="2026-11-03", end_decision="Hold")
+    calls = run_update(tmp_path, monkeypatch, [100.0, 93.0, 94.0], [other], {"A.NS": {"d": "Hold"}}, {}, "2026-11-04")
+    assert "reentry_after" not in calls[0]

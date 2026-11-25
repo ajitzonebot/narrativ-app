@@ -100,8 +100,8 @@ NOT_BUILT = {
     "D1 industry_breadth": "not reachable from the runner (as instructed)",
     "promoter change in 2024": "promoter history starts with the Dec-2024 quarter for most stocks (known ~21 Jan 2025), so no 2024 buy date has it",
 }
-STOP_ORDER = ["driver", "mos", "trend", "fwd", "R1", "R2", "R4", "R6"]  # as replay "current rules" (driver / fwd from 25 Nov 2026)
-STOP_NAME = {"driver": "no forward driver (no live code trigger)", "fwd": "forward direction not positive (one trigger, price not rising)",
+STOP_ORDER = ["driver", "mos", "trend", "fwd", "R1", "R2", "R4", "R6"]  # as replay "current rules" (driver / fwd from 25 Nov 2026, with the strength waiver)
+STOP_NAME = {"driver": "no forward driver (no live code trigger, relative strength below the top third)", "fwd": "forward direction not positive (one trigger, price not rising)",
              "mos": "L3 valuation: no margin of safety (tier 4-5 or unknown)", "trend": "price in downtrend / stage unknown",
              "R1": "gate R1 cash conversion", "R2": "gate R2 other income", "R4": "gate R4 no dated trigger",
              "R6": "gate R6 re-rating leg (fair value + heavily discovered)"}
@@ -761,7 +761,7 @@ def run() -> dict:
         "Thresholds from 2024 terciles were applied unchanged to 2025; definitions were written before results were seen. The decision tree is the only data-mined step and is judged on 2025 alone.",
         "Size dominates: the smallest and least-traded stocks have by far the highest 25% hit rates. Those are also where survivor bias is worst (failed micro-caps delisted and missing) and where returns are hardest to capture (circuit limits, impact cost); the 'tradeable only' table repeats every rule within market cap ≥ ₹500 cr and ≥ ₹1 cr/day.",
         "Industry and sector labels are today's classification (docs/data/picks.json), applied to the past.",
-        "Pipeline replay covers code rules only (no Claude review, research, announcements, analysts, shareholding for the management level).",
+        "Pipeline replay covers code rules only (no Narrativ.ai review, research, announcements, analysts, shareholding for the management level).",
     ]
     R["minutes"] = round((time.time() - t0) / 60, 1)
     OUT_JSON.parent.mkdir(parents=True, exist_ok=True)

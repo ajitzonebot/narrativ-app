@@ -356,7 +356,7 @@ def forward(store: dict) -> dict:
                       "rows": len(r["rows"]), "dated": sum(1 for x in r["rows"] if x.get("due") and x.get("kind") in DATED),
                       "items": r["rows"]}
     doc = {"date": str(datetime.now(IST).date()),
-           "note": "Found by free models; quotes verified verbatim by code. Not confirmed by Claude unless the stock's review uses them.",
+           "note": "Found by free models; quotes verified verbatim by code. Not confirmed by Narrativ.ai unless the stock's review uses them.",
            "stocks": st}
     FORWARD.write_text(json.dumps(doc, ensure_ascii=False, indent=0))
     return doc

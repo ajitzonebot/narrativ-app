@@ -29,13 +29,13 @@ import androidx.compose.ui.unit.sp
 
 /** Queue task -> (short name, what Claude does). */
 val QUEUE_TASKS = linkedMapOf(
-    "review" to ("Full review" to "Rules say Buy: Claude checks the numbers against the filing and passes or holds it."),
+    "review" to ("Full review" to "Rules say Buy: Narrativ.ai checks the numbers against the filing and passes or holds it."),
     "enrich" to ("Find catalyst" to "Looks only for a dated reason the price could move (order, capacity, guidance)."),
     "review_flag" to ("Check a flag" to "Opens a filing that raised a warning and says whether it matters."),
-    "recheck" to ("Recheck" to "New results since Claude's notes: updates them."),
+    "recheck" to ("Recheck" to "New results since Narrativ.ai's notes: updates them."),
     "audit" to ("Audit" to "Re-checks a stock already rated Buy against its latest filing."),
     "triage" to ("Quick look" to "Decides whether a stock is worth a full read."),
-    "scan" to ("First read" to "Claude reads the latest filings for the first time."),
+    "scan" to ("First read" to "Narrativ.ai reads the latest filings for the first time."),
 )
 
 // ---------------------------------------------------------------- Settings sub-screens (feedback #40, #41)
@@ -59,9 +59,9 @@ val SOURCES = listOf(
     Src("Shareholding", "Promoter holding and pledge, mutual funds, institutions, retail holders", "NSE shareholding pattern (XBRL), market-wide list of new and revised filings", "Every run", "NSE companies"),
     Src("Announcements", "Red flags (defaults, insolvency, rating actions, regulator orders, auditor exits, leadership changes) and order wins with rupee values", "NSE and BSE corporate announcements", "Daily (only the days since the last run)", "All companies, 25 months"),
     Src("Corporate filings", "Dividends, preferential issues, loans and guarantees to the promoter side, promoter trades, use of raised funds", "NSE corporate actions, further issues, governance filings, insider trading, statements of deviation; BSE dividends", "Daily; insider trades the day a disclosure is announced", "NSE companies; BSE dividends"),
-    Src("Analyst estimates", "Consensus target and EPS revisions (shown labelled); named broker targets", "Yahoo consensus; broker reports quoted in Claude's research", "Daily for rated stocks and after results, weekly for the rest", "Where covered"),
+    Src("Analyst estimates", "Consensus target and EPS revisions (shown labelled); named broker targets", "Yahoo consensus; broker reports quoted in Narrativ.ai's research", "Daily for rated stocks and after results, weekly for the rest", "Where covered"),
     Src("Market mood", "India VIX, Nifty vs 200-day, sector indices, breadth, 52-week highs and lows, put-call ratio, FII/DII flows", "NSE index closing file, F&O end-of-day file, own prices", "Daily", "Market-wide"),
-    Src("Research", "Full reviews of rule-Buy stocks (numbers checked against the filing), promises, guidance, drivers, red flags, story", "Claude reading filings and transcripts; quotes verified word-for-word", "5 runs a day; published within about 30 minutes", "Your requests and rule-Buy stocks first (full reviews), then the research queue"),
+    Src("Research", "Full reviews of rule-Buy stocks (numbers checked against the filing), promises, guidance, drivers, red flags, story", "Narrativ.ai reading filings and transcripts; quotes verified word-for-word", "5 runs a day; published within about 30 minutes", "Your requests and rule-Buy stocks first (full reviews), then the research queue"),
     Src("Not connected yet", "Lenders' capital adequacy and NPA trend, order book to revenue, shareholding / surveillance / governance for BSE-only companies", "–", "–", "Shown as 'source not connected yet'"),
 )
 

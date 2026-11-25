@@ -97,20 +97,34 @@ object Portfolio {
     }
 
     /** Zerodha holdings CSV: Instrument, Qty., Avg. cost, LTP, ... */
-    fun parse(text: String): List<Holding> {
-        val lines = text.removePrefix("\uFEFF").lines().filter { it.isNotBlank() }
-        if (lines.isEmpty()) return emptyList()
-        val head = fields(lines[0]).map { it.trim().trimStart('\uFEFF').lowercase() }
-        val iS = head.indexOfFirst { it.startsWith("instrument") || it == "symbol" }
-        val iQ = head.indexOfFirst { it.startsWith("qty") || it.startsWith("quantity") }
-        val iA = head.indexOfFirst { it.startsWith("avg") }
-        val iL = head.indexOfFirst { it == "ltp" }
-        if (iS < 0 || iQ < 0 || iA < 0) return emptyList()
-        return lines.drop(1).mapNotNull { l ->
-            val f = fields(l)
-            val s = f.getOrNull(iS)?.uppercase()?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
-            val q = f.getOrNull(iQ)?.replace(",", "")?.toDoubleOrNull() ?: return@mapNotNull null
-            Holding(s, q, f.getOrNull(iA)?.replace(",", "")?.toDoubleOrNull() ?: 0.0, f.getOrNull(iL)?.replace(",", "")?.toDoubleOrNull())
+    fun parse(text: String): List<Holding> =
+        parseRows(text.removePrefix("\uFEFF").lines().filter { it.isNotBlank() }.map { fields(it) })
+
+    /** A holdings file's bytes: Zerodha's Excel export (.xlsx) or the CSV. */
+    fun parseFile(bytes: ByteArray): List<Holding> =
+        if (Xlsx.isZip(bytes)) parseRows(Xlsx.rows(bytes)) else parse(bytes.toString(Charsets.UTF_8))
+
+    private fun clean(h: String) = h.trim().trimStart('\uFEFF').lowercase()
+    private fun isSym(h: String) = h.startsWith("instrument") || h == "symbol" || h == "trading symbol" || h == "tradingsymbol"
+    private fun isQty(h: String) = h.startsWith("qty") || h.startsWith("quantity")
+    private fun isAvg(h: String) = h.startsWith("avg") || h.startsWith("average")
+    private fun isLtp(h: String) = h == "ltp" || h == "previous closing price" || h == "close price"
+
+    /**
+     * Holdings from table rows: the header is the first row naming the symbol (Instrument / Symbol), the quantity (Qty. / Quantity Available)
+     * and the average cost (Avg. cost / Average Price), case-insensitive; rows above it (the .xlsx title block) are skipped.
+     */
+    fun parseRows(rows: List<List<String>>): List<Holding> {
+        val hi = rows.indexOfFirst { r -> val h = r.map(::clean); h.any(::isSym) && h.any(::isQty) && h.any(::isAvg) }
+        if (hi < 0) return emptyList()
+        val head = rows[hi].map(::clean)
+        val iS = head.indexOfFirst(::isSym); val iQ = head.indexOfFirst(::isQty); val iA = head.indexOfFirst(::isAvg)
+        val iL = head.indexOfFirst { it == "ltp" }.takeIf { it >= 0 } ?: head.indexOfFirst(::isLtp)
+        fun num(f: List<String>, i: Int) = f.getOrNull(i)?.replace(",", "")?.trim()?.toDoubleOrNull()
+        return rows.drop(hi + 1).mapNotNull { f ->
+            val s = f.getOrNull(iS)?.trim()?.uppercase()?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            val q = num(f, iQ) ?: return@mapNotNull null
+            Holding(s, q, num(f, iA) ?: 0.0, if (iL >= 0) num(f, iL) else null)
         }.filter { it.qty > 0 }
     }
 
@@ -311,17 +325,19 @@ fun PortfolioScreen(st: AppState) {
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
             val h = withContext(Dispatchers.IO) {
-                val text = runCatching { ctx.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() } }.getOrNull()
-                text?.let { Portfolio.parse(it) }.orEmpty()
+                val bytes = runCatching { ctx.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull()
+                bytes?.let { runCatching { Portfolio.parseFile(it) }.getOrNull() }.orEmpty()
             }
-            if (h.isEmpty()) st.toast = "No holdings found: pick the holdings CSV (columns Instrument, Qty., Avg. cost)"
+            if (h.isEmpty()) st.toast = "No holdings found: pick the Zerodha holdings file (.xlsx or .csv)"
             else {
                 store = withContext(Dispatchers.IO) { Portfolio.importHoldings(ctx, st.repo, h, st.picks) }
                 st.toast = "Imported ${h.size} holdings"
             }
         }
     }
-    fun launchImport() = pick.launch(arrayOf("text/*", "application/vnd.ms-excel", "application/octet-stream"))
+    // feedback #91: Zerodha's holdings export is an Excel .xlsx; the CSV still works ("*/*" for pickers that label either file oddly)
+    fun launchImport() = pick.launch(arrayOf("text/csv", "text/comma-separated-values", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.ms-excel", "text/*", "application/octet-stream", "*/*"))
     val pf = st.picks
     val picks = remember(pf) { pf?.picks?.associateBy { it.s }.orEmpty() }  // once per picks.json, not every recomposition
     val live = rememberLiveQuotes(st, store.holdings.map { it.s })
@@ -347,9 +363,9 @@ fun PortfolioScreen(st: AppState) {
                         androidx.compose.material3.Icon(Icons.Rounded.Upload, null, tint = C.blue, modifier = Modifier.size(38.dp))
                     }
                     T("Track your holdings", 24.sp, weight = FontWeight.Bold, modifier = Modifier.padding(top = 24.dp))
-                    T("Import the holdings CSV from Zerodha (Instrument, Qty., Avg. cost).", 14.sp, C.dim, lineHeight = 20.sp,
+                    T("Import your Zerodha holdings file (Excel .xlsx or CSV).", 14.sp, C.dim, lineHeight = 20.sp,
                         align = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.padding(top = 8.dp, bottom = 28.dp))
-                    PrimaryButton("Import Zerodha CSV", Modifier.fillMaxWidth()) { launchImport() }
+                    PrimaryButton("Import Zerodha holdings", Modifier.fillMaxWidth()) { launchImport() }
                     Row(Modifier.padding(top = 22.dp), verticalAlignment = Alignment.CenterVertically) {
                         androidx.compose.material3.Icon(Icons.Rounded.Lock, null, tint = C.dim, modifier = Modifier.size(16.dp))
                         T("  Kept only on this phone. Never uploaded.", 13.sp, C.dim)
@@ -434,7 +450,7 @@ fun holdingLabel(p: P?, sym: String = ""): Pair<String, Color> = when {
     p == null -> (if (Regex("ETF|BEES").containsMatchIn(sym.uppercase())) "ETF" else "Not scored") to C.dim
     p.dc in setOf("Buy", "Strong Buy") && p.vf == "pass" -> (p.dc ?: "Buy") to decisionColor(p.dc)
     p.dc in setOf("Sell", "Strong Sell") -> (p.dc ?: "Sell") to decisionColor(p.dc)
-    p.vf in setOf("caution", "fail") -> "${p.dc ?: "Hold"} · Claude ${p.vf}" to C.amber
+    p.vf in setOf("caution", "fail") -> "${p.dc ?: "Hold"} · Narrativ.ai ${p.vf}" to C.amber
     else -> (p.dc ?: "Not rated") to (if (p.dc == "Hold") C.grey else C.dim)
 }
 

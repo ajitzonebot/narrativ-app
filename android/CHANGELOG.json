@@ -1,5 +1,63 @@
 [
  {
+  "version": "2.28.0",
+  "date": "2026-11-25",
+  "changes": [
+   {
+    "type": "new",
+    "text": "Research queue: a Completed tab with everything Narrativ.ai finished in the last 7 days, newest first, with each result (Pass, Caution, Fail, or the task)"
+   },
+   {
+    "type": "change",
+    "text": "Settings: the version shows once, on the card at the top (it opens the release notes)"
+   },
+   {
+    "type": "change",
+    "text": "Feedback: one way to send a note, the feedback icon at the top"
+   }
+  ]
+ },
+ {
+  "version": "2.27.0",
+  "date": "2026-11-25",
+  "changes": [
+   {
+    "type": "new",
+    "text": "Price chart: the 52-week low and high with a dot at today's price, and H and L dots at the highest and lowest close of the year"
+   },
+   {
+    "type": "changed",
+    "text": "Plan: \"How these are set\" moves behind the (i) button on the Plan card"
+   },
+   {
+    "type": "new",
+    "text": "When a Buy closes on its exit level: the track record says so and, if it is still rated Buy, when it can be bought again; the stock's Plan says to wait for a close above the exit level or a new setup"
+   },
+   {
+    "type": "improved",
+    "text": "Portfolio: import Zerodha's holdings file as Excel (.xlsx) or CSV"
+   },
+   {
+    "type": "changed",
+    "text": "The research and reviews are now named Narrativ.ai"
+   }
+  ]
+ },
+ {
+  "version": "2.26.0",
+  "date": "2026-11-25",
+  "changes": [
+   {
+    "type": "improved",
+    "text": "Faster: screens show your saved copy at once and refresh in the background; files are downloaded again only when they changed; startup loads in parallel"
+   },
+   {
+    "type": "improved",
+    "text": "The replay sheet's R4 row is labelled \"Trigger or strength (R4)\"; research is published within about 30 minutes"
+   }
+  ]
+ },
+ {
   "version": "2.25.0",
   "date": "2026-11-25",
   "changes": [

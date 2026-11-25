@@ -4,16 +4,18 @@ At each month end T it rebuilds what the pipeline would have seen on T, with not
   - filings: only quarters whose XBRL was filed on or before T (data/financials, `filed` per quarter)
   - prices: closes up to T (the exchange-close store, data/source_cache/prices.pkl)
 and runs the same functions as run.py: metrics, the seven levels, entry setup, price signals (T11), the decision ladder's
-forward-driver step (a live code trigger as the driver, and a positive forward direction from those triggers), the Buy
-gates that code decides (R1 positive operating cash flow, R2 other income, R4 dated trigger from price/results signals or
-RS top third, R6 re-rating leg), the readiness ranking (funnel.setup_tier, as run.py) and the Top 10 caps (portfolio.top10).
+forward-driver step (a live code trigger as the driver, or with none the strength waiver: relative strength in the top
+third; and a positive forward direction), the Buy gates that code decides (R1 positive operating cash flow, R2 other
+income, R4 dated trigger from price/results signals or RS top third, R6 re-rating leg), the readiness ranking
+(funnel.setup_tier, as run.py) and the Top 10 caps (portfolio.top10).
 
 What it cannot replay: Claude's review and research (guidance, order books, drivers, verdicts), shareholding, analyst
 views, announcements and sector rotation. So a "candidate" here is a stock the code rules would send to Claude for a full
-review (good stability and quality, a live code trigger, 2+ triggers or 1 with a rising price, margin of safety, price not
-in a downtrend, gates passed), and the Top 10 is the readiness order of those candidates. Because a code trigger is
-required, R4's relative-strength pass never decides here (it only matters live, when Claude's driver is the driver). The universe is today's listed stocks (stocks delisted since are missing: survivor
-bias, which flatters every variant equally).
+review (good stability and quality, a live code trigger with 2+ triggers or 1 with a rising price, or no trigger and
+relative strength top third, margin of safety, price not in a downtrend, gates passed), and the Top 10 is the readiness
+order of those candidates. Every candidate passes R4 here (a code trigger is its first leg, relative strength top third
+its second). The universe is today's listed stocks (stocks delisted since are missing: survivor bias, which flatters
+every variant equally).
 
 Measures, per variant, for each Top 10 stock at each T: return over the next 3 / 6 / 12 months (63 / 126 / 252 trading
 days) vs the Nifty over the same days. `win_pct` = share of Top 10 picks that beat the Nifty. Baselines: all candidates,
@@ -92,6 +94,22 @@ def forward(trig: list[dict], stage: str | None) -> tuple[bool, bool]:
     return n >= 1, n >= 2 or (n == 1 and stage in ("Stage 2", "Stage 1→2"))
 
 
+def forward_waiver(trig: list[dict], stage: str | None, rs_top: bool) -> tuple[bool, bool]:
+    """(driver, fwd_pos) under the strength waiver, as funnel.decision decides them from 25 Nov 2026: with no code trigger,
+    relative strength in the top third (funnel.R4_RS_MIN) is the driver ("Signal: Price strength") and, being the only
+    driver, and top-third strength also counts as a positive forward direction when a code trigger is the driver (the tested
+    variant "driver: waived when relative strength is top third")."""
+    drv, fwd = forward(trig, stage)
+    return drv or rs_top, fwd or rs_top
+
+
+def forward_rs(trig: list[dict], stage: str | None, rs_top: bool) -> tuple[bool, bool]:
+    """Driver-rule investigation (owner, 25 Nov 2026): as `forward`, with relative strength in the top third of the universe
+    (R4's second leg, funnel.R4_RS_MIN) counted as one more forward driver ("Signal: price strength")."""
+    n = len({x.get("id") for x in trig or [] if x.get("id") != "T4"}) + (1 if rs_top else 0)
+    return n >= 1, n >= 2 or (n == 1 and stage in ("Stage 2", "Stage 1→2"))
+
+
 def _score(T: str) -> dict:
     """Everything the selection needs for one month end: per stock, gates, readiness inputs, forward returns."""
     Ts = pd.Timestamp(T)
@@ -154,10 +172,17 @@ def _score(T: str) -> dict:
         stage = next((i.get("v") for i in L["mom"]["items"] if i["id"] == "P1"), None)
         cc, oi = FN.cash_conversion(Mx)[0], MX.val(Mx, "other_income_pct_pbt")  # R1 on the unrounded value
         hi, pxl = t.get("hi52"), t.get("price")
-        drv, fwd_pos = forward(trig, stage)
+        drv, fwd_pos = forward(trig, stage)  # the driver rule of 24-25 Nov 2026 (code trigger only)
+        rs_top = float(rs_all.get(s, 0.5)) >= FN.R4_RS_MIN
+        drv_w, fwd_w = forward_waiver(trig, stage, rs_top)  # current: strength waiver (25 Nov 2026)
+        drv_rs, fwd_rs = forward_rs(trig, stage, rs_top)
         rows[s] = {
             "eligible": not out_l and good("surv", 3) and good("qual", 3),
-            "driver": drv, "fwd": fwd_pos,
+            "driver": drv_w, "fwd": fwd_w, "driver_old": drv, "fwd_old": fwd_pos, "drv_fwd": drv and fwd_pos,
+            "driver_rs": drv_rs, "fwd_rs": fwd_rs,
+            "rising": stage in ("Stage 2", "Stage 1→2"), "rs_top": rs_top,
+            "drv_or_rising": drv or stage in ("Stage 2", "Stage 1→2"), "fwd_or_rising": fwd_pos or stage in ("Stage 2", "Stage 1→2"),
+            "drv_or_rs": drv or rs_top, "fwd_or_rs": fwd_pos or rs_top,
             "mos": tt["val"] in (1, 2, 3),  # no research: credibility unknown, so valuation tier 1-3 (decision rule 6)
             "trend": stage not in ("Downtrend", None),
             "R1": bool(exempt) or cc is None or cc > FN.R1_MIN, "R1_50": bool(exempt) or cc is None or cc >= 50, "R1_25": bool(exempt) or cc is None or cc >= 25, "R2": bool(exempt) or oi is None or oi <= 25, "R4": bool(trig) or float(rs_all.get(s, 0.5)) >= FN.R4_RS_MIN, "R4_trig": bool(trig), "R4u": bool(trig) or float(rs_all.get(s, 0.5)) >= FN.R4_RS_MIN or bool(up["U1"][0] or up["U2"][0] or up["U3"][0]),
@@ -210,13 +235,15 @@ def _score(T: str) -> dict:
 
 
 BASE_W = {"rs": 0.45, "near": 0.15, "vs": 0.40}
-# current rules: the code-decidable part of the live decision ladder and Buy gates. "driver" and "fwd" (25 Nov 2026) make a
-# candidate need a live code trigger as its forward driver and a positive forward direction, as funnel.decision does; before,
-# the replay passed stocks the live run holds at "No trigger yet". With a code trigger required, R4 always passes (a live
-# trigger is R4's first leg): R4's relative-strength pass (owner, 24 Nov 2026) only matters live, when Claude's verified
-# driver is the forward driver, and the replay cannot measure that.
+# current rules: the code-decidable part of the live decision ladder and Buy gates. "driver" and "fwd" make a candidate need
+# a forward driver and a positive forward direction, as funnel.decision does: a live code trigger, or (strength waiver, owner
+# 25 Nov 2026) relative strength in the top third when there is no code trigger, which then is the driver and a positive
+# direction by itself (forward_waiver). "driver_old" / "fwd_old" are the rule of 24-25 Nov 2026 (code trigger only); before
+# that the replay passed stocks the live run held at "No trigger yet". Either way R4 always passes here (a live trigger is
+# R4's first leg, relative strength top third its second).
 CUR = ["eligible", "mos", "trend", "driver", "fwd", "R1", "R2", "R4", "R6"]
 OLD = [g for g in CUR if g not in ("driver", "fwd")]  # the replay's current rules until 25 Nov 2026
+CUR_OLD_DRIVER = [{"driver": "driver_old", "fwd": "fwd_old"}.get(g, g) for g in CUR]  # 24-25 Nov 2026, no strength waiver
 
 
 def _sub(gates: list[str], old: str, new: str | None = None) -> list[str]:
@@ -226,10 +253,17 @@ def _sub(gates: list[str], old: str, new: str | None = None) -> list[str]:
 
 VARIANTS = {  # name -> (gates and checks that must pass, ranking weights)
     "current rules": (CUR, BASE_W),
+    "(old) driver rule without strength waiver (24-25 Nov 2026)": (CUR_OLD_DRIVER, BASE_W),
     "(old) without driver requirement": (OLD, BASE_W),
     "(old) without driver requirement, without R4 dated trigger": (_sub(OLD, "R4"), BASE_W),
     "(old) without driver requirement, setup tier as before 25 Nov 2026": (OLD, {**BASE_W, "_oldsetup": 1}),
     "without forward-direction check (driver only)": (_sub(CUR, "fwd"), BASE_W),
+    # driver-rule investigation (owner, 25 Nov 2026): which part of "no trigger yet -> Hold" costs winners. Each replaces the
+    # driver rule of 24-25 Nov 2026. The waiver adopted the same day (current rules) is the last one, except that a stock
+    # with one code trigger and a price not rising still needs a positive direction (the variant passed it on strength)
+    "driver: relative strength top third also counts": (_sub(_sub(CUR, "driver", "driver_rs"), "fwd", "fwd_rs"), BASE_W),
+    "driver: waived when price is rising (Stage 2 / 1→2)": (_sub(_sub(CUR, "driver", "drv_or_rising"), "fwd", "fwd_or_rising"), BASE_W),
+    "driver: waived when relative strength is top third": (_sub(_sub(CUR, "driver", "drv_or_rs"), "fwd", "fwd_or_rs"), BASE_W),
     "without R1 cash conversion": (_sub(CUR, "R1"), BASE_W),
     "without R2 other income": (_sub(CUR, "R2"), BASE_W),
     "without R4 dated trigger": (_sub(CUR, "R4"), BASE_W),
@@ -246,9 +280,9 @@ VARIANTS = {  # name -> (gates and checks that must pass, ranking weights)
 # upside checks U1-U5 (narrativ/upside.py), tested before they become rules: as a required gate, and as a ranking boost
 for u in ("U1", "U2", "U3", "U4", "U5"):
     VARIANTS[f"plus {u} {UP.NAMES[u]} required"] = (CUR + [u], BASE_W)
-    VARIANTS[f"rank: +10 more for {u} {UP.NAMES[u]}"] = (CUR, {**BASE_W, "_boost": {u: 10}})
-VARIANTS["rank: without the U1 boost (until 25 Nov 2026)"] = (CUR, {**BASE_W, "_no_u1": 1})
-VARIANTS["rank: +10 more each for U1 U2 U3 U5, +5 for U4"] = (CUR, {**BASE_W, "_boost": {"U1": 10, "U2": 10, "U3": 10, "U4": 5, "U5": 10}})
+    VARIANTS[f"rank: +10 for {u} {UP.NAMES[u]}"] = (CUR, {**BASE_W, "_boost": {u: 10}})
+VARIANTS["rank: +10 for U1 (adopted and removed 25 Nov 2026)"] = (CUR, {**BASE_W, "_boost": {"U1": UP.U1_BOOST}})
+VARIANTS["rank: +10 each for U1 U2 U3 U5, +5 for U4"] = (CUR, {**BASE_W, "_boost": {"U1": 10, "U2": 10, "U3": 10, "U4": 5, "U5": 10}})
 VARIANTS["U1 or U2 or U3 also passes R4"] = (_sub(CUR, "R4", "R4u"), BASE_W)
 VARIANTS["U1/U2/U3 pass R4, +10 for U2"] = (_sub(CUR, "R4", "R4u"), {**BASE_W, "_boost": {"U2": 10}})
 # R1 softer levels (owner, 23 Nov 2026: R1 blocks the most candidates; replay showed the blocked ones beat the passed ones)
@@ -276,8 +310,6 @@ def _pick(rows: dict, gates: list[str], w: dict) -> list[str]:
         r = rows[s]
         blend = sum(wt * (r[k] if r[k] is not None else 50) for k, wt in w.items() if not k.startswith("_")) + (5 if r["mb"] else 0)
         blend += sum(pts for u, pts in (w.get("_boost") or {}).items() if r.get(u))
-        if not w.get("_no_u1") and r.get("U1"):  # live rule (RULES.md Ranking): every variant starts from it
-            blend += UP.U1_BOOST
         tier = 0 if w.get("_nosetup") else r.get("setup_old", r["setup"]) if w.get("_oldsetup") else r["setup"]
         if w.get("_cbfirst") and r.get("cb"):
             tier = -1  # confirmed breakouts ahead of every setup tier
@@ -346,6 +378,25 @@ def gate_split(res: list[dict]) -> dict:
     return out
 
 
+def driver_split(res: list[dict]) -> dict:
+    """Driver-rule investigation (owner, 25 Nov 2026). Stocks that pass every other current gate, split by the driver rule
+    of 24-25 Nov 2026 (`driver_old` / `fwd_old`: a code trigger as forward driver and a positive forward direction): passes
+    vs blocked, and the blocked side by price strength and stage. All candidates, not only the Top 10, for sample size.
+    The blocked, relative-strength-top-third group with no code trigger is what the strength waiver now lets through."""
+    others = [g for g in VARIANTS["current rules"][0] if g not in ("driver", "fwd")]
+    rows = [(r["T"], s, r["fwd"].get(s, {}), rw) for r in res for s, rw in r["rows"].items() if all(rw[g] for g in others)]
+    groups = {
+        "passes (has a code trigger and positive direction)": lambda rw: rw["drv_fwd"],
+        "blocked: no code trigger": lambda rw: not rw["driver_old"],
+        "blocked: one trigger, price not rising": lambda rw: rw["driver_old"] and not rw["fwd_old"],
+        "blocked, relative strength top third": lambda rw: not rw["drv_fwd"] and rw["rs_top"],
+        "blocked, relative strength below top third": lambda rw: not rw["drv_fwd"] and not rw["rs_top"],
+        "blocked, price rising (Stage 2 / 1→2)": lambda rw: not rw["drv_fwd"] and rw["rising"],
+        "blocked, price not rising": lambda rw: not rw["drv_fwd"] and not rw["rising"],
+    }
+    return {name: {k: _stats([(T, s, f) for T, s, f, rw in rows if fn(rw)], k) for k in H} for name, fn in groups.items()}
+
+
 def run(quick: bool = False) -> dict:
     t0 = time.time()
     _load(quick)
@@ -357,7 +408,7 @@ def run(quick: bool = False) -> dict:
     with Pool() as pool:
         res = pool.map(_score, dates)
     out = {"dates": [dates[0], dates[-1]] if dates else [], "months": len(dates), "horizons": H, "variants": {}, "baselines": {},
-           "note": ("Replay of the code rules only (Claude's research and review cannot be replayed). win_pct = share of Top 10 "
+           "note": ("Replay of the code rules only (Narrativ.ai's research and review cannot be replayed). win_pct = share of Top 10 "
                     "picks that beat the Nifty over the horizon. Universe = today's listed stocks (survivor bias)."),
            "minutes": None}
     detail = {}
@@ -377,6 +428,7 @@ def run(quick: bool = False) -> dict:
         out["baselines"][name] = {k: _stats(picks, k) for k in H}
     out["conviction"] = conviction_split(res, detail)
     out["gates"] = gate_split(res)
+    out["driver_split"] = driver_split(res)
     out["minutes"] = round((time.time() - t0) / 60, 1)
     OUT.write_text(json.dumps(out, indent=1))
     DETAIL.parent.mkdir(parents=True, exist_ok=True)

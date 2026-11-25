@@ -100,14 +100,14 @@ fun IndustryWhySheet(st: AppState, name: String, rot: Rot?, data: IndustryWhyDat
                 }
             }
             entry?.noneFound == true -> T("No single event found for this move; it shows in prices only.", 13.sp, C.muted, lineHeight = 19.sp)
-            else -> T("Claude hasn't written the reasons yet (written weekly for rising industries).", 13.sp, C.muted, lineHeight = 19.sp)
+            else -> T("Narrativ.ai hasn't written the reasons yet (written weekly for rising industries).", 13.sp, C.muted, lineHeight = 19.sp)
         }
         val dataText = industryDataText(rot, pack)
         if (dataText.isNotBlank()) {
             T("In the data", 12.sp, C.dim, FontWeight.SemiBold, modifier = Modifier.padding(top = 16.dp, bottom = 4.dp))
             T(dataText, 12.sp, C.dim, lineHeight = 17.sp)
         }
-        T("Written by Claude from the linked sources" + (entry?.date?.let { ", ${skDay(it)}" } ?: "") + ". A reason without a source is not shown.",
+        T("Written by Narrativ.ai from the linked sources" + (entry?.date?.let { ", ${skDay(it)}" } ?: "") + ". A reason without a source is not shown.",
             12.sp, C.dim, lineHeight = 17.sp, modifier = Modifier.padding(top = 16.dp))
         val n = rot?.n ?: pack?.facts?.members
         MoreLink(if (n != null) "See the $n stocks" else "See the stocks") { onDismiss(); st.go(Screen.Screener("ind:$name")) }

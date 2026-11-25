@@ -64,7 +64,7 @@ def main() -> None:
             out["errors"] += 1
             print(f"[sim] {s}: {type(e).__name__}: {e}")
             continue
-        label = dec.get("candidate") and f"{dec['candidate']} candidate (needs Claude's review)" or dec.get("d")
+        label = dec.get("candidate") and f"{dec['candidate']} candidate (needs Narrativ.ai's review)" or dec.get("d")
         if dec.get("gates"):
             label = f"Hold (scores say Buy, gates fail: {', '.join(g[:2] for g in dec['gates'])})"
         out["idea1"][label] += 1
@@ -82,7 +82,7 @@ def main() -> None:
           "", "## Idea 1: stocks with a code trigger, rated by today's ladder and gates", "", "| New rating | Stocks |", "|---|---|"] + [
           f"| {k} | {v} |" for k, v in sorted(out["idea1"].items(), key=lambda kv: -kv[1])] + [
           "", "Triggers seen: " + ", ".join(f"{k} {v}" for k, v in sorted(out["trigger_ids"].items(), key=lambda kv: -kv[1])), "",
-          f"## New Buy candidates for Claude's review ({len(out['candidates'])})", "", "| Rank | Stock | Industry | Rules say | Triggers |", "|---|---|---|---|---|"] + [
+          f"## New Buy candidates for Narrativ.ai's review ({len(out['candidates'])})", "", "| Rank | Stock | Industry | Rules say | Triggers |", "|---|---|---|---|---|"] + [
           f"| {c['rk']} | {c['c']} | {c['i'] or '–'} | {c['label']} | {', '.join(c['triggers'])} |" for c in out["candidates"]] + [
           "", f"Idea 2: {out['idea2']} stocks become \"Hold: no trigger yet\".", f"Errors: {out['errors']}."]
     OUT_MD.parent.mkdir(parents=True, exist_ok=True)

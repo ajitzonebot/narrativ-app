@@ -1,11 +1,17 @@
 {
- "note": "All times IST. The 08:30, 15:30 and 17:10 jobs are started by the Cloudflare Worker (GitHub timer as backup). After each research run a GitHub job publishes Claude's verdicts.",
+ "note": "All times IST. The 08:30, 15:30 and 17:10 jobs are started by the Cloudflare Worker (GitHub timer as backup). After each research run a GitHub job publishes Narrativ.ai's verdicts.",
  "jobs": [
   {
    "time": "04:05 09:05 14:05 18:05 23:05",
    "days": "Daily",
-   "name": "Research: full reviews of your requests and rule-Buys first, published within about 30 minutes",
-   "by": "Claude"
+   "name": "Full reviews and red flags: rule-Buys, your requests, filings flagged as risky",
+   "by": "Narrativ.ai"
+  },
+  {
+   "time": "07:05 12:05 16:05",
+   "days": "Daily",
+   "name": "Catalysts and upkeep: dated drivers, rechecks after news, industry reasons",
+   "by": "Narrativ.ai"
   },
   {
    "time": "08:30",
@@ -40,7 +46,7 @@
   {
    "time": "after 17:10",
    "days": "Daily run days; Sat–Sun 14:45",
-   "name": "Free readers: Flash-Lite reads every stock's latest call, Flash reads Claude's next stocks",
+   "name": "Free readers: Flash-Lite reads every stock's latest call, Flash reads Narrativ.ai's next stocks",
    "by": "GitHub"
   },
   {
@@ -65,7 +71,7 @@
    "time": "11:47",
    "days": "Sunday",
    "name": "Weekly review: data-fix and rule-change pull requests (you merge)",
-   "by": "Claude"
+   "by": "Narrativ.ai"
   }
  ]
 }

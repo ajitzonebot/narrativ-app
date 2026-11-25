@@ -145,7 +145,7 @@ class AppState(private val ctx: Context, startStack: List<Screen> = listOf(Scree
         val before = picks?.updated; val rb = research.size to research.values.mapNotNull { it.updated }.maxOrNull()
         load()
         if (before != null && picks?.updated != before) toast = "Updated to data of ${shortDate(picks?.date)} · ${istTime(picks?.updated)}"
-        else if (before != null && (research.size to research.values.mapNotNull { it.updated }.maxOrNull()) != rb) toast = "New Claude research loaded"
+        else if (before != null && (research.size to research.values.mapNotNull { it.updated }.maxOrNull()) != rb) toast = "New Narrativ.ai research loaded"
     }
 
     /** [picksText]: a picks.json request already started (App starts it during the phone-copy pass). */

@@ -66,7 +66,7 @@ fun VerifiedTick(verified: Boolean, modifier: Modifier = Modifier, size: Dp = 15
     Box(modifier.size(size).clip(CircleShape)
         .then(if (verified) Modifier.background(TierC.lightGreen) else Modifier.border(1.dp, TierC.grey, CircleShape)),
         contentAlignment = Alignment.Center) {
-        Icon(Icons.Rounded.Check, if (verified) "Verified by Claude" else "Researched by Claude, not verified",
+        Icon(Icons.Rounded.Check, if (verified) "Verified by Narrativ.ai" else "Researched by Narrativ.ai, not verified",
             tint = if (verified) Color(0xFF0B0C0E) else C.dim, modifier = Modifier.size(size * 0.73f))
     }
 }

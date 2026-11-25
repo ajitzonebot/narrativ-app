@@ -114,7 +114,7 @@ fun HomeScreen(st: AppState) {
                 }
             }
             item {
-                if (stockTop.isEmpty() && ipoTop.isEmpty()) Empty(if (pending > 0) "$pending Buy-rated stocks are queued for Claude's review; verified ones appear here." else "No verified Buy today.")
+                if (stockTop.isEmpty() && ipoTop.isEmpty()) Empty(if (pending > 0) "$pending Buy-rated stocks are queued for Narrativ.ai's review; verified ones appear here." else "No verified Buy today.")
                 else Top10Card(st, stockTop, ipoTop)
             }
             rp?.let { r ->
@@ -331,7 +331,7 @@ fun HowWeKnowSheet(st: AppState, rp: ReplayFile, cf: CallsFile?, onDismiss: () -
             }
         }
         T("Limits", 15.sp, weight = FontWeight.SemiBold, modifier = Modifier.padding(top = 16.dp, bottom = 4.dp))
-        listOf("Code rules only: Claude's reviews cannot be replayed.",
+        listOf("Code rules only: Narrativ.ai's reviews cannot be replayed.",
             "One period, ${monYear(rp.dates.firstOrNull())} – ${monYear(rp.dates.lastOrNull())}; stocks delisted since are missing.",
             if ((cur.m3.winPct ?: 0) <= (any?.m3?.winPct ?: 0)) "No 3-month edge: ${cur.m3.winPct ?: "–"}% vs ${any?.m3?.winPct ?: "–"}% for any stock."
             else "3 months: ${cur.m3.winPct ?: "–"}% vs ${any?.m3?.winPct ?: "–"}% for any stock.").forEach {

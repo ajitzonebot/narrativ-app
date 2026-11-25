@@ -83,6 +83,8 @@ private val KNOB_RING = C.card2
 /** Horizontal level on a line chart (exit, buy-rest, pass line), dashed by default, label as a dark tag at the left. */
 data class HLine(val value: Double, val color: Color, val label: String? = null, val dashed: Boolean = true, val labelBelow: Boolean = false)
 /** Shaded horizontal band between two values (buy zone, analyst range), optional tag label at its top. */
+/** A labelled dot on the line at [index] (the 52-week "H" / "L" closes); the label sits above or below the dot. */
+data class PointMark(val index: Int, val label: String, val above: Boolean)
 data class HBand(val lo: Double, val hi: Double, val color: Color, val label: String? = null, val alpha: Float = 0.22f)
 /** Extra line on a line chart (e.g. 50-day / 200-day average); nulls leave gaps. */
 data class Series(val values: List<Double?>, val color: Color, val endLabel: String? = null, val width: Dp = 1.8.dp)
@@ -107,7 +109,7 @@ fun AreaLine(
     endLabel: String? = null, endLabelPos: EndLabel = EndLabel.Above, endLabelColor: Color = C.white,
     endDot: Boolean = true, hollowEnd: Boolean = false, pointDots: Boolean = false,
     today: Double? = null, todayLabel: String? = null, todayCaption: String? = "today", todayColor: Color = TierC.lightGreen,
-    xLabels: List<String> = emptyList(), rightGutter: Dp? = null,
+    xLabels: List<String> = emptyList(), rightGutter: Dp? = null, marks: List<PointMark> = emptyList(),
 ) {
     if (values.size < 2) return
     val tm = rememberTextMeasurer()
@@ -157,6 +159,13 @@ fun AreaLine(
         // level tags drawn over the line so they stay readable
         bands.forEach { b -> b.label?.let { chartText(tm, it, 7.dp.toPx(), y(b.hi) - 5.dp.toPx(), b.color, 10.sp, FontWeight.SemiBold, bg = Color.Black.copy(alpha = 0.8f)) } }
         lines.forEach { l -> l.label?.let { chartText(tm, it, 7.dp.toPx(), y(l.value) + (if (l.labelBelow) 14 else -4).dp.toPx(), l.color, 10.sp, FontWeight.SemiBold, bg = Color.Black.copy(alpha = 0.8f)) } }
+
+        marks.forEach { m ->
+            val o = pts.getOrNull(m.index) ?: return@forEach
+            drawCircle(C.card, 6.dp.toPx(), o); drawCircle(C.white, 4.dp.toPx(), o)
+            val ly = if (m.above) max(10.dp.toPx(), o.y - 9.dp.toPx()) else min(size.height - 1.dp.toPx(), o.y + 17.dp.toPx())
+            chartText(tm, m.label, o.x.coerceIn(5.dp.toPx(), size.width - 5.dp.toPx()), ly, C.white, 10.5.sp, FontWeight.Bold, Anchor.Middle)
+        }
 
         val last = pts.last()
         if (today != null) {

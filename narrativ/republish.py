@@ -52,13 +52,13 @@ def _verify(dec: dict, v: dict, filed: str | None, today) -> dict | None:
     if not label:
         return None  # rules did not say Buy: the review informs, it does not change the rating
     ver = FN.verification(v.get("audit"), filed, today, dec.get("call_since"))  # same latest-call rule as the daily run
-    why = [w for w in dec.get("why") or [] if not w.startswith(("Rules say", "Verified by Claude", "Independent audit", "Audit issue"))]
+    why = [w for w in dec.get("why") or [] if not w.startswith(("Rules say", *FN.VERIFIED_BY, "Independent audit", "Audit issue"))]
     if v.get("data_issues"):
         return {**dec, "d": "Hold", "candidate": label, "verified": ver["state"],
-                "why": [f"Rules say {label}, but Claude found a number to correct: "
+                "why": [f"Rules say {label}, but Narrativ.ai found a number to correct: "
                         + ", ".join(str(x.get("field")) for x in v["data_issues"][:3]) + " (re-scored at the evening run)"] + why}
     if ver["state"] == "pass":
-        d = {**dec, "d": label, "verified": "pass", "why": why + [f"Verified by Claude's full review on {ver['date']}"]}
+        d = {**dec, "d": label, "verified": "pass", "why": why + [f"Verified by Narrativ.ai's full review on {ver['date']}"]}
         d.pop("candidate", None)
         d["missing"] = [m for m in dec.get("missing") or [] if not m.startswith("Verification pending")]
         return d
@@ -71,9 +71,9 @@ def _verify(dec: dict, v: dict, filed: str | None, today) -> dict | None:
         return d
     if dec.get("d") in BUY:  # pending now (research changed after the audit, audit future-dated or stale): no longer a Buy
         return {**dec, "d": "Hold", "candidate": label, "verified": "pending",
-                "why": [f"Rules say {label}: waiting for Claude's full review"] + [w for w in why if not w.startswith("Verified by Claude")],
+                "why": [f"Rules say {label}: waiting for Narrativ.ai's full review"] + [w for w in why if not w.startswith(FN.VERIFIED_BY)],
                 "missing": [m for m in dec.get("missing") or [] if not m.startswith("Verification pending")]
-                + ["Verification pending: queued for Claude's full review" + (f" ({ver['why']})" if ver.get("why") else "")]}
+                + ["Verification pending: queued for Narrativ.ai's full review" + (f" ({ver['why']})" if ver.get("why") else "")]}
     return None
 
 
@@ -88,6 +88,11 @@ def open_issues(sym: str) -> list:
 
 
 def main(before: str | None) -> None:
+    try:  # Research queue > Completed in the app, also after runs that changed no research
+        from narrativ import runlog
+        runlog.completed()
+    except Exception as e:  # noqa: BLE001
+        print(f"[republish] research_done.json failed: {e}")
     syms = changed(before)
     if not syms:
         print("[republish] no research changes")

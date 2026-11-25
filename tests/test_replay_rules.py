@@ -28,7 +28,7 @@ def test_current_rules_require_a_driver_and_old_variant_does_not():
     assert R._pick(rows, *R.VARIANTS["(old) without driver requirement"]) == ["A", "B"]
     assert "R4" not in R.VARIANTS["(old) without driver requirement, without R4 dated trigger"][0]
     for name, (gates, _) in R.VARIANTS.items():  # every variant runs on the current rules unless it says "(old)"
-        if not name.startswith("(old)"):
+        if not name.startswith(("(old)", "driver:")):  # "driver:" variants replace the driver rule on purpose
             assert "driver" in gates, name
 
 

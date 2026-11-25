@@ -65,7 +65,7 @@ def test_apply_buy_rules_holds_for_open_issues_and_failed_gates():
 PASS = {"audit": {"verdict": "pass", "date": "2026-11-19",  # complete for RULES.md R7 (funnel.r7_missing)
                   "checks": [{"item": "Borrowings and lease liabilities", "rule": "debt_leases", "ok": True}],
                   "related_party": {"status": "not disclosed", "checked": "results notes", "source": "u"}}}
-CAND = {"d": "Hold", "candidate": "Buy", "why": ["Rules say Buy: waiting for Claude's full review"], "missing": ["Verification pending"]}
+CAND = {"d": "Hold", "candidate": "Buy", "why": ["Rules say Buy: waiting for Narrativ.ai's full review"], "missing": ["Verification pending"]}
 
 
 def test_republish_pass_becomes_buy_when_the_gates_hold():

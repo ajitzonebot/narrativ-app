@@ -6,7 +6,7 @@ already stored for other years are kept: the file grows into a multi-year list a
 Any fetch failure leaves the file as it is.
 """
 import json
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 URL = "https://www.nseindia.com/api/holiday-master?type=trading"
@@ -33,6 +33,28 @@ def merge(old: list[str], new: list[str]) -> list[str]:
     years the new list does not cover keep their stored dates."""
     years = {d[:4] for d in new}
     return sorted({d for d in old if d[:4] not in years} | set(new))
+
+
+def load(path: Path = OUT) -> set[str]:
+    """Stored NSE trading holidays as ISO dates; empty when the file is missing or unreadable (weekends still apply)."""
+    try:
+        return set(json.loads(path.read_text()).get("trading_holidays") or [])
+    except (ValueError, OSError):
+        return set()
+
+
+def is_trading_day(d: date, hol: set[str]) -> bool:
+    """A weekday that is not an NSE trading holiday. Years NSE has not published yet count every weekday."""
+    return d.weekday() < 5 and d.isoformat() not in hol
+
+
+def nth_trading_day_after(d: date, n: int, hol: set[str]) -> date:
+    """The n-th NSE trading day after `d` (d itself not counted)."""
+    x, k = d, 0
+    while k < n:
+        x += timedelta(days=1)
+        k += is_trading_day(x, hol)
+    return x
 
 
 def update(today: date | None = None, session=None, out: Path = OUT) -> dict | None:

@@ -215,6 +215,10 @@ import kotlinx.serialization.json.JsonPrimitive
                                        @SerialName("one_line") val oneLine: String? = null, val written: String? = null,
                                        val plain: Boolean = false)
 
+/** Detail.exit_hit: present only while the stock is cooling off after its exit level broke (feedback #92). */
+@Serializable data class ExitHit(val stop: Double? = null, val date: String? = null, @SerialName("reentry_after") val reentryAfter: String? = null,
+                                 val kind: String? = null)
+
 @Serializable data class Detail(val metrics: Map<String, JsonElement> = emptyMap(), val analyst: Analyst? = null,
                                 val levels: Map<String, Level> = emptyMap(), val verdict: String = "", val statement: String = "",
                                 val standouts: Standouts = Standouts(), val setup: Setup = Setup(),
@@ -225,7 +229,8 @@ import kotlinx.serialization.json.JsonPrimitive
                                 val conviction: Conviction? = null,
                                 @SerialName("latest_call_card") val callCard: CallCard? = null,
                                 val news: List<NewsItem> = emptyList(),
-                                val narrativ: NarrativSheet? = null) {
+                                val narrativ: NarrativSheet? = null,
+                                @SerialName("exit_hit") val exitHit: ExitHit? = null) {
     fun m(key: String): Metric? = (metrics[key] as? JsonObject)?.let { runCatching { json.decodeFromJsonElement(Metric.serializer(), it) }.getOrNull() }
     fun v(key: String): Double? = m(key)?.takeIf { !it.nm }?.v
     fun str(key: String): String? = (metrics[key] as? JsonPrimitive)?.takeIf { it.isString }?.content
@@ -301,7 +306,8 @@ import kotlinx.serialization.json.JsonPrimitive
                                  val price: Double? = null, val now: Double? = null, @SerialName("now_vs_nifty") val nowVsNifty: Double? = null,
                                  @SerialName("price_now") val priceNow: Double? = null, val ended: String? = null,
                                  @SerialName("end_decision") val endDecision: String? = null, @SerialName("to_end") val toEnd: Double? = null,
-                                 @SerialName("to_end_vs_nifty") val toEndVsNifty: Double? = null, val stop: Double? = null)
+                                 @SerialName("to_end_vs_nifty") val toEndVsNifty: Double? = null, val stop: Double? = null,
+                                 @SerialName("reentry_after") val reentryAfter: String? = null)
 @Serializable data class CallMix(val multibagger: Int = 0, @SerialName("on_track") val onTrack: Int = 0, val beat: Int = 0, val near: Int = 0,
                                  val loser: Int = 0, val n: Int = 0)
 @Serializable data class CallNow(val n: Int = 0, @SerialName("avg_pct") val avgPct: Double? = null, @SerialName("avg_vs_nifty") val avgVsNifty: Double? = null,
@@ -313,6 +319,9 @@ import kotlinx.serialization.json.JsonPrimitive
                                        @SerialName("days_ahead_pct") val daysAheadPct: Double? = null, val sharpe: Double? = null,
                                        @SerialName("nifty_sharpe") val niftySharpe: Double? = null,
                                        val curve: List<List<kotlinx.serialization.json.JsonPrimitive>> = emptyList())
+@Serializable data class DoneItem(val s: String? = null, val r: String? = null, val industries: String? = null)
+@Serializable data class DoneRun(val task: String? = null, val start: String = "", val items: List<DoneItem> = emptyList())
+@Serializable data class DoneFile(val since: String? = null, val days: Int = 7, val runs: List<DoneRun> = emptyList())
 @Serializable data class ReplayStat(val n: Int = 0, val months: Int? = null, @SerialName("win_pct") val winPct: Int? = null,
                                     @SerialName("avg_return_pct") val avgReturnPct: Double? = null, @SerialName("avg_vs_nifty") val avgVsNifty: Double? = null)
 @Serializable data class ReplayVar(@SerialName("avg_top10") val avgTop10: Double? = null, @SerialName("3m") val m3: ReplayStat = ReplayStat(),

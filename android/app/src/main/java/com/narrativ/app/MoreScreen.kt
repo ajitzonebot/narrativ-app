@@ -93,7 +93,7 @@ fun SettingsScreen(st: AppState) {
         }
         item {
             Card(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth(), pad = 0.dp) {
-                SetRow(Icons.Rounded.Tune, "Advanced", "Data, queue, checkpoints, releases", { st.go(Screen.Advanced) })
+                SetRow(Icons.Rounded.Tune, "Advanced", "Data, queue, checkpoints", { st.go(Screen.Advanced) })
             }
         }
         item {
@@ -112,7 +112,6 @@ fun AdvancedScreen(st: AppState) {
     val cps = st.memory?.stocks.orEmpty().flatMap { it.checkpoints }
     val ndue = cps.count { it.status == "due" }
     val n45 = cps.count { it.status == "open" && it.due in today.toString()..today.plusDays(45).toString() }
-    val newer = (st.version?.versionCode ?: 0) > BuildConfig.VERSION_CODE
     val last = runs?.firstOrNull()
     AccScreen(st, "Advanced", context = "Advanced") {
         item {
@@ -133,9 +132,7 @@ fun AdvancedScreen(st: AppState) {
                 AdvRow(Icons.Rounded.CalendarMonth, "Checkpoint calendar", { st.go(Screen.Calendar) }, if (ndue > 0) C.amber else null, "$ndue due · $n45 in 45 days", visual = {
                     if (ndue + n45 > 0) SegmentedBar(listOf(Segment(ndue.toDouble(), TierC.yellow), Segment(n45.toDouble(), C.grey)), Modifier.width(56.dp), height = 8.dp, legend = SegLegend.None)
                 })
-                HLineDivider(Modifier.padding(horizontal = 14.dp))
-                AdvRow(Icons.Rounded.Info, "Release notes", { st.go(Screen.Notes) }, if (newer) C.amber else TierC.lightGreen,
-                    "v${BuildConfig.VERSION_NAME} · " + if (newer) "update available" else "up to date")
+
             }
         }
     }

@@ -91,6 +91,6 @@ def checks(Mx_quarterly, roce_fy, debt_chg_pct, net_debt_ebitda, cur, hist_vals,
 NAMES = {"U1": "Profit speeding up", "U2": "Operating leverage", "U3": "Re-rating setup", "U4": "Selling overhang over",
          "U5": "Both engines: earnings and multiple"}
 
-# RULES.md Ranking: points added to the readiness blend when U1 passes (owner, 25 Nov 2026). Replay, 22 month ends Jan 2025 -
-# Oct 2026: Top 10 beat the Nifty in 58% / 65% / 78% of picks at 3 / 6 / 12 months vs 56% / 58% / 72% without it.
+# Tested as a ranking boost (adopted then removed 25 Nov 2026): in the replay matched to the live rules (code trigger as
+# forward driver) +10 for U1 gave 51/59/61% vs 53/57/61% without it at 3/6/12 months. Kept for the replay variants.
 U1_BOOST = 10

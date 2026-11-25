@@ -1,7 +1,7 @@
 """Tolerant reader of docs/data/research_runs.jsonl (one line per Claude research run, appended by the research task).
 
 Times were written in mixed formats: "18:06 IST", "22:36 IST+0 (UTC 22:35)", "08:36 UTC (14:06 IST)", "23:00 UTC".
-tasks/research.md now asks for ISO-8601 with offset ("2026-11-20T18:06+05:30"); old lines stay as they are, so every reader goes
+tasks/review.md and tasks/catalyst.md ask for ISO-8601 (and a "task" field: review / catalyst) with offset ("2026-11-20T18:06+05:30"); old lines stay as they are, so every reader goes
 through parse_time(). A time without a date takes the date from `day` (the line's queue_date: an approximation, flagged `approx`).
 Nothing here raises on a bad line or a bad time.
 """
@@ -92,3 +92,33 @@ def summary(runs: list[dict] | None = None) -> dict:
     last = runs[-1] if runs else {}
     return {"runs": len(runs), "last_end": last.get("end_utc"), "last_done": len(last.get("done") or []),
             "last_stopped": str(last.get("stopped") or "")[:120] or None}
+
+
+DONE = Path("docs/data/research_done.json")
+
+
+def completed(days: int = 7, now: datetime | None = None, path: Path | None = None, out_path: Path | None = None) -> dict:
+    """docs/data/research_done.json for the app's Research queue > Completed: every item a research run finished in the last
+    `days` days, newest run first. Each `done` entry "SYMBOL:result" becomes {"s", "r"} (r: pass / caution / fail for a full
+    review, else the task, e.g. enrich, recheck, dismissed); "industries:..." stays a text line. `task` is review / catalyst
+    (older lines have none)."""
+    now = now or datetime.now(timezone.utc)
+    cut = now - timedelta(days=days)
+    runs = []
+    for r in read(path or FILE):
+        t = r.get("start_utc") or r.get("end_utc")
+        if not t or datetime.fromisoformat(t) < cut or not r.get("done"):
+            continue
+        items = []
+        for d in r["done"]:
+            k, _, v = str(d).partition(":")
+            if k == "industries":
+                items.append({"industries": v})
+            elif k:
+                sym = k if "." in k else f"{k}.NS"
+                items.append({"s": sym, "r": (v or "done").strip()})
+        runs.append({"task": r.get("task"), "start": t, "approx": r.get("approx", False), "items": items})
+    runs.sort(key=lambda x: x["start"], reverse=True)
+    out = {"since": cut.date().isoformat(), "days": days, "runs": runs}
+    (out_path or DONE).write_text(json.dumps(out, separators=(",", ":"), ensure_ascii=False))
+    return out

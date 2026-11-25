@@ -96,7 +96,7 @@ fun StockScreen(st: AppState, sym: String, startTab: Int = 0) {
                             st.memory?.stocks?.firstOrNull { it.symbol == sym }?.dropReason?.let { T(it, 13.sp, C.dim) }
                         }
                         var research by remember { mutableStateOf(false) }
-                        Card(Modifier.fillMaxWidth(), pad = S.cardPad) { LinkRow("Claude's research") { research = true } }
+                        Card(Modifier.fillMaxWidth(), pad = S.cardPad) { LinkRow("Narrativ.ai's research") { research = true } }
                         if (research) ResearchSheet(st, sym, null) { research = false }
                     }
                     page == 0 -> SummaryTab(st, sym, p, det, chart, detLoaded, chartLoaded) { i -> scope.launch { pager.animateScrollToPage(i) } }

@@ -35,7 +35,7 @@ private val CP_TYPE = mapOf("results" to ("Results" to C.muted), "shareholding" 
 
 /** "Claude reviews 5 times a day: 04:05, 09:05, 14:05, 18:05, 23:05 IST", from the research schedule. */
 private fun researchScheduleText(): String =
-    "Claude reviews ${RESEARCH_SLOTS.size} times a day: " + RESEARCH_SLOTS.joinToString(", ") { "%02d:%02d".format(it / 60, it % 60) } + " IST"
+    "Narrativ.ai reviews ${RESEARCH_SLOTS.size} times a day: " + RESEARCH_SLOTS.joinToString(", ") { "%02d:%02d".format(it / 60, it % 60) } + " IST"
 
 /** "Quarter ending 30 Sep 2026" instead of the raw "quarter ending 2026-09-30". */
 private fun cpWhat(c: Checkpoint): String {

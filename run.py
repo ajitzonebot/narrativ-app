@@ -655,7 +655,8 @@ def main(limit: int | None) -> None:
         mb_of[s] = PF.multibagger(MX.val(Mx, "mcap_cr"), L["disc"]["t"], MX.val(Mx, "rev_yoy_pct"), e1.get("m") == 2,
                                   MX.val(Mx, "roce_pct"), trig, L["val"]["t"])
     print(f"[run] multibagger potential: {sum(mb_of.values())} stocks")
-    # U1 profit speeding up (narrativ/upside.py, RULES.md Ranking): +10 in the blend (owner, 25 Nov 2026, after the replay)
+    # U1 profit speeding up (narrativ/upside.py): shown on each stock's detail only. The +10 ranking boost (25 Nov 2026) was
+    # removed the same day: the replay matched to the live rules showed no gain (RULES.md change log)
     from narrativ import upside as UP
     u1_of = {s: UP.profit_speeding((mx.get(s) or {}).get("quarterly")) for s in syms}
     print(f"[run] U1 profit speeding up: {sum(1 for v in u1_of.values() if v[0])} stocks")
@@ -664,8 +665,7 @@ def main(limit: int | None) -> None:
     # 1 industry rotation: Leading/Improving > neutral/unknown > Weakening > Lagging
     # 2 entry setup: live (breakout, pullback, base) > wait > extended / trend broken
     # 3 blend: 45% momentum (relative-strength percentile) + 15% nearness to the 52-week high (T13) + 40% valuation score;
-    #   -15 institutions sold 3+ quarters (R5), +5 mutual funds entering (T15), +5 multibagger potential (MB),
-    #   +10 profit speeding up (U1)  [RULES.md Ranking]
+    #   -15 institutions sold 3+ quarters (R5), +5 mutual funds entering (T15), +5 multibagger potential (MB)  [RULES.md Ranking]
     # 4 overall score
     def readiness(s):
         q = (rot_ind.get(ind_of.get(s)) or {}).get("q")
@@ -683,8 +683,6 @@ def main(limit: int | None) -> None:
             blend += 5
         if mb_of.get(s):  # MB multibagger potential
             blend += 5
-        if (u1_of.get(s) or (None,))[0]:  # U1 profit speeding up
-            blend += UP.U1_BOOST
         return (ti, ts, -round(blend, 2), -ev[s]["pr"])
     rank_of = {s: i + 1 for i, s in enumerate(sorted(syms, key=readiness))}
 
@@ -1054,13 +1052,31 @@ def main(limit: int | None) -> None:
     fwd_st = (json.loads((OUT / "forward.json").read_text()) if (OUT / "forward.json").exists() else {}).get("stocks", {})
     story_st = ST._load()
     H.source("Narrativ sheets", plain_written=len(story_st.get("stocks") or {}), held=len(story_st.get("held") or {}))
+    # the loop's scorecard: did verified calls make money (vs the rule candidates and the Nifty)? Run before the detail files
+    # (25 Nov 2026) so each detail can say when its call ended on the exit level and when re-entry is possible (`exit_hit`)
+    from narrativ import calls as CALLS
+    try:
+        cl = CALLS.update(dec, px, bench_close, theses, today, {s: (ev[s]["setup"] or {}).get("stop") for s in syms},
+                          {s: c["level"] for s, c in conv.items()})
+        H.source("calls", open=cl["open"], verified_3m=(cl["summary"]["verified"]["3m"] or {}).get("avg_vs_nifty"))
+    except Exception as e:  # noqa: BLE001
+        print(f"[calls] failed: {e}")
+        cl = None
+
+    def exit_hit(s):
+        kind = "verified" if dec[s].get("d") in FN.BUY else "candidate" if dec[s].get("candidate") in FN.BUY else None
+        try:
+            return CALLS.exit_hit(cl["calls"], s, kind, px[s]["Close"]) if cl and kind and s in px else None
+        except Exception as e_:  # noqa: BLE001
+            print(f"[calls] exit_hit {s}: {e_}")
+            return None
     for s in syms:
         if s not in detail_syms:
             continue
         e, Mx, f, t = ev[s], mx[s], fund.get(s) or {}, tech.get(s) or {}
         bd = (bulk.get(s) or [])[:5]
         det = {"metrics": Mx, "analyst": e["an"], "broker_targets": named_of.get(s), "levels": e["L"], "verdict": e["vd"], "decision": dec[s], "audit_flags": aflags.get(s) or None,
-               "conviction": conv.get(s), "u1": (lambda u: {"ok": u[0], "v": u[1]} if u[0] is not None else None)(u1_of.get(s) or (None, None)), "commodity": CM.for_industry(cm, basic_of.get(s)) if CM else None,
+               "conviction": conv.get(s), "exit_hit": exit_hit(s), "u1": (lambda u: {"ok": u[0], "v": u[1]} if u[0] is not None else None)(u1_of.get(s) or (None, None)), "commodity": CM.for_industry(cm, basic_of.get(s)) if CM else None,
                "ratings": rat.get(s), "insolvency": ins.get(s), "latest_call_card": cards.get(s), "news": news_of.get(s),
                "statement": FN.statement(e["vd"], e["L"]) if not e["out"] else f"Removed at L{e['out'][0]} {FN.LEVEL_NAMES[FN.LEVELS[e['out'][0] - 1]]}: {e['out'][1]}.",
                "standouts": standouts(e["L"]), "setup": e["setup"], "hist": [{k: (round(x, 2) if isinstance(x, float) else x) for k, x in h.items()} for h in e["hist"]],
@@ -1123,20 +1139,17 @@ def main(limit: int | None) -> None:
     H.source("research", researched=len(theses), queue=len(queue))
     if not limit:  # scan requests Claude has worked on since they were made: comment and close the issue (needs issues: write)
         H.source("scan requests closed", closed=len(scan_requests.close_done(requested, raw_theses)))
-    try:  # the loop's scorecard: did verified calls make money (vs the rule candidates and the Nifty)?
-        from narrativ import calls as CALLS
-        cl = CALLS.update(dec, px, bench_close, theses, today, {s: (ev[s]["setup"] or {}).get("stop") for s in syms},
-                          {s: c["level"] for s, c in conv.items()})
-        H.source("calls", open=cl["open"], verified_3m=(cl["summary"]["verified"]["3m"] or {}).get("avg_vs_nifty"))
-    except Exception as e:  # noqa: BLE001
-        print(f"[calls] failed: {e}")
-        cl = None
     try:  # RULES.md scorecard + lessons (the rules themselves change only through a merged pull request)
         from narrativ import rules as RULES
         held = sorted(s.split(".")[0] for s, d in dec.items() if d.get("gates"))
         RULES.update(today, gate_n, held, funnel.get("decisions") or {}, cl)
     except Exception as e:  # noqa: BLE001
         print(f"[rules] failed: {e}")
+    try:
+        from narrativ import runlog
+        runlog.completed()  # docs/data/research_done.json: Research queue > Completed
+    except Exception as e:  # noqa: BLE001
+        print(f"[run] research_done.json failed: {e}")
     H.write(today, details, {"universe": len(syms), "in_funnel": len(infunnel), "decisions": funnel.get("decisions")})
     print(f"[run] funnel {funnel} mood {md.get('score')} {md.get('zone')} queue {[x['symbol'] for x in queue]}")
 

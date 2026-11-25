@@ -10,7 +10,7 @@ cache (data/news_cache, 60 days; the daily run keeps a copy in R2, news/news.jso
 headlines to companies by name and writes:
 - docs/data/news.json: per stock, the last 30 days of matched headlines (shown in the app; no rule uses news);
 - docs/data/industry_packs.json: for each Leading / Improving industry, its numbers, member headlines and the policy
-  releases, for Claude to write the real-world reasons (tasks/research.md, docs/data/industry_why.json);
+  releases, for Claude to write the real-world reasons (tasks/catalyst.md, docs/data/industry_why.json);
 - docs/data/industry_reasons.json: Claude's reasons kept only when each one links to an item in that industry's pack.
     python -m narrativ.news collect
 """
@@ -277,7 +277,7 @@ def reasons(packs: dict, today: date) -> dict:
         rs = [r for r in w.get("reasons") or [] if r.get("url") in ok_urls or str(r.get("url", "")).startswith("https://nsearchives.nseindia.com/")]
         out[name] = {"date": w.get("date"), "quadrant": w.get("quadrant"), "reasons": rs[:3],
                      "none_found": bool(w.get("none_found")) and not rs, "dropped": len(w.get("reasons") or []) - len(rs)}
-    doc = {"date": str(today), "industries": out, "source": "Claude, from the linked releases, headlines and filings"}
+    doc = {"date": str(today), "industries": out, "source": "Narrativ.ai, from the linked releases, headlines and filings"}
     Path("docs/data/industry_reasons.json").write_text(json.dumps(doc, ensure_ascii=False, indent=0))
     return doc
 

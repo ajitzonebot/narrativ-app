@@ -170,8 +170,8 @@ def _c7(th, reader):
     ours = [x for x in (th.get("drivers") or []) + (th.get("promises") or []) if x.get("due") and x.get("quote")]
     hit = [x for x in ours if len(_norm(x["quote"])) >= 20 and any(r in _norm(x["quote"]) or _norm(x["quote"]) in r for r in rq)]
     if not hit:
-        return False, f"reader found {len(rq)} dated row(s), none in the same words as Claude's"
-    return True, f"{len(hit)} of Claude's dated statements also found by the reader ({reader.get('model') or 'free model'})"
+        return False, f"reader found {len(rq)} dated row(s), none in the same words as Narrativ.ai's"
+    return True, f"{len(hit)} of Narrativ.ai's dated statements also found by the reader ({reader.get('model') or 'free model'})"
 
 
 def assess(dec: dict, L: dict, setup: dict | None, th: dict | None, Mx: dict | None, today: date, *,

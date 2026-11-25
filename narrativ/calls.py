@@ -67,6 +67,40 @@ def cooling(calls: list[dict], s: str, kind: str, close: pd.Series) -> bool:
     return not (len(c) and float(c.iloc[-1]) > float(last["stop"]))
 
 
+def exited_on_stop(c: dict) -> bool:
+    return bool(c.get("ended")) and str(c.get("end_decision") or "").startswith("Exit level")
+
+
+def reentry_after(ended: str, close: pd.Series | None = None, hol: set[str] | None = None) -> str:
+    """Date of the COOLDOWN-th trading day after a call's exit (feedback #92): the day `cooling` stops holding the stock
+    back even if the price stays below the exit level (it counts closes after the exit date). From the stock's own closes
+    while they reach that far; beyond the latest close, from the NSE trading calendar (weekends and
+    docs/data/holidays.json)."""
+    from datetime import date as _date
+
+    from narrativ import holidays
+    hol = holidays.load() if hol is None else hol
+    t0 = pd.Timestamp(ended)
+    after = [] if close is None else list(close.dropna().index[close.dropna().index > t0])
+    if len(after) >= COOLDOWN:
+        return str(after[COOLDOWN - 1].date())
+    base = after[-1].date() if after else _date.fromisoformat(str(ended)[:10])
+    return str(holidays.nth_trading_day_after(base, COOLDOWN - len(after), hol))
+
+
+def exit_hit(calls: list[dict], s: str, kind: str | None, close: pd.Series) -> dict | None:
+    """For the stock's detail file (the app): the latest call of the kind the stock is rated now (verified Buy or
+    candidate) ended on its exit level and the stock is still cooling (no new call yet), else None."""
+    if not kind:
+        return None
+    ended = [c for c in calls if c["symbol"] == s and c["kind"] == kind and c.get("ended")]
+    last = max(ended, key=lambda c: c["ended"], default=None)
+    if not last or not exited_on_stop(last) or not last.get("stop") or not cooling(calls, s, kind, close):
+        return None
+    return {"stop": float(last["stop"]), "date": str(last["ended"])[:10],
+            "reentry_after": last.get("reentry_after") or reentry_after(last["ended"], close), "kind": kind}
+
+
 MIN_DAYS = 20  # Sharpe and volatility need about a month of daily returns to mean anything
 
 
@@ -185,6 +219,13 @@ def update(dec: dict, px: dict, bench: pd.Series, theses: dict, today, stops: di
                 if lv:
                     row["conviction_date"] = str(today)
             calls.append(row)
+    # re-entry date of every call that ended on its exit level (feedback #92; older calls backfilled): recomputed each run,
+    # so a calendar estimate becomes the stock's own 10th close once it exists
+    from narrativ import holidays
+    hol = holidays.load()
+    for c in calls:
+        if exited_on_stop(c) and (c["symbol"] in px or not c.get("reentry_after")):
+            c["reentry_after"] = reentry_after(c["ended"], px[c["symbol"]]["Close"] if c["symbol"] in px else None, hol)
     if conviction is not None:
         set_conviction(calls, conviction, today)
     for c in calls:

@@ -183,7 +183,7 @@ fun ScreenerScreen(st: AppState, preset: String?) {
                 SegmentedBar(listOf(Segment(nVer.toDouble(), TierC.lightGreen), Segment((nRes - nVer).coerceAtLeast(0).toDouble(), Color.White.copy(alpha = 0.15f))),
                     height = 6.dp, legend = SegLegend.None)
                 Row(Modifier.padding(top = 5.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    listOf(Triple("Verified by Claude", nVer, TierC.lightGreen), Triple("Researched, not verified", nRes - nVer, Color.White.copy(alpha = 0.15f))).forEach { (k, n, c) ->
+                    listOf(Triple("Verified by Narrativ.ai", nVer, TierC.lightGreen), Triple("Researched, not verified", nRes - nVer, Color.White.copy(alpha = 0.15f))).forEach { (k, n, c) ->
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(Modifier.size(8.dp).clip(RoundedCornerShape(2.dp)).background(c)); T(" $k ", 11.sp, C.dim, maxLines = 1); T("$n", 11.sp, weight = FontWeight.SemiBold)
                         }
@@ -298,7 +298,7 @@ fun FilterSheet(st: AppState, start: Filt, saved: List<Filt>, onDismiss: () -> U
     BottomSheet(onDismiss, "Filters", titleExtra = {
         T("Reset", 14.sp, C.blue, modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable { d = Filt(sort = d.sort, q = d.q) }.padding(4.dp))
     }) {
-        Label("Claude research")
+        Label("Narrativ.ai research")
         Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(C.chip).padding(3.dp), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
             RESEARCH.forEach { r ->
                 val on = d.research == r

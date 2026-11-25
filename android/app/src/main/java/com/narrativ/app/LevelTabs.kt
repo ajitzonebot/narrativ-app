@@ -42,7 +42,7 @@ val LEVEL_RULES = listOf(
     "Can management be trusted? Removed on a red flag, or a low conviction score with enough data. Missing data never removes.",
     "Is the market noticing? No removals; used to prioritise research.",
     "How many institutions and analysts already own and cover it? No removals.",
-    "What could grow the business from here? Needs Claude's research of filings and transcripts.",
+    "What could grow the business from here? Needs Narrativ.ai's research of filings and transcripts.",
 )
 
 val TYPE_WHY = mapOf(
@@ -80,10 +80,10 @@ fun LevelTab(st: AppState, sym: String, p: P?, det: Detail?, chart: Chart?, i: I
         val oc = when { os >= 55 -> TierC.lightGreen; os >= 40 -> TierC.yellow; else -> TierC.lightRed }
         Card(Modifier.fillMaxWidth(), pad = S.cardPad) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                T("Claude's research outlook", SECTION_TITLE, weight = FontWeight.SemiBold, modifier = Modifier.weight(1f), maxLines = 1)
+                T("Narrativ.ai's research outlook", SECTION_TITLE, weight = FontWeight.SemiBold, modifier = Modifier.weight(1f), maxLines = 1)
                 T("$os/100", SECTION_TITLE, oc, FontWeight.Bold, maxLines = 1)
             }
-            T("From Claude's reading of filings and calls" + (r.updated?.let { " (${skDay(it)})" } ?: "") +
+            T("From Narrativ.ai's reading of filings and calls" + (r.updated?.let { " (${skDay(it)})" } ?: "") +
                 ". The tier above counts only dated triggers already filed.", LABEL, C.dim, lineHeight = 17.sp, modifier = Modifier.padding(top = 4.dp))
         }
     } }
@@ -386,7 +386,7 @@ private fun ManagementBody(st: AppState, sym: String, det: Detail, lv: Level, on
     val rows = listOfNotNull(
         lv.item("G1")?.let { g -> KeyCheck(lv.status("G1"), "Exchange action",
             if (g.v?.matches(Regex("^\\d{4}-\\d{2}-\\d{2}.*")) == true) skDay(g.v) else short(g.v, 16),
-            r?.flagReviews?.get("G1")?.verdict?.let { "$it by Claude" } ?: "24 months") },
+            r?.flagReviews?.get("G1")?.verdict?.let { "$it by Narrativ.ai" } ?: "24 months") },
         if (c8 != null && c8n.size >= 4) KeyCheck(lv.status("C8"), "ROCE held", skSgn(c8n[3] - c8n[1], 1, " pts"),
             "FY${c8n[0].toInt()}→${c8n[2].toInt()} · pass ≥ −2 pts", Bullet(c8n[3] - c8n[1], -6.0, 2.0, -2.0, partly = -5.0, unit = " pts")) else null,
         lv.item("C3")?.let { c -> KeyCheck(lv.status("C3"), "Promoter buying", if (c.v?.startsWith("no ") == true) "no trades" else short(c.v, 16), "12 months") },
@@ -715,7 +715,7 @@ private fun OutlookBody(st: AppState, sym: String, det: Detail, lv: Level, open:
     }.sortedBy { it.first }.map { (d, _, ti) -> ti.copy(date = skDue(d)) }
     if (items.isNotEmpty()) SectionCard("Dated triggers", "drivers, checks, promises") {
         DotTimeline(listOf(TimelineItem(skDay(skToday().toString()), "Today", today = true)) + items)
-    } else EmptyNote(if (lv.researched) "No dated trigger in filings or research yet." else "Dated triggers appear once Claude researches this stock.")
+    } else EmptyNote(if (lv.researched) "No dated trigger in filings or research yet." else "Dated triggers appear once Narrativ.ai researches this stock.")
     Card(Modifier.fillMaxWidth(), pad = S.cardPad) {
         lv.risks.forEachIndexed { i, rk ->
             if (i > 0) HLineDivider()
@@ -730,7 +730,7 @@ private fun OutlookBody(st: AppState, sym: String, det: Detail, lv: Level, open:
         var trig by remember { mutableStateOf(false) }
         ToggleRow("Live triggers", "${lv.triggers.size}", trig, { trig = !trig }, divider = lv.risks.isNotEmpty())
         if (trig) {
-            if (lv.triggers.isEmpty()) T(if (lv.researched) "No live trigger found in filings or research." else "Computed triggers only until Claude researches this stock.", 12.sp, C.dim)
+            if (lv.triggers.isEmpty()) T(if (lv.researched) "No live trigger found in filings or research." else "Computed triggers only until Narrativ.ai researches this stock.", 12.sp, C.dim)
             lv.triggers.forEach { tr ->
                 Column(Modifier.padding(vertical = 4.dp)) { T(tr.n, 13.sp, weight = if (tr.strong) FontWeight.SemiBold else FontWeight.Medium); tr.v?.let { T(it, 12.sp, C.dim) } }
             }

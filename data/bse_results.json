@@ -5554,6 +5554,30 @@
 },
 "url": "https://www.bseindia.com/corporates/results.aspx?Code=540078&Company=Mitsu-Chem-Plast-Ltd&qtr=131.00&RType="
 },
+"MITSU.NS": {
+"checked": "2026-11-23",
+"code": "540078",
+"fy": {
+"2026-03-31": {
+"eps": 11.5,
+"pat": 15.62,
+"rev": 350.17
+}
+},
+"q": {
+"2026-06-30": {
+"eps": 6.44,
+"pat": 8.74,
+"rev": 95.15
+},
+"2026-09-30": {
+"eps": 4.5,
+"pat": 6.11,
+"rev": 95.81
+}
+},
+"url": "https://www.bseindia.com/corporates/results.aspx?Code=540078&Company=Mitsu-Chem-Plast-Ltd&qtr=131.00&RType="
+},
 "MKEXIM.NS": {
 "checked": "2026-11-16",
 "code": "538890",

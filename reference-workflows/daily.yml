@@ -2,7 +2,11 @@ name: daily-funnel
 
 on:
   schedule:
-    - cron: "40 11 * * 1-5"   # 17:10 IST; the Worker cron (once deployed) also starts it at 17:10 IST, and this run then skips if no newer prices exist than the data already built
+    - cron: "40 11 * * 1-5"   # 17:10 IST; the Worker cron also starts it at 17:10 IST, and this run then skips if no newer prices exist than the data already built
+    # retries (owner, 25 Nov 2026): NSE's closing-price file is often not out at 17:10 (23 and 25 Nov 2026 built the previous
+    # trading day), so try again at 20:10 and 22:10 IST; each retry skips in about a minute when the day is already built
+    - cron: "40 14 * * 1-5"
+    - cron: "40 16 * * 1-5"
   workflow_dispatch:
 
 permissions:

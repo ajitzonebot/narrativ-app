@@ -1499,6 +1499,13 @@ def integrity_items(th: dict) -> list[dict]:
     return out
 
 
+def strength_driver(rs: float) -> dict:
+    """The strength waiver's forward driver (RULES.md ladder step 3; owner, 25 Nov 2026): a scored stock with no other driver
+    whose relative strength is in the top third (rs_pct_of >= R4_RS_MIN). Not dated: it never counts as a dated trigger
+    (conviction C1, MB, R4's first leg); R4 passes on the same relative strength (its second leg)."""
+    return {"kind": "signal", "text": f"Price strength: relative strength in the top third ({rs * 100:.0f}th percentile)"}
+
+
 def code_triggers(L: dict) -> list[dict]:
     """Live code triggers on the Outlook tab (T1-T15), except T4 (work in progress alone is not a forward driver)."""
     return [x for x in ((L.get("out") or {}).get("triggers") or []) if x.get("id") != "T4"]
@@ -1520,6 +1527,11 @@ def decision(L: dict, out_l, th: dict | None, scan: dict | None, setup: dict | N
     if not driver and signals:  # owner, 24 Nov 2026 (idea 1): a live code trigger counts as the forward driver
         drivers = [{"kind": "signal", "text": f"{x['id']} {x.get('n') or ''}".strip()} for x in signals]
         driver = True
+    strength_only = False
+    rs = rs_pct_of(L)
+    if not driver and scored and rs is not None and rs >= R4_RS_MIN:  # owner, 25 Nov 2026: strength waiver (RULES.md step 3)
+        drivers = [strength_driver(rs)]
+        driver = strength_only = True
     cred = credibility_w(th, today)
     cp = cred["pct"] if cred else None
     ups, cuts, reaff = _guidance_moves(th, today)
@@ -1571,15 +1583,18 @@ def decision(L: dict, out_l, th: dict | None, scan: dict | None, setup: dict | N
     # 1 Not rated (research-based rules below need a verified forward driver)
     if not driver:
         if scored:  # owner, 24 Nov 2026 (idea 2): scored, nothing removed it, no trigger of any kind -> Hold
-            return res("Hold", ["No trigger yet: no forward driver and no live code trigger"] + [lab(k) for k in ("surv", "qual", "val", "mom") if t[k]],
+            return res("Hold", ["No trigger yet: no forward driver, no live code trigger and relative strength below the top third"] + [lab(k) for k in ("surv", "qual", "val", "mom") if t[k]],
                        ["No verified forward driver yet (guidance, order book or dated promise): queued for research"])
         return res("Not rated", [lab(k) for k in ("qual", "val") if t[k]],
                    ["No verified forward driver yet (guidance, order book or dated promise): queued for research"])
     # positives
     fwd_strong = bool(ups) or (obr or 0) >= 2
     rising = stage in ("Stage 2", "Stage 1→2")  # the market already agrees with the story
+    # the strength waiver's driver alone counts as a positive direction (the replay variant that justified it passed both
+    # the driver and the forward-direction check when relative strength was top third)
     fwd_pos = (fwd_strong or bool(reaff) or (obr or 0) >= 1.5 or len(drivers) >= 2 or bool(guidance)
-               or (len(drivers) == 1 and rising))
+               or (len(drivers) == 1 and rising) or strength_only
+               or (rs is not None and rs >= R4_RS_MIN))  # strength waiver: top-third strength is a positive direction (as replayed)
     pos = []
     pos += [f"{promise_metric(p).capitalize()} guidance raised ({d}): {p.get('promise', '')}" for d, p in ups[:2]]
     if reaff and not ups:
@@ -1618,10 +1633,10 @@ def decision(L: dict, out_l, th: dict | None, scan: dict | None, setup: dict | N
             return res("Hold", [f"Independent audit ({ver.get('date')}): {ver['state']}" + (f" · {ver.get('summary')}" if ver.get("summary") else "")]
                        + [f"Audit issue: {x}" for x in ver.get("issues") or []] + why_)
         if ver["state"] == "pass":
-            return res(label, why_ + [f"Verified by Claude's full review on {ver['date']}"])
+            return res(label, why_ + [f"Verified by Narrativ.ai's full review on {ver['date']}"])
         # not verified yet: shown as Hold (candidate), never as Buy, so a Buy in the app always means verified
-        r = res("Hold", [f"Rules say {label}: waiting for Claude's full review"] + why_,
-                ["Verification pending: queued for Claude's full review" + (f" ({ver['why']})" if ver.get("why") else "")])
+        r = res("Hold", [f"Rules say {label}: waiting for Narrativ.ai's full review"] + why_,
+                ["Verification pending: queued for Narrativ.ai's full review" + (f" ({ver['why']})" if ver.get("why") else "")])
         r["candidate"] = label
         return r
 
@@ -1648,6 +1663,8 @@ def decision(L: dict, out_l, th: dict | None, scan: dict | None, setup: dict | N
 
 # ------------------------------------------------------------------ data consistency checks (layer 2) and Claude verification gate
 AUDIT_DAYS = 30
+# the app shows "Narrativ.ai" for the reviewer (owner, 25 Nov 2026); decisions stored before then say "Claude": match both
+VERIFIED_BY = ("Verified by Claude", "Verified by Narrativ.ai")
 
 
 def audit_flag_items(Mx: dict, lender: bool) -> list[tuple[str, str]]:
@@ -1861,7 +1878,7 @@ def buy_gates(Mx: dict, lender: bool, L: dict, th: dict | None, today) -> list[s
         g.append(f"R1 operations did not bring in cash: cash conversion {cc:.1f}% of operating profit (needs above {R1_MIN:.0f}%)"
                  + (f"; only {yrs} full years filed" if yrs and yrs < 3 else ""))
     if not lender and oi is not None and oi > 25 and not th.get("other_income_recurring"):
-        g.append(f"R2 other income {oi:.0f}% of pre-tax profit (needs ≤ 25%, or Claude to verify it is recurring)")
+        g.append(f"R2 other income {oi:.0f}% of pre-tax profit (needs ≤ 25%, or Narrativ.ai to verify it is recurring)")
     live = code_triggers(L)
     horizon = str(today + timedelta(days=548))
     dated = [d for d in th.get("drivers") or [] if d.get("due") and d.get("due_verified") and str(today) <= str(d["due"]) <= horizon]
@@ -1887,7 +1904,7 @@ def ungate(d0: dict | None) -> dict:
     why = [w for w in d0.get("why") or [] if w not in gates and not w.startswith("Scores say")]
     if d0.get("verified") == "pass":
         return {**d0, "d": label, "why": why}
-    return {**d0, "d": "Hold", "candidate": label, "why": [f"Rules say {label}: waiting for Claude's full review"] + why}
+    return {**d0, "d": "Hold", "candidate": label, "why": [f"Rules say {label}: waiting for Narrativ.ai's full review"] + why}
 
 
 def apply_buy_rules(d0: dict, Mx: dict, lender: bool, L: dict, th: dict | None, today, issues: list | None = None,
@@ -1929,8 +1946,8 @@ def apply_buy_rules(d0: dict, Mx: dict, lender: bool, L: dict, th: dict | None, 
         miss = r7_missing((th or {}).get("audit"), Mx, lender, L)
         if miss:
             d0 = {**d0, "d": "Hold", "candidate": label, "verified": "pending",
-                  "why": [f"Rules say {label}: Claude's review passed but does not yet cover RULES.md R7"]
-                  + [w for w in d0.get("why", []) if not w.startswith("Verified by Claude")],
+                  "why": [f"Rules say {label}: Narrativ.ai's review passed but does not yet cover RULES.md R7"]
+                  + [w for w in d0.get("why", []) if not w.startswith(VERIFIED_BY)],
                   "missing": [m for m in d0.get("missing") or [] if not m.startswith("Verification pending")]
                   + [f"Verification pending: {m}" for m in miss]}
     return d0

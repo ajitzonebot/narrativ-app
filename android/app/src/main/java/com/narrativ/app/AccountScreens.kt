@@ -23,7 +23,11 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.material3.Text
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -264,7 +268,7 @@ private fun EveryBuyCard(st: AppState, v: List<CallRec>) {
         }
         shown.forEachIndexed { i, c ->
             HLineDivider()
-            BuyRow(c, mx) { st.go(Screen.Stock(c.symbol)) }
+            BuyRow(c, mx, st.pick(c.symbol)) { st.go(Screen.Stock(c.symbol)) }
         }
         if (sorted.size > 15) MoreLink(if (all) "Show fewer" else "${sorted.size - 15} more Buys") { all = !all }
     }
@@ -272,11 +276,52 @@ private fun EveryBuyCard(st: AppState, v: List<CallRec>) {
 
 /** One Buy: code and date, a bar left (behind Nifty) or right (ahead) of the centre line, points vs Nifty. Hollow bar = closed, "day 0" = no return yet. */
 @Composable
-private fun BuyRow(c: CallRec, mx: Double, onClick: () -> Unit) {
+private fun BuyRow(c: CallRec, mx: Double, p: P? = null, onClick: () -> Unit) = Column(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
+    BuyBarRow(c, mx)
+    exitLevelLines(c, p)?.let { (hit, still) ->
+        Column(Modifier.padding(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            ExitLine(C.amber) { T(hit, 11.5.sp, C.amber, lineHeight = 17.sp) }
+            still?.let { (lead, rest) ->
+                ExitLine(TierC.lightGreen) {
+                    Text(buildAnnotatedString {
+                        withStyle(SpanStyle(color = TierC.lightGreen, fontWeight = FontWeight.SemiBold)) { append(lead) }
+                        withStyle(SpanStyle(color = C.muted)) { append(rest) }
+                    }, fontSize = 11.5.sp, lineHeight = 17.sp)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ExitLine(dot: Color, content: @Composable () -> Unit) = Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+    Box(Modifier.padding(top = 6.dp).size(6.dp).clip(CircleShape).background(dot))
+    content()
+}
+
+/**
+ * feedback #92: a call closed on its exit level: "Closed · exit level ₹X hit on 20 Nov" and, while the stock is still rated Buy
+ * (or still a candidate, for a candidate row), the re-entry rule as (bold lead, rest). Null when the call did not end on its exit level.
+ */
+fun exitLevelLines(c: CallRec, p: P?): Pair<String, Pair<String, String>?>? {
+    if (c.ended == null || c.endDecision?.startsWith("Exit level") != true) return null
+    val lvl = c.stop?.let { "₹" + skFx(it, 2) }
+    val hit = "Closed · exit level" + (lvl?.let { " $it" } ?: "") + " hit on ${skDay(c.ended)}"
+    val stillBuy = if (c.kind == "candidate") p?.cand == "Buy" || p?.dc == "Buy" else p?.dc == "Buy"
+    val still = if (!stillBuy) null else {
+        val lead = if (c.kind == "candidate" && p?.dc != "Buy") "Still a Buy candidate" else "Still rated Buy"
+        val parts = listOfNotNull(lvl?.let { "above $it" }, c.reentryAfter?.let { "after ${skDay(it)}" })
+        lead to (if (parts.isEmpty()) "" else " · re-entry " + parts.joinToString(" or "))
+    }
+    return hit to still
+}
+
+@Composable
+private fun BuyBarRow(c: CallRec, mx: Double) {
     val closed = c.ended != null
     val v = callVs(c)
     val col = plColor(v)
-    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).defaultMinSize(minHeight = 46.dp).padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().defaultMinSize(minHeight = 46.dp).padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.width(100.dp)) {
             T(c.symbol.substringBeforeLast("."), 13.sp, weight = FontWeight.SemiBold, maxLines = 1)
             T(skDay(c.date) + if (closed) " · closed" else "", 10.5.sp, C.dim, maxLines = 1)
@@ -375,13 +420,13 @@ fun DataPipelineScreen(st: AppState) {
                     s.jobs.forEach { j ->
                         val status = when {
                             j.name.startsWith("Daily run") && st.picks?.date == today -> "done" to TierC.lightGreen
-                            j.by == "Claude" && j.name.startsWith("Research") && reviewsToday > 0 -> "$reviewsToday stocks" to TierC.lightGreen
+                            (j.by == "Claude" || j.by == "Narrativ.ai") && j.name.startsWith("Research") && reviewsToday > 0 -> "$reviewsToday stocks" to TierC.lightGreen
                             else -> null
                         }
                         Row(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
                             Column(Modifier.width(118.dp)) { T(j.time, 12.sp, weight = FontWeight.SemiBold); T(j.days, 11.sp, C.dim) }
                             T(j.name, 12.sp, modifier = Modifier.weight(1f).padding(horizontal = 6.dp), lineHeight = 15.sp)
-                            if (status != null) T(status.first, 11.sp, status.second, FontWeight.SemiBold) else T(j.by, 11.sp, C.dim)
+                            if (status != null) T(status.first, 11.sp, status.second, FontWeight.SemiBold) else T(if (j.by == "Claude") "Narrativ.ai" else j.by, 11.sp, C.dim)
                         }
                     }
                 }
@@ -529,8 +574,19 @@ fun queueTaskName(task: String?): String = (QUEUE_TASKS[task] ?: QUEUE_TASKS.get
 fun ResearchQueueScreen(st: AppState) {
     val q = st.queue
     var all by remember { mutableStateOf(false) }
-    var legend by remember { mutableStateOf(false) }
-    AccScreen(st, "Research queue", q?.let { "${it.items.size} stocks · ${shortDate(it.date)}" }, "Queue") {
+    var tab by remember { mutableStateOf("waiting") }
+    val done by produceState<DoneFile?>(null) { value = st.repo.get<DoneFile>("data/research_done.json") }
+    val nDone = done?.runs.orEmpty().sumOf { r -> r.items.size }
+    AccScreen(st, "Research queue", q?.let { "${it.items.size} waiting · queue of ${shortDate(it.date)}" }, "Queue") {
+        item {
+            Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("waiting" to "Waiting ${q?.items?.size ?: 0}", "completed" to "Completed $nDone").forEach { (k, lab) ->
+                    Box(Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(if (tab == k) C.teal else C.card).clickable { tab = k }.padding(vertical = 9.dp),
+                        contentAlignment = Alignment.Center) { T(lab, 13.sp, if (tab == k) C.white else C.dim, if (tab == k) FontWeight.SemiBold else FontWeight.Normal) }
+                }
+            }
+        }
+        if (tab == "completed") { completedList(st, done); return@AccScreen }
         if (q == null || q.items.isEmpty()) { item { Empty("The queue appears after the next daily run.") }; return@AccScreen }
         item {
             val mix = q.items.groupingBy { it.task ?: "scan" }.eachCount().entries.sortedByDescending { it.value }
@@ -678,7 +734,7 @@ fun FeedbackScreen(st: AppState) {
     }
     var state by remember { mutableStateOf("open") }
     var type by remember { mutableStateOf<String?>(null) }
-    AccScreen(st, "Feedback", null, "Feedback", actions = { HeaderPill(Icons.Rounded.Add, "New") { st.openFeedback("Feedback") } }) {
+    AccScreen(st, "Feedback", null, "Feedback") {
         if (data == null) { item { LoadingCard(1) }; item { LoadingCard(2) }; return@AccScreen }
         val d = data?.v
         if (d == null) { item { Empty("Feedback loads with an internet connection.") }; return@AccScreen }
@@ -717,6 +773,51 @@ fun FeedbackScreen(st: AppState) {
                     }
                     T(f.text.replaceFirstChar { it.uppercase() }, 14.sp, lineHeight = 19.sp, maxLines = 4, modifier = Modifier.padding(top = 8.dp))
                     if (f.screen.isNotBlank()) T(f.screen, 11.sp, C.dim, modifier = Modifier.padding(top = 4.dp))
+                }
+            }
+        }
+    }
+}
+
+
+/** Research queue > Completed: what each research run finished (docs/data/research_done.json, last 7 days, newest first). */
+fun LazyListScope.completedList(st: AppState, d: DoneFile?) {
+    if (d == null) { item { LoadingCard(3) }; return }
+    if (d.runs.isEmpty()) { item { Empty("Nothing completed in the last ${d.days} days.") }; return }
+    val all = d.runs.flatMap { it.items }
+    val cnt = all.mapNotNull { it.r }.groupingBy { it }.eachCount()
+    item {
+        Card(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth(), pad = 12.dp) {
+            val parts = listOfNotNull(cnt["pass"]?.let { "$it pass" to TierC.darkGreen }, cnt["caution"]?.let { "$it caution" to C.amber },
+                cnt["fail"]?.let { "$it fail" to C.red }, (all.size - (cnt["pass"] ?: 0) - (cnt["caution"] ?: 0) - (cnt["fail"] ?: 0)).takeIf { it > 0 }?.let { "$it other" to C.dim })
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                T("Last ${d.days} days: ", 12.sp, C.dim)
+                parts.forEachIndexed { i, (t, c) -> T((if (i > 0) " · " else "") + t, 12.sp, c, FontWeight.SemiBold) }
+            }
+        }
+    }
+    d.runs.forEach { r ->
+        val t = runCatching { java.time.OffsetDateTime.parse(r.start.replace("+00:00", "Z").let { if (it.length == 17) it.dropLast(1) + ":00Z" else it })
+            .atZoneSameInstant(java.time.ZoneId.of("Asia/Kolkata")) }.getOrNull()
+        val head = (t?.let { "${skDay(it.toLocalDate().toString())} ${it.toLocalTime().toString().take(5)}" } ?: r.start.take(16)) +
+            " · ${r.items.size} done" + (r.task?.let { " · " + if (it == "catalyst") "catalysts" else "reviews" } ?: "")
+        item { T(head, 12.sp, C.dim, modifier = Modifier.padding(start = 20.dp, top = 10.dp, bottom = 2.dp)) }
+        item {
+            Card(Modifier.padding(horizontal = 16.dp, vertical = 2.dp).fillMaxWidth(), pad = 0.dp) {
+                r.items.forEachIndexed { n, it ->
+                    val res = it.r ?: ""
+                    val col = when (res) { "pass" -> TierC.darkGreen; "caution" -> C.amber; "fail" -> C.red; else -> C.blue }
+                    val sym = it.s
+                    Row(Modifier.fillMaxWidth().then(if (sym != null) Modifier.clickable { st.go(Screen.Stock(sym)) } else Modifier)
+                        .defaultMinSize(minHeight = 48.dp).padding(horizontal = 14.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.padding(end = 12.dp).size(3.dp, 28.dp).clip(RoundedCornerShape(2.dp)).background(col))
+                        Column(Modifier.weight(1f)) {
+                            T(sym?.substringBeforeLast(".") ?: "Industry reasons", 15.sp, weight = FontWeight.SemiBold, maxLines = 1)
+                            T(if (it.industries != null) it.industries else if (res in setOf("pass", "caution", "fail")) "Full review" else QUEUE_TASKS[res]?.first ?: "Research", 12.sp, C.dim, maxLines = 1)
+                        }
+                        if (res.isNotEmpty()) T(res.replaceFirstChar { c -> c.uppercase() }, 12.sp, col, FontWeight.SemiBold, maxLines = 1)
+                    }
+                    if (n < r.items.lastIndex) HLineDivider(Modifier.padding(horizontal = 14.dp))
                 }
             }
         }
