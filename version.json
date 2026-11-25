@@ -1,11 +1,37 @@
 {
- "versionCode": 78,
- "versionName": "2.26.0",
+ "versionCode": 79,
+ "versionName": "2.27.0",
  "date": "2026-11-25",
- "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.26.0-b78/narrativ-v2.26.0-b78.apk",
+ "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.27.0-b79/narrativ-v2.27.0-b79.apk",
  "sizeMb": 11.5,
- "sha256": "050fbaa9bf57e96de8fc309db9633785840d18ec9eb8b415b16191b2773cd553",
+ "sha256": "e50e9bebeb3ec2cabf69307a4ee12f369a0e60676e4f8289eb93046ee1cd9ba0",
  "changelog": [
+  {
+   "version": "2.27.0",
+   "date": "2026-11-25",
+   "changes": [
+    {
+     "type": "new",
+     "text": "Price chart: the 52-week low and high with a dot at today's price, and H and L dots at the highest and lowest close of the year"
+    },
+    {
+     "type": "changed",
+     "text": "Plan: \"How these are set\" moves behind the (i) button on the Plan card"
+    },
+    {
+     "type": "new",
+     "text": "When a Buy closes on its exit level: the track record says so and, if it is still rated Buy, when it can be bought again; the stock's Plan says to wait for a close above the exit level or a new setup"
+    },
+    {
+     "type": "improved",
+     "text": "Portfolio: import Zerodha's holdings file as Excel (.xlsx) or CSV"
+    },
+    {
+     "type": "changed",
+     "text": "The research and reviews are now named Narrativ.ai"
+    }
+   ]
+  },
   {
    "version": "2.26.0",
    "date": "2026-11-25",
