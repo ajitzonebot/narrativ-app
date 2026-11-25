@@ -1,0 +1,72 @@
+# Generated from the private repo by .github/mirror/public_workflows.py: edit it there.
+name: story
+# Narrativ sheets: free models write each stock's 'What they do' and 'How they make money' (narrativ/story.py --write),
+# in priority order, resuming where the last run stopped. Mornings IST, when the free tier is least busy; the daily run
+# puts the sheets on the dossiers.
+on:
+  schedule:
+    - cron: "0 1 * * *"     # 06:30 IST
+    - cron: "30 4 * * *"    # 10:00 IST
+  workflow_dispatch:
+
+permissions:
+  contents: write
+concurrency:
+  group: story
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Quiet logs (public repo)
+        shell: bash
+        run: |
+          cat > /home/runner/q.sh <<'EOF'
+          bash --noprofile --norc -eo pipefail "$1" >> "$RUNNER_TEMP/narrativ.log" 2>&1 && exit 0
+          echo "Step failed. The full log is saved in the private repo (logs/)."
+          exit 1
+          EOF
+      - uses: actions/checkout@v4
+        with:
+          repository: ajitzonebot/Narrativ
+          token: ${{ secrets.NARRATIV_RW_TOKEN }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Write
+        timeout-minutes: 38
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          pip install -q -r requirements.txt
+          python -m narrativ.story --write
+      - name: Commit
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"; git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/story.json
+          git diff --cached --quiet && exit 0
+          git commit -m "story: $(TZ=Asia/Kolkata date +'%Y-%m-%d %H:%M') sheets"
+          bash scripts/push_retry.sh -X theirs
+      - name: Save the log in the private repo
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          [ -d .git ] && [ -f "$RUNNER_TEMP/narrativ.log" ] || exit 0
+          mkdir -p logs
+          cp "$RUNNER_TEMP/narrativ.log" "logs/$GITHUB_WORKFLOW-$(date -u +%Y%m%d-%H%M).log"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add logs && git commit -qm "logs: $GITHUB_WORKFLOW failed" -- logs
+          git stash -u -q
+          for i in 1 2 3; do git pull -q --rebase && git push -q && break; sleep 5; done
+          exit 0
+
+env:
+  NARRATIV_REPO: ajitzonebot/Narrativ
+
+defaults:
+  run:
+    shell: bash /home/runner/q.sh {0}
