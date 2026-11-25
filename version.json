@@ -1,11 +1,21 @@
 {
- "versionCode": 80,
- "versionName": "2.28.0",
+ "versionCode": 83,
+ "versionName": "2.28.1",
  "date": "2026-11-25",
- "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.28.0-b80/narrativ-v2.28.0-b80.apk",
+ "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.28.1-b83/narrativ-v2.28.1-b83.apk",
  "sizeMb": 11.6,
- "sha256": "3f4657a246ae0b2c4c1b8e1847fa9487d478d39fd119d491777f47f3bc70d942",
+ "sha256": "cdfdbce5347d7a1d16fa4158dd9bba4ab52d351d1a3d95c8e2ba66130698d27c",
  "changelog": [
+  {
+   "version": "2.28.1",
+   "date": "2026-11-25",
+   "changes": [
+    {
+     "type": "improved",
+     "text": "Faster stock pages: the Top 10 and Buy stocks load in the background after the app opens, so they open at once"
+    }
+   ]
+  },
   {
    "version": "2.28.0",
    "date": "2026-11-25",
