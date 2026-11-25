@@ -401,6 +401,9 @@ def save(store: dict, tries: int = 5) -> bool:
                  "commit", "-q", "-m", f"data: reader {datetime.now(IST):%Y-%m-%d %H:%M} IST")
             if _git("push", "-q", "origin", "HEAD:main", check=False).returncode == 0:
                 print(f"[reader] saved to main ({sum(1 for e in store.values() for m in ('lite', 'flash') if 'rows' in (e.get(m) or {}))} documents read, {n} packs patched)")
+                if os.environ.get("CLOUDFLARE_API_TOKEN"):  # patched packs to R2, after the push (never fatal)
+                    from . import appsync
+                    appsync.sync()
                 return True
         except subprocess.CalledProcessError as e:
             print(f"[reader] save attempt {i + 1}: git {' '.join(e.cmd[1:3])}: {(e.stderr or '').strip()[:200]}")

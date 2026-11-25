@@ -43,6 +43,21 @@ class RepoMemTest {
         assertNull(Repo.memoPeek("data/c.json", "K"))
     }
 
+    @Test fun preloadNeverDropsWhatIsHeld() {
+        val big = "x".repeat((Repo.MEM_BUDGET / 3).toInt() + 1)
+        Repo.memPut("p1", big + "1", net = true)
+        Repo.memPut("p2", big + "2", net = true)
+        Repo.memPutIfRoom("pre", big + "3", net = true)  // would push p1 out: not kept in memory
+        assertNull(Repo.memText("pre"))
+        assertNotNull(Repo.memText("p1"))
+        assertNotNull(Repo.memText("p2"))
+        Repo.memPutIfRoom("small", "s", net = true, etag = "\"s\"")  // fits: kept, and counts as a network check
+        assertEquals("s", Repo.memText("small", "\"s\""))
+        assertTrue(Repo.checkedRecently("small"))
+        Repo.memPutIfRoom("p1", big + "1b", net = true)  // replacing a held file of the same size fits
+        assertEquals(big + "1b", Repo.memText("p1"))
+    }
+
     @Test fun budgetDropsLeastRecentlyUsed() {
         val big = "x".repeat((Repo.MEM_BUDGET / 3).toInt() + 1)
         Repo.memPut("p1", big + "1", net = false)

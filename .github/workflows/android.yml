@@ -2,12 +2,12 @@
 name: android-build
 
 # Push (any branch): build and unit-test only (debug, no key needed, nothing published).
-# Release: only by hand (Actions > android-build > Run workflow, on main) after the owner confirms.
+# Release: Run workflow with "release" on main. Narrativ.ai starts it as soon as a new app version is on main and its build passes (owner, 25 Nov 2026: no separate confirmation).
 on:
   workflow_dispatch:
     inputs:
       release:
-        description: "Publish a release (owner confirmed)"
+        description: "Publish a release"
         type: boolean
         default: false
 

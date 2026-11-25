@@ -1,11 +1,29 @@
 {
- "versionCode": 79,
- "versionName": "2.27.0",
+ "versionCode": 80,
+ "versionName": "2.28.0",
  "date": "2026-11-25",
- "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.27.0-b79/narrativ-v2.27.0-b79.apk",
- "sizeMb": 11.5,
- "sha256": "e50e9bebeb3ec2cabf69307a4ee12f369a0e60676e4f8289eb93046ee1cd9ba0",
+ "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.28.0-b80/narrativ-v2.28.0-b80.apk",
+ "sizeMb": 11.6,
+ "sha256": "3f4657a246ae0b2c4c1b8e1847fa9487d478d39fd119d491777f47f3bc70d942",
  "changelog": [
+  {
+   "version": "2.28.0",
+   "date": "2026-11-25",
+   "changes": [
+    {
+     "type": "new",
+     "text": "Research queue: a Completed tab with everything Narrativ.ai finished in the last 7 days, newest first, with each result (Pass, Caution, Fail, or the task)"
+    },
+    {
+     "type": "change",
+     "text": "Settings: the version shows once, on the card at the top (it opens the release notes)"
+    },
+    {
+     "type": "change",
+     "text": "Feedback: one way to send a note, the feedback icon at the top"
+    }
+   ]
+  },
   {
    "version": "2.27.0",
    "date": "2026-11-25",

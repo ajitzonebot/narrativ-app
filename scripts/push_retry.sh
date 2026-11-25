@@ -42,8 +42,17 @@ resolve_mine() {
   return 0
 }
 
+# App files to R2 (the Worker serves /data from R2 first): only AFTER the push succeeded, so R2 never runs ahead of git.
+# Needs CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID in the step's env (otherwise skipped); never fails the step. A skipped or
+# failed upload is safe: the Worker reads every file changed since R2's manifest commit from GitHub (narrativ/appsync.py).
+app_r2() {
+  [ -n "${CLOUDFLARE_API_TOKEN:-}" ] && [ "${APP_R2:-1}" != "0" ] || return 0
+  timeout 900 python3 -m narrativ.appsync || echo "::warning::app files to R2 did not finish (the Worker reads changed files from GitHub)"
+}
+
 for i in $(seq 1 "$attempts"); do
   if { git "${auth[@]}" pull --rebase "$@" origin main || resolve_mine; } && git "${auth[@]}" push origin HEAD:main; then
+    app_r2
     exit 0
   fi
   echo "::warning::git pull --rebase / push failed (attempt $i of $attempts)"

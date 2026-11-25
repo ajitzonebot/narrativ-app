@@ -56,3 +56,32 @@ def test_conflict_outside_packs_fails_and_leaves_no_rebase(tmp_path):
     assert "failed after 3 attempts" in r.stdout
     assert not (a / ".git" / "rebase-merge").exists() and not (a / ".git" / "rebase-apply").exists()
     assert _git(remote, "show", "main:docs/data/picks.json", env=env) == '{"v": "other"}\n'
+
+
+def _fake_python(tmp_path, env):
+    """A python3 on PATH that records the remote's main at the moment it runs, then fails (the upload must not fail the push)."""
+    bin_ = tmp_path / "bin"
+    bin_.mkdir()
+    (bin_ / "python3").write_text('#!/bin/sh\necho "$* $(git ls-remote origin main | cut -c1-40)" >> "$HOME/appsync.log"\nexit 1\n')
+    (bin_ / "python3").chmod(0o755)
+    return {**env, "PATH": f"{bin_}:{env['PATH']}", "CLOUDFLARE_API_TOKEN": "x"}
+
+
+def test_app_files_go_to_r2_only_after_a_successful_push(tmp_path):
+    env, remote, a, b, fast = _setup(tmp_path)
+    env = _fake_python(tmp_path, env)
+    _commit(a, {"docs/data/picks.json": '{"v": 1}\n'}, "daily", env)
+    r = subprocess.run(["bash", str(fast)], cwd=a, env=env, capture_output=True, text=True)
+    assert r.returncode == 0, r.stdout + r.stderr  # a failed upload never fails the step
+    log = (tmp_path / "appsync.log").read_text().split()
+    assert log[:2] == ["-m", "narrativ.appsync"] and log[2] == _git(a, "rev-parse", "HEAD", env=env).strip()  # pushed first
+
+
+def test_no_upload_when_the_push_fails(tmp_path):
+    env, remote, a, b, fast = _setup(tmp_path)
+    env = _fake_python(tmp_path, env)
+    _commit(b, {"docs/data/picks.json": '{"v": "other"}\n'}, "other", env)
+    _git(b, "push", "-q", "origin", "HEAD:main", env=env)
+    _commit(a, {"docs/data/picks.json": '{"v": 1}\n'}, "daily", env)
+    r = subprocess.run(["bash", str(fast)], cwd=a, env=env, capture_output=True, text=True)
+    assert r.returncode == 1 and not (tmp_path / "appsync.log").exists()

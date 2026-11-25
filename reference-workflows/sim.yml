@@ -39,6 +39,8 @@ jobs:
         if: always()  # a probe that times out still saves what it wrote
         env:
           GIT_PUSH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}   # push_retry.sh: changed docs/data files to R2 after the push
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           MOD: ${{ inputs.module }}
         run: |
           git config user.name "github-actions[bot]"

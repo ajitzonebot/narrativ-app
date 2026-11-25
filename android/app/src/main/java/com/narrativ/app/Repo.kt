@@ -4,8 +4,12 @@ import android.content.Context
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -44,7 +48,10 @@ class Repo(private val ctx: Context) {
     }
 
     /** Phone copy of [path] (also put in memory), or null. Blocking: call on IO. */
-    private fun readDisk(path: String): String? {
+    private fun readDisk(path: String): String? = readDiskTagged(path, room = false)?.first
+
+    /** Phone copy and the ETag that describes it; put in memory ([room]: only if it fits without dropping anything). */
+    private fun readDiskTagged(path: String, room: Boolean): Pair<String, String?>? {
         val f = cacheFile(path)
         if (!f.exists()) return null
         val t = tagFile(f)
@@ -52,8 +59,9 @@ class Repo(private val ctx: Context) {
         val before = tag()
         val body = runCatching { f.readText() }.getOrNull() ?: return null
         // the tag read before and after the body agree: no download replaced the file in between, so it describes this body
-        memPut(path, body, net = false, etag = before?.takeIf { it == tag() })
-        return body
+        val et = before?.takeIf { it == tag() }
+        if (room) memPutIfRoom(path, body, net = false, etag = et) else memPut(path, body, net = false, etag = et)
+        return body to et
     }
 
     private fun writeDisk(path: String, body: String, etag: String?) {
@@ -75,8 +83,10 @@ class Repo(private val ctx: Context) {
     /** Memory copy, else the phone copy; never the network. */
     suspend fun local(path: String): String? = memText(path) ?: withContext(Dispatchers.IO) { readDisk(path) }
 
-    /** Network (sent with the phone copy's ETag; 304 = the phone copy is current), else the phone copy. Blocking: call on IO. */
-    private fun fetch(path: String): Pair<String, Boolean>? {
+    /** Network (sent with the phone copy's ETag; 304 = the phone copy is current), else the phone copy. Blocking: call on IO.
+     *  [room] (preload): the memory copy is added only if it fits in [MEM_BUDGET] without dropping files already held. */
+    private fun fetch(path: String, room: Boolean = false): Pair<String, Boolean>? {
+        fun put(body: String, etag: String?) { if (room) memPutIfRoom(path, body, net = true, etag = etag) else memPut(path, body, net = true, etag = etag) }
         val f = cacheFile(path)
         val tag = if (f.exists()) runCatching { tagFile(f).readText().trim() }.getOrNull()?.takeIf { it.isNotEmpty() } else null
         val urls = buildList {
@@ -89,9 +99,9 @@ class Repo(private val ctx: Context) {
                 var code = c.responseCode
                 if (code == 304 && tag != null) {
                     runCatching { c.inputStream.close() }
-                    val body = memText(path, tag) ?: run { readDisk(path); memText(path, tag) }
+                    val body = memText(path, tag) ?: readDiskTagged(path, room)?.takeIf { it.second == tag }?.first
                     if (body != null) {
-                        memPut(path, body, net = true, etag = tag)
+                        put(body, tag)
                         return body to true
                     }
                     c = open(u); code = c.responseCode  // the phone copy changed meanwhile: ask for the whole file
@@ -102,12 +112,49 @@ class Repo(private val ctx: Context) {
                     val body = c.inputStream.bufferedReader().use { it.readText() }
                     val et = c.getHeaderField("ETag")
                     writeDisk(path, body, et)
-                    memPut(path, body, net = true, etag = et)
+                    put(body, et)
                     return body to true
                 }
             } catch (_: Exception) { }
         }
-        return (memText(path) ?: readDisk(path))?.let { it to false }
+        return (memText(path) ?: readDiskTagged(path, room)?.first)?.let { it to false }
+    }
+
+    /**
+     * Low-priority background download of files a screen is likely to open next (AppState.preload: the stock pages of the
+     * Top 10 and the verified Buys), so their first open shows today's data from the phone at once. [PRELOAD_PARALLEL] at
+     * a time on a low thread priority; a path that is already being downloaded (shared [inflight] map) or was checked within
+     * [RECHECK_MS] is skipped, and a screen that asks for a path while it preloads shares that download. The phone copy is
+     * always written; the memory copy only while it fits in [MEM_BUDGET] without dropping files already held. A newer call
+     * replaces the previous run.
+     */
+    fun preload(paths: List<String>) {
+        val todo = paths.distinct()
+        synchronized(preloadLock) {
+            preloadJob?.cancel()
+            if (todo.isEmpty()) return
+            preloadJob = io.launch {
+                val gate = Semaphore(PRELOAD_PARALLEL)
+                todo.forEach { path -> launch { gate.withPermit { preloadOne(path) } } }
+            }
+        }
+    }
+
+    private suspend fun preloadOne(path: String) {
+        if (checkedRecently(path)) return
+        val d = synchronized(inflight) {
+            if (inflight[path]?.isActive == true) return  // startup or a screen is already downloading it
+            io.async {
+                val t = Thread.currentThread(); val pri = t.priority
+                t.priority = Thread.MIN_PRIORITY
+                try { runCatching { fetch(path, room = true) }.getOrNull() } finally { t.priority = pri }
+            }.also { inflight[path] = it }
+        }
+        try {
+            d.await()
+        } finally {
+            synchronized(inflight) { if (inflight[path] === d && d.isCompleted) inflight.remove(path) }
+        }
     }
 
     /** [fetch], with concurrent calls for one path sharing a single request (startup, Home and a sheet often ask together). */
@@ -213,8 +260,13 @@ class Repo(private val ctx: Context) {
         /** Memory budget, in characters of file text (decoded copies are of similar size): picks, research, memory and the rest fit. */
         const val MEM_BUDGET = 8_000_000L
 
+        /** Background preload downloads at once (screens' own downloads are not limited). */
+        const val PRELOAD_PARALLEL = 2
+
         private val io = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         private val inflight = HashMap<String, Deferred<Pair<String, Boolean>?>>()
+        private val preloadLock = Any()
+        private var preloadJob: Job? = null
 
         /** One file in memory: its text, ETag, when the network last confirmed it (0 = phone copy only) and decoded copies by type. */
         private class Mem(val body: String, @Volatile var etag: String?, @Volatile var netAt: Long) {
@@ -241,6 +293,12 @@ class Repo(private val ctx: Context) {
             mem[path] = Mem(body, etag, if (net) System.currentTimeMillis() else 0L)
             memChars += body.length
             trim()
+        }
+
+        /** [memPut] for preloads: only when the result fits in [MEM_BUDGET] without dropping a file already held. */
+        fun memPutIfRoom(path: String, body: String, net: Boolean, etag: String? = null) = synchronized(mem) {
+            val held = mem[path]?.body?.length ?: 0
+            if (memChars - held + body.length <= MEM_BUDGET) memPut(path, body, net, etag)
         }
 
         private fun trim() {

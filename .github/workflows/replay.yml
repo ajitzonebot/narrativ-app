@@ -56,6 +56,8 @@ jobs:
         if: inputs.quick != 'true'
         env:
           GIT_PUSH_TOKEN: ${{ secrets.NARRATIV_RW_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}   # push_retry.sh: changed docs/data files to R2 after the push
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

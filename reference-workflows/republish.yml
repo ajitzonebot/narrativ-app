@@ -93,6 +93,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GIT_PUSH_TOKEN: ${{ secrets.NARRATIV_RW_TOKEN }}
+          # after the push, scripts/push_retry.sh uploads changed docs/data files to R2 (narrativ/appsync.py; the Worker reads R2 first)
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           n=$(gh api -X GET "repos/$GITHUB_REPOSITORY/actions/workflows/daily.yml/runs" -f status=in_progress --jq .total_count 2>/dev/null || echo 0)
           if [ "${n:-0}" != "0" ]; then echo "a daily run started meanwhile: not pushing; the next run publishes this"; exit 0; fi

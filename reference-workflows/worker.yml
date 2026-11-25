@@ -8,6 +8,9 @@ name: worker-deploy
 #   private ajitzonebot/Narrativ: Contents read (GET /contents/docs/... for /data), Issues read and write (feedback, scan)
 #   public ajitzonebot/narrativ-app: Actions read and write (cron dispatch of daily.yml / ipo.yml)
 # Check it with the gh-token-check workflow. NARRATIV_RW_TOKEN is used only by the failure-log step (push logs/).
+# CLOUDFLARE_API_TOKEN deploys the Worker with its R2 binding (wrangler.toml [[r2_buckets]] DATA_R2 -> narrativ-data): it needs
+# Account > Workers Scripts > Edit and Account > Workers R2 Storage > Edit (the pipeline's R2 uploads already use the latter).
+# Deploy after a daily run has uploaded the app files (R2 app/_manifest.json exists); until then /data reads GitHub as before.
 on:
   workflow_dispatch:
 

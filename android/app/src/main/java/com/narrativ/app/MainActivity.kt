@@ -71,6 +71,9 @@ sealed class Screen {
 @kotlinx.serialization.Serializable
 data class Sent(val kind: String = "", val text: String = "", val date: String = "", val ref: Int = 0)
 
+/** Stocks whose pages are preloaded after each data update (about 25 KB each; two files per stock). */
+const val PRELOAD_STOCKS = 25
+
 class AppState(private val ctx: Context, startStack: List<Screen> = listOf(Screen.Home)) {
     val repo = Repo(ctx)
     private val prefs = ctx.getSharedPreferences("narrativ", Context.MODE_PRIVATE)
@@ -133,7 +136,9 @@ class AppState(private val ctx: Context, startStack: List<Screen> = listOf(Scree
 
     suspend fun detail(sym: String): Detail? {
         if (details.containsKey(sym) && details[sym] != null) return details[sym]
-        val d = repo.get<Detail>("data/fin/${Repo.seg(sym)}.json")  // network first, phone cache only when offline
+        val path = "data/fin/${Repo.seg(sym)}.json"
+        // network first, phone cache only when offline; a copy the network confirmed within a minute (a preload) is used as is
+        val d = repo.get<Detail>(path, fresh = !Repo.checkedRecently(path))
         details[sym] = d
         return d
     }
@@ -182,6 +187,24 @@ class AppState(private val ctx: Context, startStack: List<Screen> = listOf(Scree
                     if (v.versionCode > BuildConfig.VERSION_CODE && prefs.getInt("dismissed", 0) < v.versionCode) showUpdate = true
                 }
             }
+        }
+        // once per data update: the stock pages most likely opened next, in the background (feedback #107: slow first open)
+        val pf = picks
+        if (fresh && got?.net == true && pf != null && "${pf.updated}|${pf.date}" != preloadedFor) {
+            preloadedFor = "${pf.updated}|${pf.date}"
+            repo.preload(preloadPaths())
+        }
+    }
+
+    private var preloadedFor: String? = null
+
+    /** Files a stock page reads first (fin = Summary and level tabs, charts) for today's Top 10, then the other verified Buys. */
+    fun preloadPaths(): List<String> {
+        val pf = picks ?: return emptyList()
+        val top = topTen(this)?.stocks.orEmpty().map { it.s }
+        val buys = pf.picks.filter { it.out == null && isBuy(it) && it.verified() }.map { it.s }
+        return (top + buys).distinct().take(PRELOAD_STOCKS).flatMap { s ->
+            listOf("data/fin/${Repo.seg(s)}.json", "data/charts/${Repo.seg(s)}.json")
         }
     }
     fun dismissUpdate() { version?.let { prefs.edit().putInt("dismissed", it.versionCode).apply() }; showUpdate = false }

@@ -1,8 +1,14 @@
 /**
  * Narrativ API (Cloudflare Worker).
- *  GET  /data/<path>   -> docs/<path> from the private repo (read with a server-side token). Held in isolate memory for
- *                         DATA_TTL_MS (then re-checked with GitHub by ETag) and, on a custom domain only, 5 min at the edge.
+ *  GET  /data/<path>   -> docs/<path> of the private repo: from R2 (binding DATA_R2, key app/<path>, uploaded by the pipeline
+ *                         after each push: narrativ/appsync.py) when R2 is known to be current for that file, else from GitHub
+ *                         (read with a server-side token) as before. Held in isolate memory for DATA_TTL_MS (then re-checked
+ *                         by ETag with whichever source it came from) and, on a custom domain only, 5 min at the edge.
  *                         Sends an ETag and answers 304 to a matching If-None-Match (the app sends its copy's ETag).
+ *                         Freshness guard (r2State): at most once a minute per isolate, R2's app/_manifest.json commit is
+ *                         compared with GitHub main (one sha call, a 304 when main did not move; one compare call when it
+ *                         did). Files changed since that commit, files the upload flagged as failed, and everything while
+ *                         the check cannot tell (no manifest, compare over 300 files or refused) are read from GitHub.
  *  POST /feedback      -> issue in the private repo, label "feedback"
  *  POST /scan          -> issue "scan: SYMBOL", label "scan" (the daily pipeline queues it for Claude research)
  *  GET  /quotes?s=A,B -> delayed quotes (Yahoo chart endpoint, unofficial), 60 s edge cache, max 40 symbols
@@ -34,9 +40,17 @@ const ipHits = new Map();     // ip -> { day, n }
 const DATA_TTL_MS = 60 * 1000;
 const DATA_MEM_BUDGET = 32 * 1024 * 1024; // bytes held across files (an isolate has 128 MB)
 const DATA_MEM_MAX_FILE = 4 * 1024 * 1024;
-const dataMem = new Map();     // encoded path -> { body: Uint8Array, etag, at }; Map order = least recently used first
+const dataMem = new Map();     // encoded path -> { body: Uint8Array, etag, at, src: "r2" | "gh", r2etag }; Map order = LRU first
 let dataMemBytes = 0;
-const dataPending = new Map(); // encoded path -> Promise of the one GitHub read in flight (concurrent requests share it)
+const dataPending = new Map(); // encoded path -> Promise of the one read in flight (concurrent requests share it)
+
+// R2 copy of docs/data (see the header). The state is per isolate like dataMem.
+const R2_PREFIX = "app/";
+const R2_MANIFEST = "app/_manifest.json";
+const FRESH_TTL_MS = 60 * 1000;     // re-check R2 against GitHub main at most this often per isolate
+const FRESH_MAX_MS = 3 * 60 * 1000; // a result older than this is waited for; younger, it is used while the re-check runs
+let fresh = null;        // { at, mEtag, sha, failed: Set, main, mainEtag, stale: Set of paths | null (null = trust nothing) }
+let freshPending = null;
 
 function dataMemSet(enc, e) {
   const old = dataMem.get(enc);
@@ -72,9 +86,122 @@ async function readData(env, enc, held) {
   const body = new Uint8Array(await r.arrayBuffer());
   // GitHub's ETag is derived from the content; should it ever send none, hash the body instead
   const etag = r.headers.get("etag") || `"${await sha256Hex(body)}"`;
-  const e = { body, etag, at: Date.now() };
+  const e = { body, etag, at: Date.now(), src: "gh" };
   dataMemSet(enc, e);
   return e;
+}
+
+// One freshness check (see the header). Never throws for GitHub trouble: when GitHub cannot be asked, R2 is the better copy
+// (a GitHub read would fail too), so the last known stale set is kept, or none when the manifest commit changed.
+async function checkFresh(env) {
+  const prev = fresh;
+  const st = { at: Date.now(), mEtag: null, sha: null, failed: new Set(), main: null, mainEtag: null, stale: null };
+  const obj = await env.DATA_R2.get(R2_MANIFEST, prev && prev.mEtag ? { onlyIf: { etagDoesNotMatch: prev.mEtag } } : undefined);
+  if (obj === null) return st;  // nothing uploaded yet
+  if (typeof obj.text === "function") {  // a body: the manifest changed (or the first read)
+    const m = JSON.parse(await obj.text());
+    st.sha = typeof m.sha === "string" && /^[0-9a-f]{40}$/.test(m.sha) ? m.sha : null;
+    st.failed = new Set(Array.isArray(m.failed) ? m.failed : []);
+  } else {  // unchanged since prev
+    st.sha = prev.sha;
+    st.failed = prev.failed;
+  }
+  st.mEtag = obj.etag;
+  if (!st.sha) return st;
+  const same = prev && prev.sha === st.sha && prev.stale;  // what the last check found for this manifest commit
+  try {
+    const h = { accept: "application/vnd.github.sha" };
+    if (prev && prev.mainEtag) h["if-none-match"] = prev.mainEtag;
+    const r = await gh(env, "/commits/main", { headers: h });
+    if (r.status === 304 && prev && prev.main) {
+      st.main = prev.main;
+      st.mainEtag = prev.mainEtag;
+    } else if (r.ok) {
+      st.main = (await r.text()).trim();
+      st.mainEtag = r.headers.get("etag");
+    }
+  } catch {
+    // network: below
+  }
+  if (!st.main) {
+    st.stale = same ? prev.stale : new Set();
+    return st;
+  }
+  if (st.main === st.sha) {
+    st.stale = new Set();
+    return st;
+  }
+  if (same && prev.main === st.main) {
+    st.stale = prev.stale;
+    return st;
+  }
+  try {
+    const r = await gh(env, `/compare/${st.sha}...${st.main}?per_page=1`, { headers: { accept: "application/vnd.github+json" } });
+    if (r.ok) {
+      const j = await r.json();
+      const files = Array.isArray(j.files) ? j.files : [];
+      if ((j.status === "ahead" || j.status === "identical") && files.length < 300) {  // GitHub lists at most 300 files
+        st.stale = new Set();
+        for (const f of files) {
+          for (const n of [f.filename, f.previous_filename]) if (typeof n === "string" && n.startsWith("docs/")) st.stale.add(n.slice(5));
+        }
+      }
+    } else if (r.status >= 500 && same) st.stale = prev.stale;
+  } catch {
+    if (same) st.stale = prev.stale;
+  }
+  return st;
+}
+
+// The freshness state, or null without an R2 binding. Re-checked at most once per FRESH_TTL_MS; up to FRESH_MAX_MS old it is
+// used while the re-check runs in the background.
+async function r2State(env, ctx) {
+  if (!env.DATA_R2) return null;
+  const age = fresh ? Date.now() - fresh.at : Infinity;
+  if (age < FRESH_TTL_MS) return fresh;
+  if (!freshPending) {
+    freshPending = checkFresh(env)
+      .then((s) => (fresh = s))
+      .catch((err) => {  // R2 itself failed: keep the last state (or trust nothing) and try again in a minute
+        console.error(`r2 manifest: ${String(err).slice(0, 200)}`);
+        fresh = fresh ? { ...fresh, at: Date.now() } : { at: Date.now(), sha: null, failed: new Set(), stale: null };
+        return fresh;
+      })
+      .finally(() => (freshPending = null));
+  }
+  if (age < FRESH_MAX_MS) {
+    ctx.waitUntil(freshPending);
+    return fresh;
+  }
+  return freshPending;
+}
+
+function r2Serves(st, path) {
+  return !!(st && st.sha && st.stale && path.startsWith("data/") && !st.stale.has(path) && !st.failed.has(path));
+}
+
+// One read of docs/<path>: R2 when the freshness state allows it and R2 has the object, else GitHub (readData).
+async function loadData(env, ctx, enc, path, held) {
+  const st = await r2State(env, ctx);
+  if (r2Serves(st, path)) {
+    try {
+      const fromR2 = held && held.src === "r2";
+      const obj = await env.DATA_R2.get(R2_PREFIX + path, fromR2 ? { onlyIf: { etagDoesNotMatch: held.r2etag } } : undefined);
+      if (obj !== null) {
+        if (typeof obj.arrayBuffer !== "function") {  // precondition failed: the copy held is current
+          held.at = Date.now();
+          return held;
+        }
+        const body = new Uint8Array(await obj.arrayBuffer());
+        const e = { body, etag: obj.httpEtag, r2etag: obj.etag, at: Date.now(), src: "r2" };
+        dataMemSet(enc, e);
+        return e;
+      }
+    } catch (err) {
+      console.error(`r2 ${path}: ${String(err).slice(0, 200)}`);  // R2 failed: GitHub as before
+    }
+  }
+  return readData(env, enc, held && held.src !== "r2" ? held : null);
 }
 
 // If-None-Match against our ETag; weak and strong forms compare equal (Cloudflare may weaken an ETag when it compresses).
@@ -307,7 +434,7 @@ export default {
         } else {
           let p = dataPending.get(enc);
           if (!p) {
-            p = readData(env, enc, held).finally(() => dataPending.delete(enc));
+            p = loadData(env, ctx, enc, path, held).finally(() => dataPending.delete(enc));
             dataPending.set(enc, p);
           }
           let got;

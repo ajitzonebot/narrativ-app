@@ -3,6 +3,13 @@ main = "worker.js"
 compatibility_date = "2024-11-01"
 workers_dev = true
 
+# /data reads docs/data from R2 first (key app/<path>, uploaded after each push by narrativ/appsync.py), GitHub otherwise.
+# Deploying a binding needs the Cloudflare API token to hold Account > Workers R2 Storage > Edit (the pipeline's R2 writes
+# already need it). Without the binding the Worker reads GitHub only, as before.
+[[r2_buckets]]
+binding = "DATA_R2"
+bucket_name = "narrativ-data"
+
 [vars]
 REPO = "ajitzonebot/Narrativ"
 # The scheduled runs start in the public repo (free Actions minutes); they read and write REPO.
