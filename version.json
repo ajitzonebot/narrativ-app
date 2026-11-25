@@ -1,11 +1,25 @@
 {
- "versionCode": 77,
- "versionName": "2.25.0",
+ "versionCode": 78,
+ "versionName": "2.26.0",
  "date": "2026-11-25",
- "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.25.0-b77/narrativ-v2.25.0-b77.apk",
+ "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.26.0-b78/narrativ-v2.26.0-b78.apk",
  "sizeMb": 11.5,
- "sha256": "fe6b6f20f2e15a04e308a6a8e1f1c7a7767b90b000cc9dc66bb268f0ba2005e0",
+ "sha256": "050fbaa9bf57e96de8fc309db9633785840d18ec9eb8b415b16191b2773cd553",
  "changelog": [
+  {
+   "version": "2.26.0",
+   "date": "2026-11-25",
+   "changes": [
+    {
+     "type": "improved",
+     "text": "Faster: screens show your saved copy at once and refresh in the background; files are downloaded again only when they changed; startup loads in parallel"
+    },
+    {
+     "type": "improved",
+     "text": "The replay sheet's R4 row is labelled \"Trigger or strength (R4)\"; research is published within about 30 minutes"
+    }
+   ]
+  },
   {
    "version": "2.25.0",
    "date": "2026-11-25",
