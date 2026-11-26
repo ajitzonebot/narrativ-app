@@ -34,8 +34,10 @@ class ExitLevelTest {
     }
 
     @Test fun planAmberLine() {
-        assertEquals("Exit level ₹2,044.22 hit on 20 Nov: wait for a close above ₹2,044.22 or a new setup",
+        assertEquals("Exit level ₹2,044.22 hit on 20 Nov: no new call until a close back above ₹2,044.22 or after 7 Dec",
             exitHitLine(ExitHit(2044.22, "2026-11-20", "2026-12-07", "verified")))
+        assertEquals("Exit level ₹2,044.22 hit on 20 Nov: no new call until a close back above ₹2,044.22 or 10 trading days",
+            exitHitLine(ExitHit(2044.22, "2026-11-20", null, "verified")))
         assertNull(exitHitLine(null))
         val d = json.decodeFromString<Detail>("""{"exit_hit":{"stop":257.38,"date":"2026-11-18","reentry_after":"2026-12-03","kind":"verified"}}""")
         assertEquals(257.38, d.exitHit!!.stop!!, 0.0)
