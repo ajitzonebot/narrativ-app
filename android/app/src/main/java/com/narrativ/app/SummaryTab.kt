@@ -230,7 +230,11 @@ fun ResearchLists(scan: Scan, nested: Boolean = false) {
 
 // ================================================================ Summary tab (redesign s01) and the decision sheet (s02)
 private val LENDERS = setOf("bank", "nbfc", "insurance")
-private val FORWARD_KEYS = setOf("Capacity", "Order", "Guidance", "Driver", "Product", "Demand")
+/** Lines of a decision's `why` that are management's own quoted statements (funnel.decide prefixes: driver kinds, "Guidance
+ *  quoted: ...", "Guidance reaffirmed (date): ...", "Order book 1.2x revenue (quoted)"); everything else is ours (review 26 Nov 2026). */
+private val MGMT_PREFIXES = listOf("Guidance", "Demand", "Margin", "Order", "Capacity", "Capex", "Product", "Driver", "Promise:")
+internal fun isMgmtLine(w: String) = MGMT_PREFIXES.any { w.startsWith(it) } && !w.startsWith("Promises kept")
+private fun mgmtText(w: String) = if (w.contains(": ")) w.substringAfter(": ") else w
 /** The setup's trend-broken flag, from the rule note. */
 private fun Setup.trendBroken(): Boolean = note?.startsWith("No entry: trend broken") == true
 /** Plain setup name (Look.kt setupName, the same words as every list). */
@@ -248,7 +252,7 @@ fun SummaryTab(st: AppState, sym: String, p: P?, det: Detail?, chart: Chart?, lo
         // then the dates to watch (#140: at the end); the rest below
         DecisionCard(st, sym, p, det) { sheet = "decision" }   // feedback #128 + 26 Nov: the Buy box first, tags and lead inside
         PriceCard(p, det, chart, chartLoaded)
-        det?.let { PaperPlan(it.setup, it.analyst, p?.p) }
+        det?.let { PaperPlan(it.setup, it.analyst, p?.p, it.exitHit) }
         p?.let { PaperChecks(st, it, openTab) }
         RotationCard(st, p, det)
         p?.let { PaperDates(it) }
@@ -282,27 +286,6 @@ fun SummaryTab(st: AppState, sym: String, p: P?, det: Detail?, chart: Chart?, lo
     formula?.let { (n, k, m) -> FormulaSheet(n, m, k, det) { formula = null } }
 }
 
-// ---------------------------------------------------------------- Paper look: the stock page's front (mock-up)
-@Composable
-private fun PaperStockFront(p: P?, det: Detail?) {
-    if (p == null) return
-    val dc = det?.decision?.d ?: p.dc
-    androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        dc?.let { PaperTag(it, decisionColor(it)) }
-        p.cv?.let { PaperTag("$it conviction", if (it == "High") TierC.darkGreen else TierC.yellow) }
-        if (p.vd.isNotBlank()) PaperTag(p.vd, verdictColor(p.vd))
-        p.su?.let { PaperTag(setupName(it, p.tb == 1), C.white) }
-    }
-    Column(Modifier.padding(top = 2.dp)) {
-        Text(p.n.ifBlank { p.c }, fontSize = 24.sp, lineHeight = 27.sp, color = C.white, fontFamily = PaperFonts.headline, fontWeight = FontWeight.Black)
-        val lead = p.why ?: det?.decision?.why?.firstOrNull()  // the trigger sentence first (what moved it), else the first reason
-        lead?.let { Text(it, fontSize = 14.sp, lineHeight = 19.sp, color = C.muted, fontFamily = PaperFonts.serif,
-            fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, modifier = Modifier.padding(top = 4.dp)) }
-        Text("${p.i ?: ""}${p.bt?.let { " · $it" } ?: ""}${p.mc?.let { " · ₹${fmt(it, 0)} cr" } ?: ""}", fontSize = 11.sp, color = C.dim,
-            fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, modifier = Modifier.padding(top = 4.dp))
-    }
-}
-
 /** The seven checks as five-step scales (tap a row for its tab). */
 @Composable
 private fun PaperChecks(st: AppState, p: P, openTab: (Int) -> Unit) {
@@ -321,9 +304,18 @@ private fun PaperChecks(st: AppState, p: P, openTab: (Int) -> Unit) {
 
 /** The plan on one number line: stop, now, buy zone, analyst target. */
 @Composable
-private fun PaperPlan(s: Setup, an: Analyst?, now: Double?) {
+private fun PaperPlan(s: Setup, an: Analyst?, now: Double?, exitHit: ExitHit? = null) {
     val lo = s.lo; val hi = s.hi
-    if (s.stop == null && lo == null) return
+    // review 26 Nov 2026: Paper had no exit-hit warning and no plan at all without a stop or zone (Classic's PlanCard has both)
+    val hitLine = exitHitLine(exitHit)
+    if (s.stop == null && lo == null) {
+        Column(Modifier.fillMaxWidth()) {
+            PaperLabel("The plan", size = 11.sp)
+            hitLine?.let { T(it, 13.sp, TierC.red, lineHeight = 18.sp, modifier = Modifier.padding(top = 4.dp)) }
+            T(s.note ?: "No buy zone today.", 13.sp, C.dim, lineHeight = 18.sp, modifier = Modifier.padding(top = 4.dp))
+        }
+        return
+    }
     val brk = s.type == "Breakout"
     val plan = listOfNotNull(
         s.stop?.let { PlanMark("Stop", it, TierC.red) },
@@ -350,6 +342,12 @@ private fun PaperPlan(s: Setup, an: Analyst?, now: Double?) {
                 (an1.extra?.let { " · $it" } ?: "") + (if (up) " →" else ""), fontSize = 9.5.sp, color = TierC.lime, fontFamily = PaperFonts.label,
                 fontWeight = FontWeight.Bold, maxLines = 1, modifier = Modifier.align(if (up) Alignment.End else Alignment.Start))
         }
+        hitLine?.let { T(it, 12.sp, TierC.red, lineHeight = 17.sp, modifier = Modifier.padding(top = 4.dp)) }
+        val extra = listOfNotNull(
+            s.add?.let { "Buy rest above ${skRs(it)}" },
+            if (s.add == null && s.watchLo != null) s.sma50?.let { "Weakens below ${skRs(it)} (50-day)" } else null,
+            when { s.rrNote == "Above analyst target" -> "Upside vs risk: above target"; s.rr != null -> "Upside vs risk ${mult(s.rr)}"; else -> null })
+        if (extra.isNotEmpty()) T(extra.joinToString(" · "), 11.5.sp, C.dim, maxLines = 2, modifier = Modifier.padding(top = 2.dp))
     }
 }
 
@@ -378,6 +376,10 @@ private fun PaperDates(p: P) {
                     }
                 }
             }
+        }
+        // review 26 Nov 2026: what the exit check is (the strip shows only the date and the word)
+        p.cp.firstOrNull { it.type == "kill_switch" && it.status != "closed" }?.what?.let { w ->
+            T("Exit check: $w", 11.5.sp, TierC.red, lineHeight = 16.sp, modifier = Modifier.padding(top = 6.dp))
         }
     }
 }
@@ -428,7 +430,7 @@ private fun PaperDecisionBox(st: AppState, sym: String, p: P?, det: Detail?, onO
         val lead = p?.why ?: dd?.why?.firstOrNull()
         lead?.let { Text(it, fontSize = 15.sp, lineHeight = 20.sp, color = C.white, fontFamily = PaperFonts.headline, fontWeight = FontWeight.Bold) }  // feedback #150: upright, not italic
         val why = dd?.why.orEmpty(); val missing = dd?.missing.orEmpty()
-        val fwd = why.filter { it.substringBefore(":") in FORWARD_KEYS }.map { it.substringAfter(": ") }.take(3)
+        val fwd = why.filter { isMgmtLine(it) }.map { mgmtText(it) }.take(3)
         val reasons = (if (fwd.isNotEmpty()) fwd else why.filter { !it.startsWith("Verified") }.take(2)) + missing.take(1)
         if (reasons.isNotEmpty()) {
             HLineDivider()
@@ -477,7 +479,7 @@ private fun DecisionCard(st: AppState, sym: String, p: P?, det: Detail?, onOpen:
         }
         val why = dd?.why.orEmpty()
         val missing = dd?.missing.orEmpty()
-        val fwd = why.filter { it.substringBefore(":") in FORWARD_KEYS }.map { it.substringAfter(": ") }.take(2)
+        val fwd = why.filter { isMgmtLine(it) }.map { mgmtText(it) }.take(2)
         val lv = det?.levels
         // tier words as the level tabs name them (a quality turnaround is "turnaround watch", P.levelTierName / LevelTab)
         fun tierWord(k: String, pre: String) = lv?.get(k)?.takeIf { it.t != 0 }?.let { l ->
@@ -564,7 +566,7 @@ private fun PriceCard(p: P?, det: Detail?, chart: Chart?, chartLoaded: Boolean =
             val base = vals + lines.map { it.value } + bands.flatMap { listOf(it.lo, it.hi) }
             val bLo = base.minOrNull() ?: an.mean; val bHi = base.maxOrNull() ?: an.mean
             if (an.mean >= bLo && an.mean <= bHi + 0.15 * (bHi - bLo).coerceAtLeast(bHi * 0.02))
-                lines += HLine(an.mean, TierC.lime.takeIf { Look.paper } ?: C.white, "Analyst target ${skRs(an.mean)}" + (upside(an.mean, vals.last())?.let { " · $it" } ?: "") + (an.n?.let { " · $it analyst" + (if (it == 1) "" else "s") } ?: ""), labelRight = true)
+                lines += HLine(an.mean, TierC.lime.takeIf { Look.paper } ?: C.white, "Analyst target ${skRs(an.mean)}" + (upside(an.mean, p?.p ?: vals.last())?.let { " · $it" } ?: "") + (an.n?.let { " · $it analyst" + (if (it == 1) "" else "s") } ?: ""), labelRight = true)
         }
         // feedback #105: "H" / "L" dots at the highest and lowest close of the last 250 sessions, only when the shown window includes them
         val marks = hiLoMarks(all, vals.size)
@@ -809,6 +811,10 @@ fun DecisionDetailsSheet(st: AppState, sym: String, p: P?, det: Detail?, onDismi
             Row(Modifier.fillMaxWidth().padding(top = 2.dp)) {
                 T("Low", 9.sp, C.dim, modifier = Modifier.weight(45f)); T("45", 9.sp, C.dim, modifier = Modifier.weight(25f)); T("70 · High", 9.sp, C.dim, modifier = Modifier.weight(30f))
             }
+            // review 26 Nov 2026: a score of 70+ kept at Medium says why (open integrity item or incomplete data)
+            if ((cv.score ?: 0) >= 70 && cvLevel != "High") cv.why?.substringAfter("; ", "")?.takeIf { it.isNotBlank() }?.let {
+                T(it.replaceFirstChar { c -> c.uppercase() }, 12.sp, TierC.yellow, lineHeight = 16.sp, modifier = Modifier.padding(top = 4.dp))
+            }
             if (cv.proofs.isNotEmpty()) T("PROOFS", 10.sp, C.dim, FontWeight.Bold, modifier = Modifier.padding(top = 10.dp, bottom = 2.dp))
             cv.proofs.forEach { pr ->
                 Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.Top) {
@@ -847,12 +853,13 @@ fun DecisionDetailsSheet(st: AppState, sym: String, p: P?, det: Detail?, onDismi
         val why = dd?.why.orEmpty()
         val levelNames = LEVEL_SHORT.toSet()
         val lvl = why.filter { it.substringBefore(":") in levelNames }
-        val valn = why.filter { it !in lvl && it.contains("valuation", ignoreCase = true) }
+        val valn = why.filter { it !in lvl && (it.contains("valuation", ignoreCase = true) || it.contains("base case")) }
         val rev = why.filter { it.startsWith("Verified") || it.contains("review", ignoreCase = true) }
-        // R1 / R2 lender notes are not shown (owner: "why do we need to show this")
-        // feedback #175: only management's own quoted statements here; our signals and the setup note are proofs / timing
-        val fwd = why.filter { it !in lvl && it !in valn && it !in rev && !it.startsWith("R1 and R2 not applied") &&
-            !it.startsWith("Signal") && !it.startsWith("No entry setup") && !it.startsWith("Re-scored") }
+        // feedback #175 / review 26 Nov 2026: only management's own quoted statements under the guidance heading; our signals
+        // and the setup are proofs (conviction); other rule notes go to "Other notes"; R1 / R2 lender notes are not shown
+        val fwd = why.filter { it !in lvl && it !in valn && it !in rev && isMgmtLine(it) }
+        val other = why.filter { it !in lvl && it !in valn && it !in rev && it !in fwd && !it.startsWith("R1 and R2 not applied") &&
+            !it.startsWith("Signal") && !it.startsWith("No entry setup") && !it.startsWith("Entry setup") && !it.startsWith("Re-scored") }
         @Composable
         fun levelChips(keys: Set<String>) {
             val mine = lvl.filter { it.substringBefore(":") in keys }
@@ -875,7 +882,7 @@ fun DecisionDetailsSheet(st: AppState, sym: String, p: P?, det: Detail?, onDismi
         val vlv = det?.levels?.get("val")
         if (vlv != null || valn.isNotEmpty()) SheetSection("Is the price right?") {
             vlv?.let { v -> FlowRow { DotChip("Valuation · " + v.name, tierColor(v.t)) } }
-            valn.firstOrNull()?.substringBefore(";")?.let { T(it, 12.sp, C.dim, modifier = Modifier.padding(top = 6.dp)) }
+            valn.forEach { T(it.substringBefore(";"), 12.sp, C.dim, modifier = Modifier.padding(top = 6.dp)) }
         }
         if (lvl.any { it.substringBefore(":") in timeKeys }) SheetSection("Is now the time?") { levelChips(timeKeys) }
         if (fwd.isNotEmpty()) SheetSection("Future guidance by management", "${fwd.size} quoted") {
@@ -886,6 +893,7 @@ fun DecisionDetailsSheet(st: AppState, sym: String, p: P?, det: Detail?, onDismi
                 }
             }
         }
+        if (other.isNotEmpty()) SheetSection("Other notes") { other.forEach { T(it, 12.5.sp, C.muted, lineHeight = 17.sp, modifier = Modifier.padding(vertical = 3.dp)) } }
         val missing = dd?.missing.orEmpty()
         if (missing.isNotEmpty()) SheetSection("Not a verified Buy yet") {
             missing.forEach { m ->

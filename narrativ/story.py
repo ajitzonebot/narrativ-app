@@ -38,7 +38,17 @@ EXAMPLE = {"what": "A microfinance company. It lends small amounts to women in v
 
 
 # ---------------------------------------------------------------- code-written sections
-def cash_position(sym: str | None, root: Path = Path("data/financials")) -> str | None:
+def inr(x: float) -> str:
+    """Whole rupees in Indian grouping, as the app shows money: 130750 -> 1,30,750."""
+    s = f"{abs(round(x)):d}"
+    head, tail = s[:-3], s[-3:]
+    while len(head) > 2:
+        tail = head[-2:] + "," + tail
+        head = head[:-2]
+    return ("-" if x < 0 else "") + (head + "," + tail if head else tail)
+
+
+def cash_position(sym: str | None, root: Path = Path("data/financials"), lender: bool = False) -> str | None:
     """One statement on the cash position (feedback #155, owner 26 Nov 2026): cash and bank balances on the latest balance
     sheet filed, against the same date a year earlier, and borrowings beside them. Rule-built from the results filings
     (data/financials/<SYM>.json, consolidated when filed, else standalone); None when the balance sheet has no cash line."""
@@ -49,21 +59,24 @@ def cash_position(sym: str | None, root: Path = Path("data/financials")) -> str 
     except (OSError, ValueError):
         return None
 
-    def bs(k):
+    def bs(k, basis=None):
         x = q.get(k) or {}
-        b = ((x.get("Consolidated") or {}).get("bs") or (x.get("Standalone") or {}).get("bs") or {})
-        return b if b.get("cash") is not None else None
+        for bk in ([basis] if basis else ["Consolidated", "Standalone"]):
+            b = (x.get(bk) or {}).get("bs") or {}
+            if b.get("cash") is not None:
+                return bk, b
+        return None, None
 
-    dates = [k for k in sorted(q) if bs(k)]
+    dates = [k for k in sorted(q) if bs(k)[1]]
     if not dates:
         return None
     k = dates[-1]
-    b = bs(k)
-    prev = bs(f"{int(k[:4]) - 1}{k[4:]}")
+    basis, b = bs(k)
+    prev = bs(f"{int(k[:4]) - 1}{k[4:]}", basis)[1]  # the same accounts a year earlier: never consolidated vs standalone
     cr = lambda x: (x or 0) / 1e7  # noqa: E731  rupees -> crore
     cb, br = cr(b.get("cash")) + cr(b.get("bank_bal")), cr(b.get("borr_total"))
     d = datetime.strptime(k, "%Y-%m-%d")
-    out = f"On {d.day} {d:%b %Y}, cash and bank balances were ₹{cb:,.0f} cr"
+    out = f"On {d.day} {d:%b %Y}, cash and bank balances were ₹{inr(cb)} cr"
 
     def chg(now, then):
         if not then:
@@ -77,14 +90,15 @@ def cash_position(sym: str | None, root: Path = Path("data/financials")) -> str 
         out += f", {c} a year earlier" if c else ""
         if br >= 1 and br0 >= 1:
             x = (br / br0 - 1) * 100
-            out += (f"; borrowings were about the same at ₹{br:,.0f} cr" if abs(x) < 1 else
-                    f"; borrowings {'rose' if x > 0 else 'fell'} {abs(x):.0f}% to ₹{br:,.0f} cr")
+            out += (f"; borrowings were about the same at ₹{inr(br)} cr" if abs(x) < 1 else
+                    f"; borrowings {'rose' if x > 0 else 'fell'} {abs(x):.0f}% to ₹{inr(br)} cr")
             r, r0 = cb / br * 100, cb0 / br0 * 100
-            out += f", so cash covers {r:.0f}% of them" + ("" if round(r) == round(r0) else f", {'up' if r > r0 else 'down'} from {r0:.0f}%")
+            if not lender:  # a lender's borrowings fund its loans: cash against them says little (review 26 Nov 2026)
+                out += f", so cash covers {r:.0f}% of them" + ("" if round(r) == round(r0) else f", {'up' if r > r0 else 'down'} from {r0:.0f}%")
         elif br >= 1:
-            out += f"; borrowings ₹{br:,.0f} cr"
+            out += f"; borrowings ₹{inr(br)} cr"
     elif br >= 1:
-        out += f"; borrowings ₹{br:,.0f} cr"
+        out += f"; borrowings ₹{inr(br)} cr"
     if br < 1 and b.get("borr_total") is not None:
         out += "; no borrowings"
     return out + "."
@@ -109,7 +123,7 @@ def going(m: dict, sym: str | None = None) -> dict | None:
         lead = ("Profits are turning into cash" if cc >= 80 else "Most of the profit turns into cash" if cc >= 50 else
                 "Only part of the profit turns into cash" if cc >= 0 else "Profits are not turning into cash: operations used cash")
         text += f" {lead}: {cc:.0f}% cash conversion" + (f" over {yrs} years" if yrs else "") + " (cash from operations ÷ operating profit)."
-    cash = cash_position(sym)
+    cash = cash_position(sym, lender=m.get("kind") in ("bank", "nbfc", "insurance"))
     if cash:
         text += "\n" + cash
     return {"text": text, "tone": "good" if (pr if pr is not None else r) >= 0 else "bad"}

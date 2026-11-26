@@ -183,3 +183,16 @@ def test_unverified_driver_dates_do_not_count():
     assert CV.dated_evidence(th, {"out": {}}, date(2026, 11, 20)) == []
     th["drivers"][0]["due_verified"] = True
     assert len(CV.dated_evidence(th, {"out": {}}, date(2026, 11, 20))) == 1
+
+
+def test_integrity_word_in_a_passing_story_does_not_cap():
+    L = levels(triggers=("T11", "T12", "T15"))
+    r = run(L=L, th=thesis(story={"status": "intact", "date": "2026-11-14", "text": "no management integrity concerns"}))
+    assert r["score"] >= 70 and r["level"] == "High"
+
+
+def test_beat_and_delivered_targets_count_with_bonus():
+    th = thesis(drivers=[], promises=[{"due": "2027-06-30", "due_verified": True, "status": "beat", "promise": "Margin of 18% by June 2027"},
+                                      {"due": "2027-09-30", "due_verified": True, "status": "pending", "promise": "Plant of 500 tonnes by Sep 2027"}])
+    t = CV.management_targets(th, TODAY)
+    assert len(t) == 2 and [x["better"] for x in t] == [True, False]

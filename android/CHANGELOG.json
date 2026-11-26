@@ -77,7 +77,7 @@
    },
    {
     "type": "changed",
-    "text": "Funnel chart at the bottom of Stocks"
+    "text": "Removed the funnel chart from the bottom of Stocks (it stays on Home)"
    }
   ]
  },

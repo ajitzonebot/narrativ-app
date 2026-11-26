@@ -486,7 +486,10 @@ private fun ZoneBar(b: Bullet, modifier: Modifier) {
     val tm = androidx.compose.ui.text.rememberTextMeasurer()
     val zones = bulletZones(b)
     val v = b.v.coerceIn(b.lo, b.hi)
-    val inZone = zones.firstOrNull { v >= it.first && v <= it.second }?.third ?: zones.lastOrNull()?.third
+    // review 26 Nov 2026: the zone follows the rule (a value exactly on the pass line passes), not the first range it touches
+    val pt = b.partly
+    val inZone = if (b.higher) (if (v >= b.pass) "Pass" else if (pt != null && v >= pt) "Partly" else "Miss")
+        else (if (v <= b.pass) "Pass" else if (pt != null && v <= pt) "Partly" else "Miss")
     val ink = C.white; val dim = C.dim
     val zc = zones.map { fillColor(it.third) }
     Canvas(modifier) {

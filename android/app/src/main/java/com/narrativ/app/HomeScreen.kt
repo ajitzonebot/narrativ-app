@@ -429,7 +429,7 @@ fun androidx.compose.foundation.layout.RowScope.PaperTopRow(p: P, price: Double?
             androidx.compose.material3.Text(p.c, fontSize = 15.sp, fontFamily = PaperFonts.headline, fontWeight = FontWeight.Bold, color = C.white, maxLines = 1,
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f, false))
             if (p.mb) MbTag()
-            p.cv?.let { T(it, 11.sp, if (it == "High") TierC.darkGreen else TierC.yellow, FontWeight.SemiBold) }
+            p.cv?.let { T(it, 11.sp, if (it == "High") TierC.darkGreen else if (it == "Low") TierC.red else TierC.yellow, FontWeight.SemiBold) }
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             InkDots(p.t)
@@ -441,24 +441,6 @@ fun androidx.compose.foundation.layout.RowScope.PaperTopRow(p: P, price: Double?
     Column(Modifier.widthIn(min = 70.dp), horizontalAlignment = Alignment.End) {
         T(priceStr(price), 13.sp, weight = FontWeight.SemiBold, maxLines = 1)
         T(arrowPct(d1), 11.sp, col, maxLines = 1)
-    }
-}
-
-/** Paper look, Home: the next dated event among the Top 10, opening the Dates to watch page. */
-@Composable
-fun DatesEntry(st: AppState, top: List<P>) {
-    val today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kolkata"))
-    val next = top.flatMap { p -> p.cp.filter { it.status != "closed" }.mapNotNull { c -> runCatching { java.time.LocalDate.parse(c.due) }.getOrNull()?.let { d -> Triple(d, p.c, c) } } }
-        .filter { !it.first.isBefore(today) }.minByOrNull { it.first }
-    Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp).fillMaxWidth().clickable { st.go(Screen.Dates) }) {
-        Box(Modifier.fillMaxWidth().height(1.dp).background(C.white))
-        Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                PaperLabel("Dates to watch", size = 11.sp)
-                next?.let { (d, c, cp) -> T("Next: ${skDay(d.toString())} · $c · ${cpWord(cp.type)}", 12.sp, C.grey, maxLines = 1) }
-            }
-            T("Calendar ›", 12.sp, C.blue)
-        }
     }
 }
 

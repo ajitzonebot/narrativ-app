@@ -117,7 +117,7 @@ def completed(days: int = 7, now: datetime | None = None, path: Path | None = No
             elif k:
                 # "A.NS/B.NS:..." (one note for two stocks) becomes one row per stock: the app opens each row's stock page,
                 # and "BONDADA.NS/CAPLIPOINT.NS" opened an empty page (feedback #136, 26 Nov 2026)
-                for one in re.split(r"[/,&+]| and ", k):
+                for one in re.split(r"\s*/\s*|\s*,\s*|\s+(?:and|&|\+)\s+", k):  # "&" only with spaces: J&KBANK and M&M are symbols (review 26 Nov 2026)
                     one = one.strip()
                     if one:
                         items.append({"s": one if "." in one else f"{one}.NS", "r": (v or "done").strip()})

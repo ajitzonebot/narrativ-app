@@ -25,3 +25,12 @@ def test_one_note_for_two_stocks_becomes_two_rows(tmp_path):
                              "done": ["BONDADA.NS/CAPLIPOINT.NS:already covered by earlier run, no change"]}))
     out = runlog.completed(7, now=datetime(2026, 11, 25, 12, 0, tzinfo=timezone.utc), path=f, out_path=tmp_path / "done.json")
     assert [i["s"] for i in out["runs"][0]["items"]] == ["BONDADA.NS", "CAPLIPOINT.NS"]
+
+
+def test_ampersand_inside_a_symbol_is_kept(tmp_path):
+    # review 26 Nov 2026: J&KBANK and M&M are symbols; only a spaced "&" or "and" joins two stocks
+    f = tmp_path / "runs.jsonl"
+    f.write_text(json.dumps({"start": "2026-11-25T09:05+05:30", "end": "2026-11-25T09:30+05:30",
+                             "done": ["J&KBANK.NS:pass", "M&M:enrich", "TCS & INFY:pass"]}))
+    out = runlog.completed(7, now=datetime(2026, 11, 25, 12, 0, tzinfo=timezone.utc), path=f, out_path=tmp_path / "done.json")
+    assert [i["s"] for i in out["runs"][0]["items"]] == ["J&KBANK.NS", "M&M.NS", "TCS.NS", "INFY.NS"]

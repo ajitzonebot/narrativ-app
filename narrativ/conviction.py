@@ -12,9 +12,12 @@ Seven checks, each met or not, each with a one-line reason (like the Buy gates):
   C4 Story intact and no open integrity item (Claude's quoted story check)
   C5 Institutions adding: institutional holding up (D5) or mutual funds entering (T15 / D6), not falling, no selling run
   C6 Complete data: 3 full years of results, cash conversion known (lenders exempt), 8+ quarters, no open data issue
-  C7 Quotes double-checked: a separate model reading the same filing before Claude (narrativ/reader.py) found one of Claude's dated statements in the same words (narrativ/reader.py)
-Level: High = 6 or 7 met, including C1 and C3 (the two the history replay shows raise the win rate among candidates);
-Low = 3 or fewer met; Medium otherwise.
+  C7 Quotes double-checked: a separate AI read of the same filing (narrativ/reader.py, before Claude) found one of
+     Claude's dated statements in the same words
+Level (v2, owner 26 Nov 2026, feedback #175): the proof score `score()` sets it, not the count of checks: management
+targets with dates (up to 35), signals (up to 25), Narrativ.ai checks C2 + C7 (up to 20), entry setup C3 (10),
+institutions C5 (10); High 70+, Medium 45-69, Low below 45; an open integrity item (C4) or incomplete data (C6) keeps it
+at Medium at most. The checks are still stored for app versions before 2.32.
 Tested and left out (narrativ/replay.py `conviction`): valuation Deep value / Undervalued lowered the win rate inside the
 margin-of-safety gate; price in stage 2 and strong momentum did not help inside the Top 10.
 """
@@ -199,7 +202,7 @@ def management_targets(th: dict, today: date) -> list[dict]:
     out, seen = [], set()
     rows = [(d.get("text"), d.get("due"), None) for d in th.get("drivers") or [] if d.get("due_verified")]
     rows += [(p.get("promise"), p.get("due"), p.get("status")) for p in th.get("promises") or []
-             if p.get("due_verified") and p.get("status") in ("pending", "raised", "ahead", "met")]
+             if p.get("due_verified") and p.get("status") in ("pending", "raised", "beat", "delivered")]  # RESEARCH.md promise statuses
     for text, due, status in rows:
         dd = _d(due)
         if not dd or not (today <= dd <= end) or not text:
@@ -208,7 +211,7 @@ def management_targets(th: dict, today: date) -> list[dict]:
         if k in seen:
             continue
         seen.add(k)
-        out.append({"text": str(text).rstrip("."), "due": str(due)[:10], "better": status in ("raised", "ahead", "met")})
+        out.append({"text": str(text).rstrip("."), "due": str(due)[:10], "better": status in ("raised", "beat", "delivered")})
     return out
 
 
@@ -281,14 +284,15 @@ def score(dec: dict, L: dict, setup: dict | None, th: dict, Mx: dict | None, tod
     level = "High" if total >= HIGH_AT else "Medium" if total >= MEDIUM_AT else "Low"
     caps = []
     ok4, v4 = c.get("C4") or _c4(th, dec)
-    if "integrity" in str(v4):
+    integrity_open = not ok4 and "integrity item" in str(v4)  # C4's passing text can mention integrity (review 26 Nov 2026)
+    if integrity_open:
         caps.append(str(v4))
     ok6, v6 = c.get("C6") or _c6(Mx, lender, open_issues)
     if not ok6:
         caps.append(f"data incomplete ({str(v6).replace('missing: ', '')})")
     if level == "High" and caps:
         level = "Medium"
-    if not ok4 and "integrity" not in str(v4):
+    if not ok4 and not integrity_open:
         not_yet.append(f"Story {str(v4).replace('story ', '')}" if str(v4).startswith("story") else str(v4))
     return {"score": total, "level": level, "size": SIZE[level], "proofs": proofs, "not_yet": not_yet,
             "capped": caps or None, "score_rule": SCORE_RULE}

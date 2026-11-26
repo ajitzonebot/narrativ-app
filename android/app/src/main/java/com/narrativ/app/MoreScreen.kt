@@ -79,7 +79,7 @@ fun SettingsScreen(st: AppState) {
                 // feedback #169: the stocks saved with the heart on a stock page, opened as a Stocks list
                 val wl = st.watch.toList().sorted()
                 SetRow(Icons.Rounded.FavoriteBorder, "Watchlist", if (wl.isEmpty()) "Tap the heart on a stock to save it here" else "${wl.size} stock${if (wl.size == 1) "" else "s"} saved",
-                    { if (wl.isNotEmpty()) st.go(Screen.Screener("syms:Watchlist|" + wl.joinToString(","))) })
+                    { if (wl.isNotEmpty()) st.go(Screen.Screener("wl:" + wl.joinToString(","))) })
                 HLineDivider(Modifier.padding(horizontal = 14.dp))
                 SetRow(Icons.Rounded.QueryStats, "Track record", if (buys > 0) "$buys Buys · vs Nifty" else "Every Buy vs Nifty", { st.go(Screen.TrackRecord) },
                     if (calls == null) null else vsNifty(avgVs), plColor(avgVs), figureLoading = callsF == null)

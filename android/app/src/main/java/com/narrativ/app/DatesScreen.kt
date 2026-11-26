@@ -64,7 +64,7 @@ fun DatesScreen(st: AppState) {
         }
         byDate.forEach { (d, list) ->
             item {
-                val items = list.groupBy { (_, c, _) -> if (c.type in setOf("results", "shareholding")) "${c.type}|${c.what}" else "${c.type}|${c.what}|${list.indexOf(Triple(d, c, list.first().third))}" }
+                val items = list.groupBy { (_, c, sp) -> if (c.type in setOf("results", "shareholding")) "${c.type}|${c.what}" else "${c.type}|${c.what}|${sp.s}" }  // other items stay per stock (review 26 Nov 2026)
                     .values.map { g ->
                         val c = g.first().second; val syms = g.map { it.third }
                         val who = when { syms.size == top.size && top.size > 2 -> "All ${syms.size}"; syms.size > 3 -> "${syms.size} stocks"; else -> syms.joinToString(", ") { it.c } }

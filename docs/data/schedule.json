@@ -46,7 +46,7 @@
   {
    "time": "after 17:10",
    "days": "Daily run days; Sat–Sun 14:45",
-   "name": "Free readers: Flash-Lite reads every stock's latest call, Flash reads Narrativ.ai's next stocks",
+   "name": "AI read of filings: every stock's latest call and slides, Narrativ.ai's next stocks first (quotes double-checked)",
    "by": "GitHub"
   },
   {

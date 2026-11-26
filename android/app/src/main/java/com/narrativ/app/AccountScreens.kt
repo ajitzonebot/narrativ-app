@@ -697,7 +697,7 @@ fun QueueInfoSheet(onDismiss: () -> Unit) {
 // ---------------------------------------------------------------- a09 Version and release notes
 /** Release-note tag: one word, sentence case, the same grey chip everywhere (tags are not tappable, so never blue). */
 fun changeTag(type: String): String = when (type) {
-    "new" -> "New"; "change", "changed" -> "Changed"; "imp", "improved" -> "Improved"; "fix" -> "Fix"; else -> type.replaceFirstChar { it.uppercase() }
+    "new" -> "New"; "change", "changed" -> "Changed"; "imp", "improved" -> "Improved"; "fix", "fixed" -> "Fix"; else -> type.replaceFirstChar { it.uppercase() }
 }
 
 /** One change in release notes (Release notes screen, older releases, update dialog). */

@@ -29,3 +29,14 @@ def test_agreement_labels():
                    "flash": {"rows": [{"quote": "We expect revenue to grow 20% in FY27."}]}}}
     assert label_agreement(store) == 2
     assert [r["agree"] for r in store["u"]["lite"]["rows"]] == [True, False]
+
+
+def test_forward_keeps_rows_over_an_empty_flash_read_and_an_empty_newer_document(tmp_path, monkeypatch):
+    from narrativ import reader as R
+    monkeypatch.setattr(R, "FORWARD", tmp_path / "f.json")
+    row = {"kind": "guidance", "text": "AUM up 20%", "quote": "we guided 20% to 25%", "due": "2027-03-31"}
+    store = {"u1": {"s": "X.NS", "kind": "transcript", "date": "2026-11-03",
+                    "flash": {"model": "f", "rows": []}, "lite": {"model": "l", "rows": [row]}},
+             "u2": {"s": "X.NS", "kind": "presentation", "date": "2026-11-13", "lite": {"model": "l", "rows": []}}}
+    x = R.forward(store)["stocks"]["X.NS"]
+    assert x["url"] == "u1" and x["rows"] == 1 and x["model"] == "l"

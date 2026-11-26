@@ -35,3 +35,18 @@ def test_ma_cross_golden():
 
 def test_ma_cross_needs_200_days():
     assert ma_cross(pd.Series(np.linspace(1, 2, 100))) is None
+
+
+def test_lender_has_no_coverage_clause_and_indian_grouping(tmp_path):
+    from narrativ.story import inr
+    q = {"2025-09-30": {"Consolidated": {"bs": {"cash": 1e10, "borr_total": 1.0e12}}},
+         "2026-09-30": {"Consolidated": {"bs": {"cash": 1e10, "borr_total": 1.3075e12}}}}
+    t = cash_position("X.NS", _fin(tmp_path, q), lender=True)
+    assert "covers" not in t and "₹1,30,750 cr" in t
+    assert inr(12345678) == "1,23,45,678"
+
+
+def test_year_ago_from_the_same_accounts(tmp_path):
+    q = {"2025-09-30": {"Standalone": {"bs": {"cash": 5e9}}},
+         "2026-09-30": {"Consolidated": {"bs": {"cash": 1e10}}}}
+    assert "a year earlier" not in cash_position("X.NS", _fin(tmp_path, q))

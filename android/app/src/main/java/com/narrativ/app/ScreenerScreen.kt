@@ -138,6 +138,8 @@ fun presetFilt(preset: String?, pf: PicksFile): Filt = when {
     preset.startsWith("ind:") -> Filt(industry = preset.removePrefix("ind:"), industryExact = true)
     preset.startsWith("q:") -> Filt(q = preset.removePrefix("q:"))
     preset == "bq" -> Filt(bq = true)
+    // Watchlist (Settings): every saved stock, removed ones too, so the list matches the count (review 26 Nov 2026)
+    preset.startsWith("wl:") -> Filt(name = "Watchlist", syms = preset.removePrefix("wl:").split(",").filter { it.isNotBlank() }.ifEmpty { listOf("-") }, showRemoved = true)
     preset.startsWith("syms:") -> preset.removePrefix("syms:").let { s ->  // "syms:Title|A,B" or "syms:A,B"
         val title = s.substringBefore("|", "").ifBlank { "Selected stocks" }
         Filt(name = title, syms = s.substringAfter("|").split(",").filter { it.isNotBlank() }.ifEmpty { listOf("-") })
@@ -150,8 +152,8 @@ fun presetFilt(preset: String?, pf: PicksFile): Filt = when {
 
 /**
  * Stocks (mockup h06): search, "Verified only" and decision chips with counts, research coverage bar, count with Sort and
- * Filters (sheet, h07), rows (code, Claude tick, decision, setup · industry, seven level dots, sparkline, price, day move),
- * today's funnel as bars.
+ * Filters (sheet, h07), rows (code, Claude tick, decision, setup · industry, seven level dots, sparkline, price, day move).
+ * No funnel chart here (feedback #162: it stays on Home).
  */
 @Composable
 fun ScreenerScreen(st: AppState, preset: String?) {

@@ -19,7 +19,7 @@ Test (python -m narrativ.reader --test MODEL [LIMIT]): compare a model with Clau
 (data/reader_test/; results 19 Nov 2026: Flash-Lite found 51% of Claude's items on 56 stocks, 95% quotes verified, 13 s a
 document; Flash found 74% on 4 stocks, 97% verified, 317 s a document).
 Lanes (owner, 26 Nov 2026; narrativ/quota.py guards the free allowance per model per Pacific day, data/reader/usage.json):
-  lite  = stage 1: Gemini 3.5 Flash-Lite, then 3.1 Flash-Lite (400, the rest is the story job's), then 2.5 Flash-Lite.
+  lite  = stage 1: Gemini 3.5 Flash-Lite, then 3.1 Flash-Lite (400 a day), then 2.5 Flash-Lite.
   flash = stage 2: Gemini 4 Hydrogen, 3.8, 3.6, 3, 2.5 Flash, 19 a day each.
   agreement: on a document both lanes read, a row either model found in the other's rows is marked agree=True; agreed rows
          go first in forward.json and the packs. Claude still confirms every row it uses.
@@ -53,7 +53,7 @@ LITE_LANE = [r"^gemini-3\.5-flash-lite", r"^gemini-3\.1-flash-lite", r"^gemini-2
 FLASH_LANE = [r"hydrogen", r"^gemini-3\.8-flash(?!-lite)", r"^gemini-3\.6-flash(?!-lite)", r"^gemini-3-flash(?!-lite)",
               r"^gemini-2\.5-flash(?!-lite)"]
 CHECK_LANE = [r"^gemma-4-31b", r"^gemma-4-26b"]
-LANE_CAP = {"gemini-3.1-flash-lite": 400}  # leave ~100 of its 500 a day for the story job's fallback
+LANE_CAP = {"gemini-3.1-flash-lite": 400}  # headroom under its 500 a day (manual story runs on the same Pacific day)
 MINUTES = 170  # stop starting new documents after this (job limit 200)
 STORE, DOCS, STATS = Path("data/reader/store.json"), Path("data/reader/docs.json"), Path("data/reader/stats.jsonl")
 FORWARD = Path("docs/data/forward.json")
@@ -297,6 +297,7 @@ def _stage_run(name: str, lane: list[str], todo: list[dict], key: str, store: di
     """One lane: documents in order, each read by the first model of the lane that still has today's allowance."""
     pace = 1.0  # the quota paces by requests and tokens; this only spaces calls a little
     errs: Counter = Counter()
+    bad400: Counter = Counter()  # HTTP 400 per model this run (review 26 Nov 2026)
     for d in todo:
         if time.time() > stop_at or not any(quota.left(m) for m in lane):
             break
@@ -324,13 +325,21 @@ def _stage_run(name: str, lane: list[str], todo: list[dict], key: str, store: di
             if meta.get("error") in ("HTTP 429",):
                 quota.refused(model)
                 continue  # next model in the lane
-            if meta.get("error") in ("HTTP 404", "HTTP 400", "HTTP 403"):
+            if meta.get("error") == "HTTP 400":  # often this document (too large / invalid), not the model: 3 in a run end the model
+                bad400[model] += 1
+                if bad400[model] >= 3:
+                    quota.gone(model)
+                    log[f"{name}_gone"] += 1
+                break
+            if meta.get("error") in ("HTTP 404", "HTTP 403"):
                 quota.gone(model)
                 log[f"{name}_gone"] += 1
                 continue
             break
         if raw is None and meta is None:
             break  # every model of the lane is out for today
+        if meta.get("error") == "HTTP 429":
+            break  # the last model refused too: out of allowance today, not this document's failure (review 26 Nov 2026)
         if meta.get("error"):
             errs[model] += 1
             if errs[model] >= 3:
@@ -470,7 +479,9 @@ def forward(store: dict) -> dict:
     label_agreement(store)
     st = {}
     for url, e in store.items():
-        r = next((e[m] for m in ("flash", "lite") if "rows" in (e.get(m) or {})), None)
+        # the lane with rows first (Flash over Flash-Lite); an empty Flash read must not hide Flash-Lite's rows (review 26 Nov 2026)
+        r = next((e[m] for m in ("flash", "lite") if (e.get(m) or {}).get("rows")), None) or \
+            next((e[m] for m in ("flash", "lite") if "rows" in (e.get(m) or {})), None)
         if r is None:
             continue
         cur = st.get(e["s"])
@@ -483,7 +494,7 @@ def forward(store: dict) -> dict:
                       "agreed": sum(1 for x in r["rows"] if x.get("agree")),
                       "items": sorted(r["rows"], key=lambda x: not x.get("agree"))}
     doc = {"date": str(datetime.now(IST).date()),
-           "note": "Found by free models; quotes verified verbatim by code. Not confirmed by Narrativ.ai unless the stock's review uses them.",
+           "note": "Found by a separate AI read of the filing; quotes verified word for word by code. Not confirmed by Narrativ.ai unless the stock's review uses them.",
            "stocks": st}
     FORWARD.write_text(json.dumps(doc, ensure_ascii=False, indent=0))
     return doc

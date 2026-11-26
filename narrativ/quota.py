@@ -1,8 +1,9 @@
-"""Free Gemini API allowance guard, shared by the reader and the story writer (owner, 26 Nov 2026).
+"""Free Gemini API allowance guard for the reader (owner, 26 Nov 2026).
 
 Limits are the Narrativ project's free tier as shown in AI Studio (aistudio.google.com/rate-limit, read 26 Nov 2026), set a
 little under Google's numbers. Every call is counted per model per Pacific day (the free tier resets at midnight Pacific,
-about 13:30 IST) in data/reader/usage.json, so the reader and the story job share one count. A refused call (HTTP 429) is
+about 13:30 IST) in data/reader/usage.json. The story job (narrativ/story.py) does not use this count: it runs at 06:30 and
+09:30 IST, a different Pacific day from the evening reader, and stops a model at its first 429. A refused call (HTTP 429) is
 retried once after a minute; a second refusal ends that model for the day and the caller moves to the next model in its list.
 Pacing is by tokens as well as requests: at ~27k tokens a transcript, 250K tokens a minute allows ~9 documents a minute.
 """
@@ -21,7 +22,7 @@ PACIFIC = ZoneInfo("America/Los_Angeles")
 # model id pattern -> (requests a minute, tokens a minute, requests a day we allow ourselves); Google's numbers in comments
 LIMITS = [
     (r"^gemini-3\.5-flash-lite", 14, 240_000, 480),   # 15 / 250K / 500
-    (r"^gemini-3\.1-flash-lite", 14, 240_000, 480),   # 15 / 250K / 500 (the story job uses it too: one shared count)
+    (r"^gemini-3\.1-flash-lite", 14, 240_000, 480),   # 15 / 250K / 500 (the story job uses it on another Pacific day)
     (r"^gemini-2\.5-flash-lite", 9, 240_000, 19),     # 10 / 250K / 20
     (r"flash-lite", 9, 240_000, 19),                  # any other Flash-Lite alias: careful default
     (r"^gemma-4", 28, 15_000, 14_000),                # 30 / 16K / 14.4K (26B and 31B counted apart)
