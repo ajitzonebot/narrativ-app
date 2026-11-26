@@ -58,7 +58,17 @@ jobs:
           git stash -u -q
           auth=()
           [ -z "$(git config --get-all http.https://github.com/.extraheader)" ] && auth=(-c "http.https://github.com/.extraheader=AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GIT_PUSH_TOKEN" | base64 | tr -d '\n')")
-          for i in 1 2 3; do git "${auth[@]}" pull -q --rebase origin main && git "${auth[@]}" push -q origin HEAD:main && break; sleep 5; done
+          ok=0
+          for i in 1 2 3; do git "${auth[@]}" pull -q --rebase origin main && git "${auth[@]}" push -q origin HEAD:main && { ok=1; break; }; sleep 5; done
+          # a branch build (android-test with ref) cannot rebase its own commits onto main: put the log alone on top of main
+          if [ "$ok" = 0 ]; then
+            git rebase --abort 2>/dev/null; f=$(git show --name-only --format= HEAD -- logs | head -1)
+            for i in 1 2 3; do
+              git "${auth[@]}" fetch -q origin main && git checkout -q -f FETCH_HEAD && mkdir -p logs && cp "$RUNNER_TEMP/narrativ.log" "${f:-logs/$GITHUB_WORKFLOW-$(date -u +%Y%m%d-%H%M).log}" &&
+                git add logs && git commit -qm "logs: $GITHUB_WORKFLOW failed" -- logs && git "${auth[@]}" push -q origin HEAD:main && break
+              sleep 5
+            done
+          fi
           exit 0
 
 env:
