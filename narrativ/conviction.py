@@ -271,7 +271,6 @@ def score(dec: dict, L: dict, setup: dict | None, th: dict, Mx: dict | None, tod
     if ok3:
         proofs.append({"k": "setup", "pts": 10, "t": f"Entry setup: {str(v3).lower()}", "v": None})
     else:
-        ty = (setup or {}).get("type") or "No setup"
         not_yet.append("Price extended: wait for a pullback" if "extended" in str(v3) else "No entry setup yet: wait for a breakout, pullback or base")
     ok5, v5 = c.get("C5") or _c5(L, shp)
     if ok5:
