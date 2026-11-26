@@ -253,7 +253,7 @@ fun FeedbackSheet(st: AppState) {
     var sending by remember { mutableStateOf(false) }
     var err by remember { mutableStateOf<String?>(null) }
     val stock = st.feedbackContext.substringAfter("Stock · ", "").substringBefore(" ·").takeIf { it.isNotBlank() }
-    BottomSheet(onDismiss = { st.showFeedback = false }, title = "Feedback") {
+    BottomSheet(onDismiss = { st.showFeedback = false }, title = "Feedback", feedback = false) {
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf("Idea", "Bug", "Data looks wrong", "Stock request").forEach { t -> ToggleChip(t, type == t, { type = t }) }
         }

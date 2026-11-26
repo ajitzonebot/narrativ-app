@@ -1,5 +1,6 @@
 package com.narrativ.app
 
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -321,3 +322,8 @@ fun CrossCard(ch: Chart, dataDate: String?) {
             12.sp, col, FontWeight.SemiBold, modifier = Modifier.padding(top = 4.dp))
     }
 }
+
+/** A row's second line that does not fit scrolls slowly left after 2 s and loops, so the hidden end shows (owner, 26 Nov 2026).
+ *  Text that fits stays still. */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+fun Modifier.rowMarquee(): Modifier = this.basicMarquee(iterations = Int.MAX_VALUE, initialDelayMillis = 2000, velocity = 28.dp)

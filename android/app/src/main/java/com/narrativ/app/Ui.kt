@@ -314,7 +314,7 @@ fun ToggleChip(label: String, selected: Boolean, onClick: () -> Unit, modifier: 
  */
 @Composable
 fun BottomSheet(onDismiss: () -> Unit, title: String? = null, aside: String? = null, titleExtra: (@Composable () -> Unit)? = null,
-                content: @Composable ColumnScope.() -> Unit) {
+                feedback: Boolean = true, content: @Composable ColumnScope.() -> Unit) {
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), containerColor = C.card,
         dragHandle = { Box(Modifier.padding(top = 10.dp, bottom = 12.dp).size(36.dp, 4.dp).clip(rr(2.dp)).background(C.hi.copy(alpha = 0.25f))) }) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, bottom = 24.dp).navigationBarsPadding()) {
@@ -323,6 +323,8 @@ fun BottomSheet(onDismiss: () -> Unit, title: String? = null, aside: String? = n
                 T(title, 19.sp, weight = FontWeight.Bold, modifier = Modifier.weight(1f), maxLines = 2)
                 titleExtra?.invoke()
                 aside?.let { T(it, 13.sp, C.dim, maxLines = 1) }
+                // feedback #151: feedback from inside a sheet, tagged with the screen and the sheet's title
+                if (feedback) AppRef.st?.let { st -> FeedbackButton(st, "${st.screenContext} · $title") }
                 Icon(Icons.Rounded.Close, "Close", tint = C.dim, modifier = Modifier.clip(CircleShape).clickable(onClick = onDismiss).padding(2.dp).size(22.dp))
             }
             content()
@@ -351,6 +353,7 @@ fun FeedbackButton(st: AppState, context: String, modifier: Modifier = Modifier)
 @Composable
 fun TopBar(st: AppState, title: String, context: String = title, subtitle: String? = null, back: Boolean = true,
            big: Boolean = false, actions: @Composable RowScope.() -> Unit = {}) {
+    SideEffect { st.screenContext = context }
     Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 4.dp).heightIn(min = 48.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         if (back) IconBtn(Icons.AutoMirrored.Rounded.ArrowBack, "Back") { st.back() }

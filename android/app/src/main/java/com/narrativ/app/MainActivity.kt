@@ -101,6 +101,8 @@ class AppState(private val ctx: Context, startStack: List<Screen> = listOf(Scree
     var watch by mutableStateOf(prefs.getStringSet("watch", emptySet())!!.toSet())
     var showFeedback by mutableStateOf(false)
     var feedbackContext by mutableStateOf("Home")
+    /** The screen on show (set by its top bar); a sheet's feedback button adds the sheet's title to it (feedback #151). */
+    var screenContext = "Home"
     var showUpdate by mutableStateOf(false)
     var requested by mutableStateOf(prefs.getStringSet("requested", emptySet())!!.toSet())
     // decoded on first use (Settings), not while the app starts
@@ -291,6 +293,7 @@ fun App(startRoute: String? = null, ci: Boolean = false) {
     var savedStack by rememberSaveable { mutableStateOf("") }
     var routeDone by rememberSaveable { mutableStateOf(false) }
     val st = remember { AppState(ctx, decodeStack(savedStack)) }
+    AppRef.st = st
     LaunchedEffect(st) { snapshotFlow { encodeStack(st.stack) }.collect { savedStack = it } }
     val scope = rememberCoroutineScope()
     val notifPerm = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { }
@@ -469,3 +472,6 @@ fun Header(st: AppState, title: String, subtitle: String? = null, context: Strin
 /** CI screenshots: route "tab:SYMBOL@3" opens the stock screen on tab 3. */
 fun startTab(route: String?, sym: String): Int =
     if (route?.startsWith("tab:$sym@") == true) route.substringAfter("@").toIntOrNull() ?: 0 else 0
+
+/** The running app's state for places that are not handed it (bottom sheets' feedback button). */
+object AppRef { var st: AppState? = null }

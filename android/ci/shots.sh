@@ -11,6 +11,8 @@ ROUTES=(home screener market quadrant portfolio settings track advanced data rel
   "stock:TALBROAUTO.NS" "stock:SAHYADRI.NS" "stock:BLS.NS")
 for i in 0 1 2 3 4 5 6 7 8; do ROUTES+=("tab:TALBROAUTO.NS@$i"); done
 ROUTES+=("tab:SAHYADRI.NS@7" "tab:SAHYADRI.NS@8")
+# feedback #149-#153 cases: SATIN Discovery (institutions bar), MARKSANS Summary, Management, Outlook
+ROUTES+=("tab:SATIN.NS@6" "tab:MARKSANS.NS@0" "tab:MARKSANS.NS@4" "tab:MARKSANS.NS@7")
 # LOOKS="paper classic" shoots every route once per look (files prefixed paper_ / classic_); empty = as the app opens
 for look in ${LOOKS:-default}; do
 LX=(); [ "$look" != default ] && LX=(--es look "$look")

@@ -91,6 +91,7 @@ fun HomeScreen(st: AppState) {
                     if (Look.paper) PaperTicker(rememberTicker(st), Modifier.weight(1f))  // feedback #145
                     else T("Narrativ", 26.sp, weight = FontWeight.Bold, modifier = Modifier.weight(1f), maxLines = 1)
                     IconBtn(Icons.Rounded.Search, "Search") { st.go(Screen.Search) }
+                    SideEffect { st.screenContext = "Home" }
                     FeedbackButton(st, "Home")
                 }
                 if (Look.paper) PaperMasthead(pf)
@@ -431,7 +432,7 @@ fun androidx.compose.foundation.layout.RowScope.PaperTopRow(p: P, price: Double?
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             InkDots(p.t)
-            T(setupName(p.su, p.tb == 1) + " · " + (p.i ?: "–"), 11.sp, C.dim, maxLines = 1)
+            T(setupName(p.su, p.tb == 1) + " · " + (p.i ?: "–"), 11.sp, C.dim, maxLines = 1, modifier = Modifier.weight(1f, false).rowMarquee())
         }
     }
     val col = if ((d1 ?: 0.0) >= 0) TierC.darkGreen else TierC.red

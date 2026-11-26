@@ -405,7 +405,7 @@ private fun PaperDecisionBox(st: AppState, sym: String, p: P?, det: Detail?, onO
             p.su?.let { PaperTag(setupName(it, p.tb == 1), C.white) }
         }
         val lead = p?.why ?: dd?.why?.firstOrNull()
-        lead?.let { Text(it, fontSize = 15.sp, lineHeight = 20.sp, color = C.white, fontFamily = PaperFonts.headline, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic) }
+        lead?.let { Text(it, fontSize = 15.sp, lineHeight = 20.sp, color = C.white, fontFamily = PaperFonts.headline, fontWeight = FontWeight.Bold) }  // feedback #150: upright, not italic
         val why = dd?.why.orEmpty(); val missing = dd?.missing.orEmpty()
         val fwd = why.filter { it.substringBefore(":") in FORWARD_KEYS }.map { it.substringAfter(": ") }.take(3)
         val reasons = (if (fwd.isNotEmpty()) fwd else why.filter { !it.startsWith("Verified") }.take(2)) + missing.take(1)

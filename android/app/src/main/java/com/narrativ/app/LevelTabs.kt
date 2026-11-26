@@ -148,7 +148,8 @@ private fun headLine(k: String, lv: Level, det: Detail, st: AppState, sym: Strin
     }
 }
 
-private fun short(s: String?, n: Int = 22): String = s?.let { if (it.length > n) it.take(n - 1) + "…" else it } ?: "–"
+// 40 (was 22): Paper key checks show words on two lines (feedback #152), so a figure is not cut before the cell
+private fun short(s: String?, n: Int = 40): String = s?.let { if (it.length > n) it.take(n - 1) + "…" else it } ?: "–"
 private fun orGeneric(rows: List<KeyCheck>, lv: Level): List<KeyCheck> = if (rows.size >= 2) rows else genericChecks(lv)
 
 // ---------------------------------------------------------------- Stability (s03)

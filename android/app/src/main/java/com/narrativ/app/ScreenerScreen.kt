@@ -299,7 +299,7 @@ fun PaperStockRow(st: AppState, p: P) {
                 Text(androidx.compose.ui.text.buildAnnotatedString {
                     if (p.vd.isNotBlank()) { pushStyle(androidx.compose.ui.text.SpanStyle(color = verdictColor(p.vd), fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)); append(p.vd); pop(); append(" · ") }
                     append(p.i ?: p.n)
-                }, fontSize = 11.sp, color = C.dim, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }, fontSize = 11.sp, color = C.dim, maxLines = 1, modifier = Modifier.weight(1f, false).rowMarquee())
             }
         }
         InkSpark(p.sp, col, Modifier.padding(horizontal = 6.dp).size(54.dp, 22.dp))

@@ -440,7 +440,8 @@ internal fun bulletZones(b: Bullet): List<Triple<Double, Double, String>> {
     } else {
         if (pt != null) listOf(Triple(b.lo, b.pass, "Pass"), Triple(b.pass, pt, "Partly"), Triple(pt, b.hi, "Miss"))
         else listOf(Triple(b.lo, b.pass, "Pass"), Triple(b.pass, b.hi, "Miss"))
-    }.filter { it.second > it.first }
+    }.map { Triple(it.first.coerceIn(b.lo, b.hi), it.second.coerceIn(b.lo, b.hi), it.third) }  // feedback #149: a rule edge beyond the scale stays inside the bar
+        .filter { it.second > it.first }
 }
 
 /** Top key checks two by two: name, figure in its verdict colour, and the rule's zones with the value marked. */
@@ -461,8 +462,16 @@ private fun ZoneCell(r: KeyCheck, modifier: Modifier) {
     val col = if (r.status == "n/a") C.white else fillColor(r.status)
     Column(modifier.padding(vertical = 9.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
         T(r.name, 12.sp, maxLines = 2, lineHeight = 15.sp, modifier = Modifier.heightIn(min = 30.dp))
-        androidx.compose.material3.Text(r.figure + statusMark(r.status), fontSize = 20.sp, lineHeight = 23.sp, color = col,
-            fontFamily = PaperFonts.headline, fontWeight = FontWeight.Black, maxLines = 1)
+        // feedback #152/#153: words in sentence case ("None filed", "No trades"), smaller and on up to two lines so nothing is cut
+        // "none filed (24 months)" with "24 months" under it: the bracket is said once, below
+        val sub = r.pass?.split(" · ")?.filter { !it.startsWith("pass") }?.joinToString(" · ").orEmpty()
+        val bare = Regex("""\s*\(([^)]*)\)\s*$""").find(r.figure)?.takeIf { sub.isNotBlank() && it.groupValues[1].trim() == sub.trim() }
+            ?.let { r.figure.removeRange(it.range) } ?: r.figure
+        val fig = cap(bare) + statusMark(r.status)
+        val words = r.figure.length > 8 || r.figure.any { it.isLetter() }
+        androidx.compose.material3.Text(fig, fontSize = if (words) 15.sp else 20.sp, lineHeight = if (words) 18.sp else 23.sp, color = col,
+            fontFamily = PaperFonts.headline, fontWeight = FontWeight.Black, maxLines = if (words) 2 else 1,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
         val b = r.bullet
         if (b != null) ZoneBar(b, Modifier.fillMaxWidth().height(40.dp))
         // the rest of the pass line ("pass ≥ 15% · avg 13.5%"): the part after the rule; without a bar, the whole line
