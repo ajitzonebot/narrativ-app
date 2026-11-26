@@ -14,6 +14,10 @@ on:
         description: "write (the sheets) or compare (side-by-side model test, data/story_compare.json)"
         type: string
         default: write
+      n:
+        description: "compare only: how many stocks (try 3 first)"
+        type: string
+        default: "30"
 
 permissions:
   contents: write
@@ -45,6 +49,7 @@ jobs:
         timeout-minutes: 38
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          STORY_COMPARE_N: ${{ inputs.n }}
         run: |
           pip install -q -r requirements.txt
           python -m narrativ.story --${{ inputs.mode || 'write' }}

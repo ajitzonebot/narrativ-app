@@ -314,4 +314,4 @@ if __name__ == "__main__":
     if "--write" in sys.argv:
         write()
     elif "--compare" in sys.argv:
-        compare()
+        compare(int(os.environ.get("STORY_COMPARE_N") or 30))
