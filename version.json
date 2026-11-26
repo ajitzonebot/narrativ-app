@@ -1,11 +1,21 @@
 {
- "versionCode": 87,
- "versionName": "2.31.1",
+ "versionCode": 88,
+ "versionName": "2.31.2",
  "date": "2026-11-26",
- "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.31.1-b87/narrativ-v2.31.1-b87.apk",
+ "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.31.2-b88/narrativ-v2.31.2-b88.apk",
  "sizeMb": 12.2,
- "sha256": "83a42382c325906fb405fcef3fe1670b8bd2ff9b130da365864e1d15fb8cfbba",
+ "sha256": "dc78cbb88b0c636e2d9ece12e3003f31bdd91abe39fcd48ca5d5503c11b4a8d1",
  "changelog": [
+  {
+   "version": "2.31.2",
+   "date": "2026-11-26",
+   "changes": [
+    {
+     "type": "fixed",
+     "text": "Key checks: 'None filed', 'Not in Nifty 50/100' and other word figures show in full"
+    }
+   ]
+  },
   {
    "version": "2.31.1",
    "date": "2026-11-26",
