@@ -908,21 +908,25 @@ def discovery(inst, analysts, df, bulk, nse=None):
     if inst is None and an is None:
         return _level("disc", items, 0, None, None, grey="Not checked")
     i = inst if inst is not None else 0
+    # D1 can now come from NSE's filing while Yahoo has no record (no analyst count): unknown analysts count as none,
+    # as they did when Yahoo had a holding figure but no analysts; the text says "analysts not known" (run of 26 Nov 2026)
+    a = an if an is not None else 0
+    atx = "analysts not known" if an is None else f"{an} analyst" + ("" if an == 1 else "s")
     expanding = vr is not None and vr >= 1.3
-    if i > 25 or an > 8:
-        tier, why = 5, f"institutions {i:.0f}%, {an} analysts"
-    elif 20 <= i <= 25 or 6 <= an <= 8:
-        tier, why = 4, f"institutions {i:.0f}%, {an} analysts"
-    elif (10 <= i <= 25 or 3 <= an <= 8) and expanding:
+    if i > 25 or a > 8:
+        tier, why = 5, f"institutions {i:.0f}%, {atx}"
+    elif 20 <= i <= 25 or 6 <= a <= 8:
+        tier, why = 4, f"institutions {i:.0f}%, {atx}"
+    elif (10 <= i <= 25 or 3 <= a <= 8) and expanding:
         tier, why = 3, f"institutions {i:.0f}%, volume {vr:.1f}x its 200-day average"
-    elif i < 10 and inst_buy and an <= 2:
-        tier, why = 2, f"institutional bulk buying, institutions {i:.0f}%, {an} analysts"
-    elif i < 5 and an <= 1 and not expanding:
-        tier, why = 1, f"institutions {i:.0f}%, {an} analyst(s), no volume expansion"
-    elif i >= 10 or an >= 3:
-        tier, why = 4, f"institutions {i:.0f}%, {an} analysts, no volume expansion"
+    elif i < 10 and inst_buy and a <= 2:
+        tier, why = 2, f"institutional bulk buying, institutions {i:.0f}%, {atx}"
+    elif i < 5 and a <= 1 and not expanding:
+        tier, why = 1, f"institutions {i:.0f}%, {atx}, no volume expansion"
+    elif i >= 10 or a >= 3:
+        tier, why = 4, f"institutions {i:.0f}%, {atx}, no volume expansion"
     else:
-        tier, why = 1, f"institutions {i:.0f}%, {an} analyst(s)"
+        tier, why = 1, f"institutions {i:.0f}%, {atx}"
     # tier is rule-based; the score is the rubric share of D1-D9 marks, as for Stability (it was never set: sc[5] was null)
     return _level("disc", items, tier, _rubric_score(items), why, vol_ratio=None if vr is None else round(vr, 2))
 
