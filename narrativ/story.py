@@ -157,10 +157,10 @@ def ask(key: str, model: str, text: str) -> tuple[dict | None, str | None]:
     body = {"contents": [{"parts": [{"text": text}]}], "generationConfig": {"temperature": 0.2}}
     if not model.startswith("gemma"):
         body["generationConfig"]["responseMimeType"] = "application/json"
-    for wait in (0, 15):
+    for wait in (0, 15, 45):  # 503 = the free model is busy: wait and try again
         time.sleep(wait)
         try:
-            r = requests.post(f"{API}/models/{model}:generateContent", headers={"x-goog-api-key": key}, json=body, timeout=90)
+            r = requests.post(f"{API}/models/{model}:generateContent", headers={"x-goog-api-key": key}, json=body, timeout=180)
         except requests.RequestException as e:
             return None, f"request: {str(e)[:80]}"
         if r.status_code != 503:
@@ -168,10 +168,17 @@ def ask(key: str, model: str, text: str) -> tuple[dict | None, str | None]:
     if r.status_code != 200:
         return None, f"HTTP {r.status_code}"
     try:
-        t = r.json()["candidates"][0]["content"]["parts"][0]["text"]
+        # Gemma 4 can return its thinking as a first part (thought=true): use the answer parts only
+        parts = r.json()["candidates"][0]["content"]["parts"]
+        t = "".join(p.get("text", "") for p in parts if not p.get("thought")) or "".join(p.get("text", "") for p in parts)
         return json.loads(t[t.find("{"): t.rfind("}") + 1]), None
-    except Exception as e:  # noqa: BLE001
-        return None, f"parse: {str(e)[:60]}"
+    except Exception as e:  # noqa: BLE001  keep the start of the answer so a format problem can be seen in the test file
+        raw = ""
+        try:
+            raw = json.dumps(r.json()["candidates"][0]["content"]["parts"])[:160]
+        except Exception:  # noqa: BLE001
+            pass
+        return None, f"parse: {str(e)[:40]} | {raw}"
 
 
 def attempt(key: str, m: str, p: dict, desc: str, plans: list[dict], facts: str, verdict: str | None):

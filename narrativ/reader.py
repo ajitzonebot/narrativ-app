@@ -410,7 +410,8 @@ def check_rows(lane: list[str], checks: list, done_flag: threading.Event, key: s
                 quota.gone(model)
             continue
         try:
-            t = res.json()["candidates"][0]["content"]["parts"][0]["text"]
+            parts = res.json()["candidates"][0]["content"]["parts"]  # Gemma 4 may put its thinking first (thought=true)
+            t = "".join(p.get("text", "") for p in parts if not p.get("thought")) or "".join(p.get("text", "") for p in parts)
             v = json.loads(t[t.find("{"): t.rfind("}") + 1])
         except Exception:  # noqa: BLE001
             log["check_errors"] += 1
