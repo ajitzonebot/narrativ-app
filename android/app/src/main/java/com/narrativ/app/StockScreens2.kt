@@ -25,6 +25,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -179,6 +180,7 @@ fun BarCheckRow(r: KeyCheck, b: Bullet, divider: Boolean = true) {
 @Composable
 fun KeyChecksCard(rows: List<KeyCheck>, total: Int, onAll: () -> Unit) {
     SectionCard("Key checks", more = "All $total checks with formulas", onMore = onAll) {
+        if (Look.paper) { ZoneGrid(rows); return@SectionCard }
         rows.forEach { r ->
             val b = r.bullet
             if (b != null) BarCheckRow(r, b) else CheckRow(r.status, r.name, r.figure, r.pass)
@@ -425,5 +427,74 @@ fun RatioRow(label: String, value: String, rule: KeyRule?, divider: Boolean = tr
             T(value, 13.sp, if (value == "n/m") C.white else ruleColor(rule), FontWeight.Bold, maxLines = 1)
         }
         if (divider) HLineDivider()
+    }
+}
+
+// ---------------------------------------------------------------- key checks as zones (Paper, owner 26 Nov 2026)
+/** The rule of a [Bullet] split into miss / partly / pass ranges, low to high. */
+internal fun bulletZones(b: Bullet): List<Triple<Double, Double, String>> {
+    val pt = b.partly
+    return if (b.higher) {
+        if (pt != null) listOf(Triple(b.lo, pt, "Miss"), Triple(pt, b.pass, "Partly"), Triple(b.pass, b.hi, "Pass"))
+        else listOf(Triple(b.lo, b.pass, "Miss"), Triple(b.pass, b.hi, "Pass"))
+    } else {
+        if (pt != null) listOf(Triple(b.lo, b.pass, "Pass"), Triple(b.pass, pt, "Partly"), Triple(pt, b.hi, "Miss"))
+        else listOf(Triple(b.lo, b.pass, "Pass"), Triple(b.pass, b.hi, "Miss"))
+    }.filter { it.second > it.first }
+}
+
+/** Top key checks two by two: name, figure in its verdict colour, and the rule's zones with the value marked. */
+@Composable
+fun ZoneGrid(rows: List<KeyCheck>) {
+    rows.chunked(2).forEachIndexed { ri, pair ->
+        if (ri > 0) HLineDivider()
+        Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+            ZoneCell(pair[0], Modifier.weight(1f).padding(end = 8.dp))
+            Box(Modifier.width(1.dp).fillMaxHeight().padding(vertical = 6.dp).background(C.line))
+            if (pair.size > 1) ZoneCell(pair[1], Modifier.weight(1f).padding(start = 8.dp)) else Spacer(Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
+private fun ZoneCell(r: KeyCheck, modifier: Modifier) {
+    val col = if (r.status == "n/a") C.white else fillColor(r.status)
+    Column(modifier.padding(vertical = 9.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        T(r.name, 12.sp, maxLines = 2, lineHeight = 15.sp, modifier = Modifier.heightIn(min = 30.dp))
+        androidx.compose.material3.Text(r.figure + statusMark(r.status), fontSize = 20.sp, lineHeight = 23.sp, color = col,
+            fontFamily = PaperFonts.headline, fontWeight = FontWeight.Black, maxLines = 1)
+        val b = r.bullet
+        if (b != null) ZoneBar(b, Modifier.fillMaxWidth().height(40.dp))
+        // the rest of the pass line ("pass ≥ 15% · avg 13.5%"): the part after the rule; without a bar, the whole line
+        val note = if (b != null) r.pass?.split(" · ")?.filter { !it.startsWith("pass") }?.joinToString(" · ") else r.pass
+        note?.takeIf { it.isNotBlank() }?.let { T(cap(it), 10.sp, C.dim, maxLines = 2, lineHeight = 13.sp) }
+    }
+}
+
+/** Zones of the rule (miss / partly / pass); the one holding the value is solid, ▼ marks the value; thresholds under the bar. */
+@Composable
+private fun ZoneBar(b: Bullet, modifier: Modifier) {
+    val tm = androidx.compose.ui.text.rememberTextMeasurer()
+    val zones = bulletZones(b)
+    val v = b.v.coerceIn(b.lo, b.hi)
+    val inZone = zones.firstOrNull { v >= it.first && v <= it.second }?.third ?: zones.lastOrNull()?.third
+    val ink = C.white; val dim = C.dim
+    val zc = zones.map { fillColor(it.third) }
+    Canvas(modifier) {
+        val span = (b.hi - b.lo).takeIf { it > 0 } ?: 1.0
+        fun x(t: Double) = ((t - b.lo) / span * size.width).toFloat()
+        val barY = 13.dp.toPx(); val bh = 9.dp.toPx(); val gap = 1.dp.toPx()
+        zones.forEachIndexed { i, z ->
+            val x0 = x(z.first) + if (i > 0) gap / 2 else 0f; val x1 = x(z.second) - if (i < zones.size - 1) gap / 2 else 0f
+            drawRect(zc[i].copy(alpha = if (z.third == inZone) 0.9f else 0.22f), Offset(x0, barY), Size((x1 - x0).coerceAtLeast(1f), bh))
+        }
+        val mx = x(v).coerceIn(5.dp.toPx(), size.width - 5.dp.toPx())
+        val m = tm.measure("▼", androidx.compose.ui.text.TextStyle(fontSize = 10.sp, color = ink))
+        drawText(m, topLeft = Offset(mx - m.size.width / 2f, barY - m.size.height + 1.dp.toPx()))
+        zones.drop(1).forEach { z ->
+            val t = tm.measure(scaleNum(z.first, b.unit), androidx.compose.ui.text.TextStyle(fontSize = 9.sp, color = dim, fontFamily = PaperFonts.label))
+            val tx = (x(z.first) - t.size.width / 2f).coerceIn(0f, size.width - t.size.width)
+            drawText(t, topLeft = Offset(tx, barY + bh + 2.dp.toPx()))
+        }
     }
 }

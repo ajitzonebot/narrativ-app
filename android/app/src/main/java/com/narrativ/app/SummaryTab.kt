@@ -238,13 +238,14 @@ fun SummaryTab(st: AppState, sym: String, p: P?, det: Detail?, chart: Chart?, lo
     var sheet by rememberSaveable { mutableStateOf("") }  // "decision", "research", "ratios"
     val loading = det == null && !loaded  // the stock file is still loading: placeholders, not "missing"
     if (Look.paper) {
-        // Paper (mock-up order): tags and headline, the 1-year chart, the seven checks, the plan line, dates; the rest below
+        // Paper: the Buy box, the 1-year chart, the plan (#139: before the checks), the seven checks, sector and industry (#140),
+        // then the dates to watch (#140: at the end); the rest below
         DecisionCard(st, sym, p, det) { sheet = "decision" }   // feedback #128 + 26 Nov: the Buy box first, tags and lead inside
         PriceCard(p, det, chart, chartLoaded)
-        p?.let { PaperChecks(st, it, openTab) }
         det?.let { PaperPlan(it.setup, it.analyst, p?.p) }
-        p?.let { PaperDates(it) }
+        p?.let { PaperChecks(st, it, openTab) }
         RotationCard(st, p, det)
+        p?.let { PaperDates(it) }
     } else {
         DecisionCard(st, sym, p, det) { sheet = "decision" }
         RotationCard(st, p, det)
@@ -323,7 +324,8 @@ private fun PaperPlan(s: Setup, an: Analyst?, now: Double?) {
         (now ?: s.price)?.let { PlanMark("Now", it, C.white) },
         lo?.let { PlanMark(if (brk) "Buy above" else "Buy from", it, TierC.darkGreen) },
         hi?.takeIf { it != lo }?.let { PlanMark(if (brk) "+5%" else "to", it, TierC.darkGreen) },
-        an?.mean?.takeIf { it > 0 }?.let { PlanMark("Analyst" + (an.n?.let { n -> " ($n)" } ?: ""), it, TierC.lime) },
+        // feedback #141: the target carries its upside from today's price
+        an?.mean?.takeIf { it > 0 }?.let { PlanMark("Analyst" + (an.n?.let { n -> " ($n)" } ?: ""), it, TierC.lime, upside(it, now ?: s.price)) },
     ).sortedBy { it.value }
     Column(Modifier.fillMaxWidth()) {
         PaperLabel("The plan", size = 11.sp)
@@ -540,7 +542,7 @@ private fun PriceCard(p: P?, det: Detail?, chart: Chart?, chartLoaded: Boolean =
             val base = vals + lines.map { it.value } + bands.flatMap { listOf(it.lo, it.hi) }
             val bLo = base.minOrNull() ?: an.mean; val bHi = base.maxOrNull() ?: an.mean
             if (an.mean >= bLo && an.mean <= bHi + 0.15 * (bHi - bLo).coerceAtLeast(bHi * 0.02))
-                lines += HLine(an.mean, TierC.lime.takeIf { Look.paper } ?: C.white, "Analyst target ${skRs(an.mean)}" + (an.n?.let { " · $it analyst" + (if (it == 1) "" else "s") } ?: ""), labelRight = true)
+                lines += HLine(an.mean, TierC.lime.takeIf { Look.paper } ?: C.white, "Analyst target ${skRs(an.mean)}" + (upside(an.mean, vals.last())?.let { " · $it" } ?: "") + (an.n?.let { " · $it analyst" + (if (it == 1) "" else "s") } ?: ""), labelRight = true)
         }
         // feedback #105: "H" / "L" dots at the highest and lowest close of the last 250 sessions, only when the shown window includes them
         val marks = hiLoMarks(all, vals.size)
@@ -913,4 +915,10 @@ fun DecisionDetailsSheet(st: AppState, sym: String, p: P?, det: Detail?, onDismi
             }
         }
     }
+}
+
+/** "+18.6%" / "−4.2%": the target against a price (feedback #141); null without a price. */
+internal fun upside(target: Double, price: Double?): String? = price?.takeIf { it > 0 }?.let { pr ->
+    val u = (target / pr - 1) * 100
+    (if (u >= 0) "+" else "−") + fmt(kotlin.math.abs(u), 1) + "%"
 }

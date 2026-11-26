@@ -1,11 +1,37 @@
 {
- "versionCode": 84,
- "versionName": "2.29.0",
+ "versionCode": 85,
+ "versionName": "2.30.0",
  "date": "2026-11-26",
- "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.29.0-b84/narrativ-v2.29.0-b84.apk",
+ "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.30.0-b85/narrativ-v2.30.0-b85.apk",
  "sizeMb": 12.2,
- "sha256": "f8e86cda24e001cbb0b474e3be4c2bb2d6c7c031183f3046372367e051105bda",
+ "sha256": "6d27cf8d1ceb95af00c556f2ddcd9217b289cf32a10a96494e0d26df2ed18586",
  "changelog": [
+  {
+   "version": "2.30.0",
+   "date": "2026-11-26",
+   "changes": [
+    {
+     "type": "improved",
+     "text": "Home: today's date on the masthead, Today's Top 10 as a headline with an (i) for past results and dates to watch, IPOs as a headline, 'Where to dig next'"
+    },
+    {
+     "type": "improved",
+     "text": "Stock page: the name once at the top, the Buy box first (tags, lead, tick and review date inside), one plan line with the setup on it; analyst target labelled on the right of the chart"
+    },
+    {
+     "type": "new",
+     "text": "Quality: revenue, profit and margin in one chart. Momentum: golden or death cross of the 50 and 200-day averages"
+    },
+    {
+     "type": "improved",
+     "text": "Research queue: when each item is expected, (i) for what the terms mean, the whole list, and filters on Completed; swipe between tabs and between the bottom-bar screens"
+    },
+    {
+     "type": "improved",
+     "text": "Chart labels in sentence case; Stocks rows in two lines; Market (i) on how the mood score differs from Tickertape's"
+    }
+   ]
+  },
   {
    "version": "2.29.0",
    "date": "2026-11-26",

@@ -115,8 +115,12 @@ def completed(days: int = 7, now: datetime | None = None, path: Path | None = No
             if k == "industries":
                 items.append({"industries": v})
             elif k:
-                sym = k if "." in k else f"{k}.NS"
-                items.append({"s": sym, "r": (v or "done").strip()})
+                # "A.NS/B.NS:..." (one note for two stocks) becomes one row per stock: the app opens each row's stock page,
+                # and "BONDADA.NS/CAPLIPOINT.NS" opened an empty page (feedback #136, 26 Nov 2026)
+                for one in re.split(r"[/,&+]| and ", k):
+                    one = one.strip()
+                    if one:
+                        items.append({"s": one if "." in one else f"{one}.NS", "r": (v or "done").strip()})
         runs.append({"task": r.get("task"), "start": t, "approx": r.get("approx", False), "items": items})
     runs.sort(key=lambda x: x["start"], reverse=True)
     out = {"since": cut.date().isoformat(), "days": days, "runs": runs}

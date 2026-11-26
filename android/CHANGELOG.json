@@ -1,5 +1,35 @@
 [
  {
+  "version": "2.31.0",
+  "date": "2026-11-26",
+  "changes": [
+   {
+    "type": "new",
+    "text": "Home: Nifty 50, Sensex, Gift Nifty and gold 22K (per 10 g) beside the logo, updating every 30 s in market hours; each column turns every 4 s"
+   },
+   {
+    "type": "improved",
+    "text": "Home and Market: the mood needle swings into place and the score counts up with it; the funnel says '162 stories studied'; no 'Delayed quotes' line"
+   },
+   {
+    "type": "improved",
+    "text": "Key checks on every tab as a 2 x 2 grid: each rule split into miss, partly and pass zones with the value marked"
+   },
+   {
+    "type": "improved",
+    "text": "Stock page: the plan before the seven checks, sector and industry under them, dates to watch at the end; the analyst target shows its upside from today's price"
+   },
+   {
+    "type": "improved",
+    "text": "Quality chart: profit values on top of the green part. Market: industries and sectors right under the dial, the month chart and inputs folded"
+   },
+   {
+    "type": "fixed",
+    "text": "A research note on two stocks no longer opens a broken stock page; new research reaches the app within about 30 minutes"
+   }
+  ]
+ },
+ {
   "version": "2.30.0",
   "date": "2026-11-26",
   "changes": [

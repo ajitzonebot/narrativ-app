@@ -78,7 +78,7 @@ fun InkSpark(values: List<Double>, color: Color, modifier: Modifier = Modifier.s
 
 /** Half-dial mood gauge: five zone arcs in ink and a needle; [ticks] prints the zone edges. */
 @Composable
-fun PaperGauge(score: Int, modifier: Modifier, stroke: Dp = 12.dp, ticks: Boolean = false) {
+fun PaperGauge(score: Float, modifier: Modifier, stroke: Dp = 12.dp, ticks: Boolean = false) {
     val tm = rememberTextMeasurer()
     val ink = C.white; val dim = C.dim
     Canvas(modifier) {
@@ -98,10 +98,23 @@ fun PaperGauge(score: Int, modifier: Modifier, stroke: Dp = 12.dp, ticks: Boolea
             val l = tm.measure("$v", TextStyle(fontSize = 9.sp, color = dim, fontFamily = PaperFonts.label))
             drawText(l, topLeft = Offset((c.x + rr * cos(a)).toFloat() - l.size.width / 2f, (c.y - rr * sin(a)).toFloat() - l.size.height / 2f))
         }
-        val a = ang(score.toDouble()); val nl = r - sw - (if (ticks) 18.dp.toPx() else 4.dp.toPx())
+        val a = ang(score.toDouble().coerceIn(0.0, 100.0)); val nl = r - sw - (if (ticks) 18.dp.toPx() else 4.dp.toPx())
         drawLine(ink, c, Offset((c.x + nl * cos(a)).toFloat(), (c.y - nl * sin(a)).toFloat()), 2.5.dp.toPx(), cap = StrokeCap.Round)
         drawCircle(ink, 4.dp.toPx(), c)
     }
+}
+
+/** Feedback #137: the needle eases from 0 to [score] in 1 s, once per opening (kept across scrolling); the number shown beside
+ *  the dial reads the same value, so it counts up and stops on the score as the needle stops. */
+@Composable
+fun rememberSwing(score: Int): Float {
+    val played = androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+    val a = androidx.compose.runtime.remember { androidx.compose.animation.core.Animatable(if (played.value) score.toFloat() else 0f) }
+    androidx.compose.runtime.LaunchedEffect(score) {
+        if (played.value) a.snapTo(score.toFloat())
+        else { a.animateTo(score.toFloat(), androidx.compose.animation.core.tween(1000, easing = androidx.compose.animation.core.FastOutSlowInEasing)); played.value = true }
+    }
+    return a.value
 }
 
 /** Five-step scale with the tier's step inked (1 = left, best). */
@@ -113,7 +126,7 @@ fun FiveStep(tier: Int, modifier: Modifier = Modifier.width(110.dp)) {
 }
 
 /** One mark on [PlanLine]. */
-data class PlanMark(val label: String, val value: Double, val color: Color)
+data class PlanMark(val label: String, val value: Double, val color: Color, val extra: String? = null)
 
 /** The trading plan as a number line: marks (stop, now, buy above, +5%, analyst) and a shaded buy zone. */
 @Composable
@@ -140,7 +153,7 @@ fun PlanLine(marks: List<PlanMark>, zone: Pair<Double, Double>?, modifier: Modif
             val mx = x(m.value)
             drawLine(m.color, Offset(mx, y - 8.dp.toPx()), Offset(mx, y + 8.dp.toPx()), 2.dp.toPx())
             val top = tm.measure(m.label.uppercase(), TextStyle(fontSize = 8.5.sp, color = m.color, fontFamily = PaperFonts.label, fontWeight = FontWeight.Bold))
-            val bot = tm.measure(fmt(m.value, if (m.value >= 100) 0 else 2), TextStyle(fontSize = 9.sp, color = m.color, fontFamily = PaperFonts.label))
+            val bot = tm.measure(fmt(m.value, if (m.value >= 100) 0 else 2) + (m.extra?.let { " · $it" } ?: ""), TextStyle(fontSize = 9.sp, color = m.color, fontFamily = PaperFonts.label))
             fun lx(w: Int) = when (i) { 0 -> (mx - 1f).coerceAtLeast(0f); marks.lastIndex -> (mx - w + 1f).coerceAtMost(size.width - w); else -> mx - w / 2f }
             drawText(top, topLeft = Offset(lx(top.size.width), y - 10.dp.toPx() - top.size.height))
             drawText(bot, topLeft = Offset(lx(bot.size.width), y + 10.dp.toPx()))
@@ -199,8 +212,8 @@ fun InkMeter(pct: Double, color: Color, modifier: Modifier = Modifier.fillMaxWid
 
 
 /** Revenue bars with the quarter's profit drawn inside each bar (below the base when it is a loss) and the margin as a line of
- *  dots with the % inside each dot (owner, 26 Nov 2026, feedback #132). Labels: revenue on top, profit inside (above it when the
- *  profit part is too short to hold text). */
+ *  dots with the % inside each dot (owner, 26 Nov 2026, feedback #132). Labels: profit on top of its green part (feedback #142),
+ *  revenue on top of the bar, one line higher when the two would touch. */
 @Composable
 fun RevenueProfitChart(rev: List<Double>, profit: List<Double?>, margin: List<Double?>, labels: List<String>,
                        modifier: Modifier = Modifier.fillMaxWidth().height(250.dp)) {
@@ -211,7 +224,7 @@ fun RevenueProfitChart(rev: List<Double>, profit: List<Double?>, margin: List<Do
     Canvas(modifier) {
         val n = rev.size
         val hasM = margin.size == n && margin.all { it != null }
-        val bottomLab = 16.dp.toPx(); val topPad = 16.dp.toPx()
+        val bottomLab = 16.dp.toPx(); val topPad = 28.dp.toPx()  // room for revenue + profit values on two lines
         val mBand = if (hasM) size.height * 0.36f else 0f            // the margin line sits above the bars
         val minP = profit.filterNotNull().minOrNull()?.coerceAtMost(0.0) ?: 0.0
         val maxV = rev.max().coerceAtLeast(1.0)
@@ -226,16 +239,18 @@ fun RevenueProfitChart(rev: List<Double>, profit: List<Double?>, margin: List<Do
             val cx = slot * i + slot / 2f; val x0 = cx - bw / 2f
             drawRect(barC, Offset(x0, y(rev[i])), Size(bw, base - y(rev[i])))
             val rl = lab(fmt(rev[i], 0), ink, FontWeight.Bold)
-            drawText(rl, topLeft = Offset(cx - rl.size.width / 2f, y(rev[i]) - rl.size.height - 1f))
+            var ry = y(rev[i]) - rl.size.height - 1f
             profit.getOrNull(i)?.let { p ->
                 val top = minOf(y(p), base); val h = kotlin.math.abs(base - y(p))
                 drawRect(if (p >= 0) gain else loss, Offset(x0, top), Size(bw, h))
-                val inside = h >= 13.dp.toPx()
-                val pl = lab(fmt(p, 0), if (inside) onDot else if (p >= 0) gain else loss, FontWeight.Bold)
-                val py = if (inside) top + h / 2f - pl.size.height / 2f else if (p >= 0) top - pl.size.height - 1f else top + h + 1f
-                if (!inside && p >= 0 && py < y(rev[i]) + rl.size.height) Unit  // too tight under the revenue label: skip the duplicate
-                else drawText(pl, topLeft = Offset(cx - pl.size.width / 2f, py))
+                // feedback #142: the profit value sits on top of the green part, in green (a loss: under the base line, in red);
+                // when it would touch the revenue value, the revenue value moves one line up
+                val pl = lab(fmt(p, 0), if (p >= 0) gain else loss, FontWeight.Bold)
+                val py = if (p >= 0) top - pl.size.height - 1f else top + h + 1f
+                if (p >= 0 && py < ry + rl.size.height) ry = py - rl.size.height - 1f
+                drawText(pl, topLeft = Offset(cx - pl.size.width / 2f, py))
             }
+            drawText(rl, topLeft = Offset(cx - rl.size.width / 2f, ry))
             val xl = lab(labels.getOrElse(i) { "" }, dim, FontWeight.Normal)
             drawText(xl, topLeft = Offset(cx - xl.size.width / 2f, size.height - xl.size.height))
         }

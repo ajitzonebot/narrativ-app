@@ -28,6 +28,10 @@
 const JSON_HDR = { "content-type": "application/json; charset=utf-8" };
 // Must equal the IPO entries of wrangler.toml crons. Cloudflare numbers day-of-week 1 = Sunday, so the schedules use MON-FRI names.
 const IPO_CRONS = ["0 3 * * MON-FRI", "0 10 * * MON-FRI"];
+// Every 30 minutes: "Publish research" (republish.yml), which exits at once when no research run pushed since the last
+// publish. GitHub's own */30 schedule fired only every 4-9 hours on 23-26 Nov 2026, so finished research reached the app
+// hours late (owner feedback #144).
+const REPUBLISH_CRON = "*/30 * * * *";
 const MAX_BODY = 8 * 1024;
 const IP_DAILY_CAP = 10;      // feedback + scan posts per IP per UTC day (best-effort, per isolate)
 const GLOBAL_DAILY_CAP = 100; // feedback + scan issues per rolling 24 h, counted from GitHub
@@ -325,7 +329,7 @@ async function recentScan(env, sym) {
 export default {
   async scheduled(event, env, ctx) {
     // 03:00 / 10:00 UTC = 08:30 / 15:30 IST -> IPO check; 11:40 UTC = 17:10 IST -> daily run
-    const wf = IPO_CRONS.includes(event.cron) ? "ipo.yml" : "daily.yml";
+    const wf = event.cron === REPUBLISH_CRON ? "republish.yml" : IPO_CRONS.includes(event.cron) ? "ipo.yml" : "daily.yml";
     let status = 0, detail = "";
     for (let i = 1; i <= 3; i++) {  // 204 = started; retry transient failures (5xx, network)
       try {
@@ -403,6 +407,19 @@ export default {
         out[s] = await r.json();
       }));
       return new Response(JSON.stringify({ ok: true, src: "Yahoo chart (delayed)", quotes: out }), { headers: JSON_HDR });
+    }
+
+    // Home strip (feedback #145): Nifty 50 and Sensex (Yahoo chart, delayed), Gift Nifty near-month future (NSE IX website
+    // data, unofficial) and gold 22K per 10 g (Abharan's daily rate, unofficial). Each source is cached on its own; one that
+    // fails is left out and the app keeps its last value.
+    if (req.method === "GET" && url.pathname === "/ticker") {
+      const items = (await Promise.all([
+        tickYahoo(ctx, "nifty", "NIFTY 50", "^NSEI"),
+        tickYahoo(ctx, "sensex", "SENSEX", "^BSESN"),
+        tickGift(ctx),
+        tickGold(env, ctx),
+      ])).filter(Boolean);
+      return new Response(JSON.stringify({ ok: true, items }), { headers: { ...JSON_HDR, "cache-control": "no-store" } });
     }
 
     if (req.method === "GET" && url.pathname.startsWith("/data/")) {
@@ -488,3 +505,62 @@ export default {
     return bad(404, "not found");
   },
 };
+
+// ---------------------------------------------------------------- Home strip (/ticker)
+async function cached(ctx, key, ttl, make) {
+  const cache = caches.default;
+  const k = new Request(`https://cache.narrativ/t/${key}`);
+  const hit = await cache.match(k);
+  if (hit) return hit.json();
+  const v = await make().catch(() => null);
+  if (v) ctx.waitUntil(cache.put(k, new Response(JSON.stringify(v), { headers: { ...JSON_HDR, "cache-control": `public, max-age=${ttl}` } })));
+  return v;
+}
+
+function tickYahoo(ctx, k, name, sym) {
+  return cached(ctx, k, 30, async () => {
+    const y = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=1d&range=1d`,
+      { headers: { "user-agent": "Mozilla/5.0" } });
+    if (!y.ok) return null;
+    const m = (((await y.json()).chart || {}).result || [])[0]?.meta;
+    if (!m || m.regularMarketPrice == null) return null;
+    return { k, name, p: m.regularMarketPrice, prev: m.chartPreviousClose ?? m.previousClose ?? null, t: m.regularMarketTime ?? null };
+  });
+}
+
+function tickGift(ctx) {
+  return cached(ctx, "gift", 30, async () => {
+    const r = await fetch("https://www.nseix.com/api/market-rate?type=derivatives",
+      { headers: { "user-agent": "Mozilla/5.0", referer: "https://www.nseix.com/" } });
+    if (!r.ok) return null;
+    const row = ((await r.json()).data || []).find((x) => x.SYMBOL === "NIFTY" && x.INSTRUMENTTYPE === "FUTIDX");
+    const p = row ? parseFloat(String(row.LASTPRICE).replace(/,/g, "")) : NaN;
+    if (!isFinite(p)) return null;
+    const ch = parseFloat(String(row.DAYCHANGE_1 ?? row.DAYCHANGE).replace(/,/g, ""));
+    return { k: "gift", name: "GIFT NIFTY", p, prev: isFinite(ch) ? p - ch : null, at: row.TIMESTMP || null };
+  });
+}
+
+// Abharan publishes one rate a day (per gram); the previous different rate is kept in R2 so the app can show the change.
+function tickGold(env, ctx) {
+  return cached(ctx, "gold22", 1800, async () => {
+    const r = await fetch("https://services.abharan.com/api/v1/website/dailyrate", { headers: { "user-agent": "Mozilla/5.0" } });
+    if (!r.ok) return null;
+    const g = parseFloat(((await r.json()).data || {}).gold22);
+    if (!isFinite(g) || g <= 0) return null;
+    const p = g * 10;
+    const today = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+    let prev = null;
+    if (env.DATA_R2) {
+      const key = "ticker/gold22.json";
+      const o = await env.DATA_R2.get(key).catch(() => null);
+      const h = o ? await o.json().catch(() => null) : null; // { p, date, prev, prevDate }
+      if (h && h.p === p) prev = h.prev ?? null;
+      else {
+        prev = h ? h.p : null;
+        ctx.waitUntil(env.DATA_R2.put(key, JSON.stringify({ p, date: today, prev, prevDate: h ? h.date : null })).catch(() => null));
+      }
+    }
+    return { k: "gold22", name: "GOLD 22K · 10G", p, prev, date: today };
+  });
+}

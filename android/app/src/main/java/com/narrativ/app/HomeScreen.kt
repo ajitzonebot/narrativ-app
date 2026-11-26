@@ -88,7 +88,7 @@ fun HomeScreen(st: AppState) {
                 Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     AppLogo(40.dp)
-                    if (Look.paper) Spacer(Modifier.weight(1f))
+                    if (Look.paper) PaperTicker(rememberTicker(st), Modifier.weight(1f))  // feedback #145
                     else T("Narrativ", 26.sp, weight = FontWeight.Bold, modifier = Modifier.weight(1f), maxLines = 1)
                     IconBtn(Icons.Rounded.Search, "Search") { st.go(Screen.Search) }
                     FeedbackButton(st, "Home")
@@ -180,7 +180,7 @@ fun DataLine(st: AppState) {
 fun Top10Card(st: AppState, list: List<P>, ipos: List<IpoOpen> = emptyList()) {
     val live = rememberLiveQuotes(st, list.map { it.s.substringBeforeLast(".") })
     Card(Modifier.padding(horizontal = 16.dp).fillMaxWidth(), pad = 0.dp) {
-        if (live.isNotEmpty()) T("Delayed quotes, ${quoteTime(live) ?: ""} (unofficial source)", 11.sp, C.dim, modifier = Modifier.padding(start = S.cardPad, top = 10.dp))
+        // feedback #146: no "Delayed quotes, 9:21" line; the prices still update in market hours
         val n = ipos.size + list.size
         ipos.forEachIndexed { k, i ->
             Row(Modifier.fillMaxWidth().clickable { st.go(Screen.Ipo(i.name)) }.padding(horizontal = S.cardPad, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -390,9 +390,10 @@ fun PaperFrontBox(pf: PicksFile, n200: Double?, onMood: () -> Unit) {
         Column(Modifier.width(168.dp).clickable(onClick = onMood).padding(end = 10.dp)) {
             PaperLabel("Market mood", size = 10.sp)
             if (md?.score != null) {
-                PaperGauge(md.score, Modifier.fillMaxWidth().height(88.dp))
+                val sw = rememberSwing(md.score)
+                PaperGauge(sw, Modifier.fillMaxWidth().height(88.dp))
                 Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    androidx.compose.material3.Text("${md.score}", fontSize = 28.sp, fontFamily = PaperFonts.headline, fontWeight = FontWeight.Black, color = zoneTextInk(md.score.toDouble()))
+                    androidx.compose.material3.Text("${kotlin.math.round(sw).toInt()}", fontSize = 28.sp, fontFamily = PaperFonts.headline, fontWeight = FontWeight.Black, color = zoneTextInk(md.score.toDouble()))
                     androidx.compose.material3.Text(md.zone ?: "", fontSize = 15.sp, fontFamily = PaperFonts.serif, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
                         color = zoneTextInk(md.score.toDouble()), modifier = Modifier.padding(bottom = 4.dp))
                 }
@@ -404,7 +405,7 @@ fun PaperFrontBox(pf: PicksFile, n200: Double?, onMood: () -> Unit) {
         Column(Modifier.weight(1f).padding(start = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             PaperLabel("Today's funnel", size = 10.sp)
             fn.companies?.let { FunnelBar("${fmt(it.toDouble(), 0)} companies", 1f, C.white) }
-            fn.researched?.let { FunnelBar("$it read", 0.62f, C.grey) }
+            fn.researched?.let { FunnelBar("$it stories studied", 0.62f, C.grey) }
             fn.decisions["Buy"]?.let { FunnelBar("$it Buy", 0.32f, TierC.darkGreen) }
             pf.regime.breadthPct?.let { b ->
                 PaperLabel("Above 200-day avg", size = 10.sp, modifier = Modifier.padding(top = 4.dp))

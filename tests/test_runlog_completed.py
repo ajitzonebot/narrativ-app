@@ -16,3 +16,12 @@ def test_completed_lists_recent_runs_newest_first(tmp_path):
     assert [r["task"] for r in out["runs"]] == ["catalyst", "review"]
     assert out["runs"][0]["items"] == [{"s": "ACE.NS", "r": "enrich"}, {"industries": "Gas,Media (none found)"}]
     assert out["runs"][1]["items"][1] == {"s": "CEATLTD.NS", "r": "fail"}
+
+
+def test_one_note_for_two_stocks_becomes_two_rows(tmp_path):
+    # feedback #136: "BONDADA.NS/CAPLIPOINT.NS" opened an empty stock page
+    f = tmp_path / "runs.jsonl"
+    f.write_text(json.dumps({"start": "2026-11-25T09:05+05:30", "end": "2026-11-25T09:30+05:30",
+                             "done": ["BONDADA.NS/CAPLIPOINT.NS:already covered by earlier run, no change"]}))
+    out = runlog.completed(7, now=datetime(2026, 11, 25, 12, 0, tzinfo=timezone.utc), path=f, out_path=tmp_path / "done.json")
+    assert [i["s"] for i in out["runs"][0]["items"]] == ["BONDADA.NS", "CAPLIPOINT.NS"]

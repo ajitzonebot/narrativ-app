@@ -20,4 +20,4 @@ RUN_REPO = "ajitzonebot/narrativ-app"
 # 11:40 UTC = 17:10 IST (after NSE close): starts daily.yml in ajitzonebot/narrativ-app.
 # 03:00 UTC = 08:30 IST and 10:00 UTC = 15:30 IST: start ipo.yml in ajitzonebot/narrativ-app (code-only IPO check; 15:30 = final-day call).
 [triggers]
-crons = ["40 11 * * MON-FRI", "0 3 * * MON-FRI", "0 10 * * MON-FRI"]
+crons = ["40 11 * * MON-FRI", "0 3 * * MON-FRI", "0 10 * * MON-FRI", "*/30 * * * *"]

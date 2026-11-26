@@ -66,7 +66,7 @@ fun MoneyScreen(st: AppState) {
                     T("Market mood appears after the next daily run. Old rule: ${pf.regime.label ?: "–"} (breadth ${fmt(pf.regime.breadthPct, 0)}%)", 13.sp, C.dim)
                 } else {
                     val series = md.series.mapNotNull { r -> val d = r.getOrNull(0)?.content; val v = r.getOrNull(1)?.content?.toDoubleOrNull(); if (d != null && v != null) d to v else null }
-                    if (Look.paper) PaperMoodTop(md, series)
+                    if (Look.paper) PaperMoodTop(md)
                     else Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { Gauge(md.score, Modifier.size(220.dp, 124.dp), label = md.zone) }
                     if (!Look.paper) md.hint?.let { T(it, 13.sp, lineHeight = 18.sp, align = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 10.dp)) }
                     if (series.size >= 2 && !Look.paper) {
@@ -74,31 +74,7 @@ fun MoneyScreen(st: AppState) {
                         AreaLine(series.map { it.second }, Modifier.fillMaxWidth().height(70.dp), color = C.teal, endDot = false,
                             xLabels = listOf(shortDate(series.first().first), shortDate(series.last().first)))
                     }
-                    Row(Modifier.padding(top = 12.dp, bottom = 4.dp), verticalAlignment = Alignment.Bottom) {
-                        if (Look.paper) PaperLabel("What moves the needle", size = 11.sp)
-                        else { T("Inputs", 14.sp, weight = FontWeight.SemiBold); T("  fear ← score → greed · line at 50", 11.sp, C.dim, maxLines = 1) }
-                    }
-                    md.inputs.forEach { i ->
-                        Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                            T(INPUT_SHORT[i.k] ?: i.name, 12.sp, C.muted, modifier = Modifier.width(118.dp), maxLines = 1)
-                            if (i.score == null) T(i.note ?: "no data today", 11.sp, C.dim, modifier = Modifier.weight(1f), maxLines = 1)
-                            else HBar(i.score / 100.0, moodColor(i.score), Modifier.weight(1f), 6.dp, 0.5)
-                            T(if (i.score == null || i.value == null) "n/a" else inputValue(i), 12.sp, if (i.score == null) C.dim else C.white, FontWeight.SemiBold,
-                                Modifier.width(56.dp), maxLines = 1, align = TextAlign.End)
-                        }
-                    }
-                    ToggleRow("How it is built", "${md.nInputs ?: md.inputs.size} inputs", how, { how = !how }, modifier = Modifier.padding(top = 6.dp))
-                    if (how) {
-                        md.inputs.forEach { i ->
-                            Column(Modifier.padding(vertical = 5.dp)) {
-                                T(i.name + (i.value?.let { " · " + fmt(it, 2) + (i.unit?.takeIf { u -> u.isNotBlank() }?.let { u -> " $u" } ?: "") } ?: ""), 13.sp, weight = FontWeight.Medium)
-                                i.score?.let { s -> T("Score $s · ${i.pct ?: "–"}th percentile of 3 years · fear when ${i.fearWhen ?: "–"}" + (i.asof?.let { " · $it" } ?: ""), 11.sp, C.dim) }
-                                i.note?.let { T(it, 11.sp, C.amber) }
-                                i.src?.let { T(it, 11.sp, C.dim) }
-                            }
-                        }
-                        md.method?.let { T(it, 11.sp, C.dim, lineHeight = 15.sp, modifier = Modifier.padding(top = 6.dp)) }
-                    }
+                    if (!Look.paper) MoodInputs(md, how) { how = !how }  // Paper (#143): folded under the rotation map
                 }
             }
         }
@@ -118,6 +94,21 @@ fun MoneyScreen(st: AppState) {
                 }
                 T("vs " + (if (sectors) rot.bench ?: "Nifty 500" else "our universe (equal weight)") + (if (sectors) " · NSE sector indices, weekly closes" else " · industries with 5+ stocks"),
                     10.sp, C.dim, modifier = Modifier.padding(top = 2.dp))
+            }
+        }
+        // feedback #143 (Paper): the month chart and the inputs fold into two rows under the map; tap to open
+        if (Look.paper && md?.score != null) item {
+            var month by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+            var inputs by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+            val series = md.series.mapNotNull { r -> val d = r.getOrNull(0)?.content; val v = r.getOrNull(1)?.content?.toDoubleOrNull(); if (d != null && v != null) d to v else null }
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth()) {
+                if (series.size >= 2) {
+                    ToggleRow("The last month", "", month, { month = !month })
+                    if (month) PaperMoodMonth(series)
+                }
+                ToggleRow("What moves the needle", "${md.nInputs ?: md.inputs.size} inputs", inputs, { inputs = !inputs })
+                if (inputs) MoodInputs(md, how) { how = !how }
+                HLineDivider()
             }
         }
         val rising = rot.industries.entries.filter { it.value.q in setOf("Leading", "Improving") }.sortedByDescending { it.value.mom }.take(5)
@@ -209,7 +200,7 @@ fun MoodGauge(score: Int, modifier: Modifier) {
 /** Paper look, Market (mock-up): headline from the zone and the month's move, the big dial with zone edges, score and zone,
  *  the hint, and the month's mood drawn over faint zone bands. */
 @androidx.compose.runtime.Composable
-fun PaperMoodTop(md: Mood, series: List<Pair<String, Double>>) {
+fun PaperMoodTop(md: Mood) {
     val score = md.score ?: return
     val zi = zoneTextInk(score.toDouble())
     androidx.compose.material3.Text(androidx.compose.ui.text.buildAnnotatedString {
@@ -218,17 +209,21 @@ fun PaperMoodTop(md: Mood, series: List<Pair<String, Double>>) {
         md.chg1m?.let { append(if (it > 0) ", but lifting" else if (it < 0) ", and sinking" else ", unchanged") }
     }, fontSize = 23.sp, lineHeight = 27.sp, color = C.white, fontFamily = PaperFonts.headline, fontWeight = FontWeight.Black,
         textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp))
-    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { PaperGauge(score, Modifier.size(250.dp, 135.dp), stroke = 17.dp, ticks = true) }
+    val sw = rememberSwing(score)
+    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { PaperGauge(sw, Modifier.size(250.dp, 135.dp), stroke = 17.dp, ticks = true) }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.Bottom) {
-        androidx.compose.material3.Text("$score", fontSize = 44.sp, lineHeight = 46.sp, color = zi, fontFamily = PaperFonts.headline, fontWeight = FontWeight.Black)
+        androidx.compose.material3.Text("${kotlin.math.round(sw).toInt()}", fontSize = 44.sp, lineHeight = 46.sp, color = zi, fontFamily = PaperFonts.headline, fontWeight = FontWeight.Black)
         androidx.compose.material3.Text("  " + (md.zone ?: ""), fontSize = 20.sp, color = zi, fontFamily = PaperFonts.serif,
             fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, modifier = Modifier.padding(bottom = 6.dp))
         md.chg1m?.let { T("   " + (if (it >= 0) "▲ " else "▼ ") + abs(it) + " in a month", 12.sp, if (it >= 0) TierC.darkGreen else TierC.red, modifier = Modifier.padding(bottom = 9.dp)) }
     }
     md.hint?.let { T(it, 13.sp, lineHeight = 18.sp, align = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 2.dp, bottom = 8.dp)) }
+}
+
+/** Paper, Market (#143): the month's mood drawn over faint zone bands (inside the "The last month" fold). */
+@androidx.compose.runtime.Composable
+fun PaperMoodMonth(series: List<Pair<String, Double>>) {
     if (series.size >= 2) {
-        Box(Modifier.fillMaxWidth().height(1.dp).background(C.white))
-        PaperLabel("The last month", size = 11.sp, modifier = Modifier.padding(top = 6.dp, bottom = 2.dp))
         val ink = C.white
         androidx.compose.foundation.Canvas(Modifier.fillMaxWidth().height(72.dp)) {
             fun y(v: Double) = (size.height - (v / 100.0) * size.height).toFloat()
@@ -242,7 +237,6 @@ fun PaperMoodTop(md: Mood, series: List<Pair<String, Double>>) {
             drawCircle(zoneDotInk(series.last().second), 3.dp.toPx(), androidx.compose.ui.geometry.Offset(size.width, y(series.last().second)))
         }
         Row(Modifier.fillMaxWidth()) { T(shortDate(series.first().first), 10.sp, C.dim, modifier = Modifier.weight(1f)); T(shortDate(series.last().first), 10.sp, C.dim) }
-        Box(Modifier.padding(top = 6.dp).fillMaxWidth().height(1.dp).background(C.white))
     }
 }
 
@@ -260,5 +254,35 @@ fun MoodInfoSheet(onDismiss: () -> Unit) {
             "and, by public descriptions, compares them with recent weeks rather than years. After a short rally it can read greed while ours, " +
             "measured against 3 years, still reads fear. Ours suits a 3 to 12-month horizon; the change over the last month (shown with the score) " +
             "is the short-term swing.", 13.sp, C.muted, lineHeight = 19.sp)
+    }
+}
+
+/** The mood's inputs as bars, then "How it is built" (sources, percentiles, method). */
+@androidx.compose.runtime.Composable
+private fun MoodInputs(md: Mood, how: Boolean, onHow: () -> Unit) {
+    Row(Modifier.padding(top = 12.dp, bottom = 4.dp), verticalAlignment = Alignment.Bottom) {
+        if (!Look.paper) { T("Inputs", 14.sp, weight = FontWeight.SemiBold); T("  fear ← score → greed · line at 50", 11.sp, C.dim, maxLines = 1) }
+        else T("fear ← score → greed · line at 50", 11.sp, C.dim, maxLines = 1)
+    }
+    md.inputs.forEach { i ->
+        Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            T(INPUT_SHORT[i.k] ?: i.name, 12.sp, C.muted, modifier = Modifier.width(118.dp), maxLines = 1)
+            if (i.score == null) T(i.note ?: "no data today", 11.sp, C.dim, modifier = Modifier.weight(1f), maxLines = 1)
+            else HBar(i.score / 100.0, moodColor(i.score), Modifier.weight(1f), 6.dp, 0.5)
+            T(if (i.score == null || i.value == null) "n/a" else inputValue(i), 12.sp, if (i.score == null) C.dim else C.white, FontWeight.SemiBold,
+                Modifier.width(56.dp), maxLines = 1, align = TextAlign.End)
+        }
+    }
+    ToggleRow("How it is built", "${md.nInputs ?: md.inputs.size} inputs", how, onHow, modifier = Modifier.padding(top = 6.dp))
+    if (how) {
+        md.inputs.forEach { i ->
+            Column(Modifier.padding(vertical = 5.dp)) {
+                T(i.name + (i.value?.let { " · " + fmt(it, 2) + (i.unit?.takeIf { u -> u.isNotBlank() }?.let { u -> " $u" } ?: "") } ?: ""), 13.sp, weight = FontWeight.Medium)
+                i.score?.let { s -> T("Score $s · ${i.pct ?: "–"}th percentile of 3 years · fear when ${i.fearWhen ?: "–"}" + (i.asof?.let { " · $it" } ?: ""), 11.sp, C.dim) }
+                i.note?.let { T(it, 11.sp, C.amber) }
+                i.src?.let { T(it, 11.sp, C.dim) }
+            }
+        }
+        md.method?.let { T(it, 11.sp, C.dim, lineHeight = 15.sp, modifier = Modifier.padding(top = 6.dp)) }
     }
 }
