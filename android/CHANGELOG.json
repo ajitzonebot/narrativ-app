@@ -1,5 +1,15 @@
 [
  {
+  "version": "2.31.2",
+  "date": "2026-11-26",
+  "changes": [
+   {
+    "type": "fixed",
+    "text": "Key checks: 'None filed', 'Not in Nifty 50/100' and other word figures show in full"
+   }
+  ]
+ },
+ {
   "version": "2.31.1",
   "date": "2026-11-26",
   "changes": [

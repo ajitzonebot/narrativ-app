@@ -380,11 +380,11 @@ private fun ManagementBody(st: AppState, sym: String, det: Detail, lv: Level, on
     val c8 = lv.item("C8"); val c8n = skNums(c8?.v)
     val rows = listOfNotNull(
         lv.item("G1")?.let { g -> KeyCheck(lv.status("G1"), "Exchange action",
-            if (g.v?.matches(Regex("^\\d{4}-\\d{2}-\\d{2}.*")) == true) skDay(g.v) else short(g.v, 16),
+            if (g.v?.matches(Regex("^\\d{4}-\\d{2}-\\d{2}.*")) == true) skDay(g.v) else short(g.v),
             r?.flagReviews?.get("G1")?.verdict?.let { "$it by Narrativ.ai" } ?: "24 months") },
         if (c8 != null && c8n.size >= 4) KeyCheck(lv.status("C8"), "ROCE held", skSgn(c8n[3] - c8n[1], 1, " pts"),
             "FY${c8n[0].toInt()}→${c8n[2].toInt()} · pass ≥ −2 pts", Bullet(c8n[3] - c8n[1], -6.0, 2.0, -2.0, partly = -5.0, unit = " pts")) else null,
-        lv.item("C3")?.let { c -> KeyCheck(lv.status("C3"), "Promoter buying", if (c.v?.startsWith("no ") == true) "no trades" else short(c.v, 16), "12 months") },
+        lv.item("C3")?.let { c -> KeyCheck(lv.status("C3"), "Promoter buying", if (c.v?.startsWith("no ") == true) "no trades" else short(c.v), "12 months") },
         lv.item("C1")?.let { c -> val v = skNums(c.v).firstOrNull()
             KeyCheck(lv.status("C1"), "Promoter holding", v?.let { "${skFx(it, 1)}%" } ?: short(c.v), "pass ≥ 50%", v?.let { Bullet(it, 0.0, 100.0, 50.0, partly = 25.0, unit = "%") }) },
     )
@@ -587,7 +587,7 @@ private fun DiscoveryBody(p: P?, det: Detail, lv: Level, onAll: () -> Unit) {
     val rows = listOfNotNull(
         c1q?.let { KeyCheck(lv.status("D5"), "Institutions, 1 quarter", skSgn(it, 1, " pts"), "pass ≥ +0.5 pts", Bullet(it, -1.0, 1.0, 0.5, partly = -2.0, unit = " pts")) },
         lv.volRatio?.let { KeyCheck(lv.status("D3"), "Volume 50-day / 200-day", mult(it), "pass ≥ 1.3×", Bullet(it, 0.0, 2.0, 1.3, unit = "×")) },
-        lv.item("D8")?.let { d -> KeyCheck(lv.status("D8"), "Index", short(d.v?.substringBefore(" (")?.removePrefix("Nifty "), 18), "pass: in no Nifty index") },
+        lv.item("D8")?.let { d -> KeyCheck(lv.status("D8"), "Index", short(d.v?.substringBefore(" (")?.removePrefix("Nifty ")), "pass: in no Nifty index") },
         // NSE shareholding (D5), the one institutional figure on the page
         inst?.let { KeyCheck(lv.status("D1"), "Institutional holding", "${skFx(it, 1)}%", "pass < 10%", Bullet(it, 0.0, 30.0, 10.0, higher = false, partly = 25.0, unit = "%")) },
     )
@@ -685,7 +685,7 @@ private fun OutlookBody(st: AppState, sym: String, det: Detail, lv: Level, open:
         if (lv.item("T4") != null && cw != null) KeyCheck(lv.status("T4"), "Capacity (CWIP)", "${skFx(cw, 0)}%", "pass ≥ 20%", Bullet(cw, 0.0, 50.0, 20.0, unit = "%")) else null,
         if (t7.size >= 5) KeyCheck(lv.status("T7"), "Acceleration", t7.take(3).joinToString("→") { skFx(it, 0) } + "%", "pass: margin ≥ +2 pts",
             Bullet(t7[4] - t7[3], -2.0, 4.0, 2.0, unit = " pts")) else null,
-        lv.item("T8")?.let { KeyCheck(lv.status("T8"), "Guidance raised", short(it.v ?: "none", 16), "a raised promise") },
+        lv.item("T8")?.let { KeyCheck(lv.status("T8"), "Guidance raised", short(it.v ?: "none"), "a raised promise") },
         lv.item("W")?.let { KeyCheck(lv.status("W"), "Industry", lv.wind ?: "–", "median growth") },
     )
     KeyChecksCard(orGeneric(rows, lv), lv.items.size, onAll)
