@@ -239,20 +239,23 @@ def _write_manifest(r2: R2S3, man: dict, etag: str | None, res: dict) -> str | N
     """Conditional write (If-Match the copy last read, or If-None-Match * when there was none). On a conflict the other
     writer's copy is merged in (merge_conflict) and the write retried. Returns the new ETag ("" when R2 sent none), or None
     when not written."""
+    seen = []
     for _ in range(5):
         body = json.dumps(man, sort_keys=True, separators=(",", ":")).encode()
         st, new = r2.put(MANIFEST_KEY, body, if_match=etag) if etag else r2.put(MANIFEST_KEY, body, if_none_match="*")
         res["puts"] += 1
+        seen.append(f"{st} If-Match {etag!r}" if etag else f"{st} If-None-Match *")
         if 200 <= st < 300:
             return new or ""
         if st != 412:
-            print(f"[appsync] manifest write: http {st}")
+            print(f"[appsync] manifest write: http {st} ({seen[-1]})")
             return None
         theirs, etag = _load_manifest(r2)
         if theirs is None:
             return None
         print(f"[appsync] another upload wrote the manifest meanwhile (commit {str(theirs.get('sha'))[:8]}); merging")
         man = merge_conflict(man, theirs)
+    print(f"[appsync] manifest write: gave up after {len(seen)} tries: {'; '.join(seen)}")
     return None
 
 

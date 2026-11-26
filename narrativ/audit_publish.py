@@ -212,7 +212,7 @@ def repair_r2(first: dict, rev: str, mkey: str, r2, last_ct: int | None) -> dict
     except Exception as e:  # noqa: BLE001
         res = {"ok": False, "error": f"{type(e).__name__}: {e}"}
     lines = [x for x in out.getvalue().splitlines() if x.startswith("[appsync]") and not x.startswith("[appsync] put ")]
-    why = (lines[-1] if lines else str(res))[:300]
+    why = (" | ".join(lines[-4:]) if lines else str(res))[:600]
     try:
         st, body, _ = r2.get(mkey)
         man = json.loads(body) if st == 200 else {}
