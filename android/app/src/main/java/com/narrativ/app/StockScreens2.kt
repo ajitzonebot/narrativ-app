@@ -491,10 +491,12 @@ private fun ZoneBar(b: Bullet, modifier: Modifier) {
         val mx = x(v).coerceIn(5.dp.toPx(), size.width - 5.dp.toPx())
         val m = tm.measure("▼", androidx.compose.ui.text.TextStyle(fontSize = 10.sp, color = ink))
         drawText(m, topLeft = Offset(mx - m.size.width / 2f, barY - m.size.height + 1.dp.toPx()))
-        zones.drop(1).forEach { z ->
+        // thresholds under the bar; when two sit too close, the pass line wins (it is the rule) and the other is left out
+        val labs = zones.drop(1).map { z ->
             val t = tm.measure(scaleNum(z.first, b.unit), androidx.compose.ui.text.TextStyle(fontSize = 9.sp, color = dim, fontFamily = PaperFonts.label))
-            val tx = (x(z.first) - t.size.width / 2f).coerceIn(0f, size.width - t.size.width)
-            drawText(t, topLeft = Offset(tx, barY + bh + 2.dp.toPx()))
+            Triple(t, (x(z.first) - t.size.width / 2f).coerceIn(0f, size.width - t.size.width), z.first == b.pass)
         }
+        val tight = labs.size == 2 && labs[0].second + labs[0].first.size.width + 4.dp.toPx() > labs[1].second
+        labs.filter { !tight || it.third }.forEach { (t, tx, _) -> drawText(t, topLeft = Offset(tx, barY + bh + 2.dp.toPx())) }
     }
 }
