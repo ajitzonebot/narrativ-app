@@ -1,0 +1,97 @@
+# Generated from the private repo by .github/mirror/public_workflows.py: edit it there.
+name: audit
+# Nightly publish audit (narrativ/audit_publish.py; owner, 26 Nov 2026): checks that the day's data reached git, R2 (app
+# copy and the dated archive) and D1, and that no daily run failed. Writes docs/data/audit.json; a failed check opens or
+# updates one `pipeline-audit` issue in the private repo, all checks passing closes it. 23:00 IST, after the 17:10 run and
+# its 20:10 / 22:10 retries.
+on:
+  schedule:
+    - cron: "30 17 * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: read   # the public job's own token reads daily.yml's runs in this repo
+concurrency:
+  group: audit
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Quiet logs (public repo)
+        shell: bash
+        run: |
+          cat > /home/runner/q.sh <<'EOF'
+          bash --noprofile --norc -eo pipefail "$1" >> "$RUNNER_TEMP/narrativ.log" 2>&1 && exit 0
+          echo "Step failed. The full log is saved in the private repo (logs/)."
+          exit 1
+          EOF
+      - uses: actions/checkout@v4
+        with:
+          repository: ajitzonebot/Narrativ
+          token: ${{ secrets.NARRATIV_RW_TOKEN }}
+          persist-credentials: false
+          fetch-depth: 50   # the last data commit's time (R2 freshness check)
+      - name: Data files from the data branch (stage 3+; does nothing before)
+        env:
+          GIT_PUSH_TOKEN: ${{ secrets.NARRATIV_RW_TOKEN }}
+        run: python3 -m narrativ.databranch checkout --force
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Audit
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          RUNS_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ secrets.NARRATIV_RW_TOKEN }}
+          ISSUE_REPO: ajitzonebot/Narrativ
+        run: |
+          pip install -q -r requirements.txt
+          RUN_REPO="$GITHUB_REPOSITORY" python -m narrativ.audit_publish
+      - name: Commit
+        env:
+          GIT_PUSH_TOKEN: ${{ secrets.NARRATIV_RW_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}   # push_retry.sh: changed docs/data files to R2 after the push
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          git config user.name "github-actions[bot]"; git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          bash scripts/publish.sh -m "audit: $(TZ=Asia/Kolkata date +'%Y-%m-%d %H:%M') publish check" --mine all -- docs/data/audit.json
+      - name: Save the log in the private repo
+        if: failure()
+        shell: bash
+        env:
+          GIT_PUSH_TOKEN: ${{ secrets.NARRATIV_RW_TOKEN }}
+        run: |
+          set +e
+          [ -d .git ] && [ -f "$RUNNER_TEMP/narrativ.log" ] || exit 0
+          mkdir -p logs
+          cp "$RUNNER_TEMP/narrativ.log" "logs/$GITHUB_WORKFLOW-$(date -u +%Y%m%d-%H%M).log"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add logs && git commit -qm "logs: $GITHUB_WORKFLOW failed" -- logs
+          git stash -u -q
+          auth=()
+          [ -z "$(git config --get-all http.https://github.com/.extraheader)" ] && auth=(-c "http.https://github.com/.extraheader=AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GIT_PUSH_TOKEN" | base64 | tr -d '\n')")
+          ok=0
+          for i in 1 2 3; do git "${auth[@]}" pull -q --rebase origin main && git "${auth[@]}" push -q origin HEAD:main && { ok=1; break; }; sleep 5; done
+          # a branch build (android-test with ref) cannot rebase its own commits onto main: put the log alone on top of main
+          if [ "$ok" = 0 ]; then
+            git rebase --abort 2>/dev/null; f=$(git show --name-only --format= HEAD -- logs | head -1)
+            for i in 1 2 3; do
+              git "${auth[@]}" fetch -q origin main && git checkout -q -f FETCH_HEAD && mkdir -p logs && cp "$RUNNER_TEMP/narrativ.log" "${f:-logs/$GITHUB_WORKFLOW-$(date -u +%Y%m%d-%H%M).log}" &&
+                git add logs && git commit -qm "logs: $GITHUB_WORKFLOW failed" -- logs && git "${auth[@]}" push -q origin HEAD:main && break
+              sleep 5
+            done
+          fi
+          exit 0
+
+env:
+  NARRATIV_REPO: ajitzonebot/Narrativ
+  DATA_STAGE: ${{ vars.DATA_STAGE || '0' }}   # narrativ/databranch.py: 0 main only, 1-2 + data branch, 3+ data branch
+  APP_REF: ${{ vars.APP_REF || 'main' }}      # the branch the app reads (appsync and the Worker follow it)
+
+defaults:
+  run:
+    shell: bash /home/runner/q.sh {0}

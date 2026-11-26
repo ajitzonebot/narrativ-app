@@ -233,6 +233,8 @@ fun keyRatios(d: Detail): List<Pair<Ratio, String>> {
     }
 }
 
+/** fin.hist column for a valuation metric key (funnel.HIST_KEY): mid-cycle EV/EBITDA has its history under ev_ebitda. */
+fun histKey(k: String): String = if (k == "ev_midcycle_ebitda") "ev_ebitda" else k
 val METRIC_KEY_OF = mapOf("P/B" to "pb", "EV / mid-cycle EBITDA" to "ev_midcycle_ebitda", "EV / EBITDA" to "ev_ebitda", "EV / sales" to "ev_sales", "P/E" to "pe")
 
 // ---------------------------------------------------------------- shared small pieces (used across the app)

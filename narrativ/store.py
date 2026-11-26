@@ -6,6 +6,7 @@ Write budget: D1 Workers Free allows 100,000 rows written a day; this module sto
 import gzip
 import hashlib
 import json
+import math
 import os
 import re
 import threading
@@ -19,13 +20,24 @@ import requests
 API = "https://api.cloudflare.com/client/v4/accounts/{acc}"
 DB_NAME, BUCKET = "narrativ", "narrativ-data"
 SCHEMA = Path(__file__).resolve().parent.parent / "db" / "schema.sql"
-MAX_SQL = 90_000          # D1 limit is 100 KB per statement
+MAX_SQL = 90_000          # bytes (UTF-8); D1 limit is 100 KB per statement
 WRITE_BUDGET = 60_000     # of 100,000 rows/day on Workers Free
-WORKERS = max(1, int(os.environ.get("D1_WORKERS", "3")))  # concurrent statements per upsert (1 = strictly sequential)
+WORKERS = max(1, int(os.environ.get("D1_WORKERS", "6")))  # concurrent statements per upsert (1 = strictly sequential); 6: ~600 statements a run stay far under the API limit of 1,200 per 5 minutes
+
+
+def _plain(v):
+    """numpy scalars (np.int64, np.float64, np.bool_) -> the Python value; anything else unchanged."""
+    if not isinstance(v, (str, bytes, bool, int, float, list, dict, tuple)) and v is not None and hasattr(v, "item"):
+        try:
+            return v.item()
+        except (TypeError, ValueError):
+            return v
+    return v
 
 
 def _lit(v) -> str:
-    if v is None or (isinstance(v, float) and v != v):
+    v = _plain(v)
+    if v is None or (isinstance(v, float) and not math.isfinite(v)):  # NaN / inf are not SQL literals: NULL
         return "NULL"
     if isinstance(v, bool):
         return "1" if v else "0"
@@ -147,7 +159,17 @@ class Store:
             inflight = sum(len(i) for _, i in pending)
             return not force and self.rows_written + inflight >= self.budget
 
-        buf, bidx, size = [], [], len(head) + len(tail)
+        def nbytes(s: str) -> int:  # D1's statement limit is in bytes: non-ASCII text counts 2-4 each
+            return len(s.encode("utf-8"))
+
+        def bound(x):
+            x = _plain(x)
+            if isinstance(x, float) and not math.isfinite(x):
+                return None
+            return x if isinstance(x, (str, int, float)) or x is None else json.dumps(x, ensure_ascii=False, default=str)
+
+        fixed = nbytes(head) + nbytes(tail)
+        buf, bidx, size = [], [], fixed
         try:
             for n, r in enumerate(rows):
                 if err:
@@ -156,19 +178,19 @@ class Store:
                     print(f"[store] write budget reached in {table}; {len(rows) - sent - len(buf)} rows left for tomorrow")
                     break
                 v = "(" + ",".join(_lit(x) for x in r) + ")"
-                if len(v) + len(head) + len(tail) > MAX_SQL:  # one huge row: bind it instead of inlining
-                    submit(head + one + tail,
-                           [x if isinstance(x, (str, int, float)) or x is None else json.dumps(x, ensure_ascii=False, default=str) for x in r], [n])
+                vb = nbytes(v)
+                if vb + fixed > MAX_SQL:  # one huge row: bind it instead of inlining
+                    submit(head + one + tail, [bound(x) for x in r], [n])
                     continue
-                if size + len(v) + 1 > MAX_SQL:
+                if size + vb + 1 > MAX_SQL:
                     submit(head + ",".join(buf) + tail, None, bidx)
-                    buf, bidx, size = [], [], len(head) + len(tail)
+                    buf, bidx, size = [], [], fixed
                     if exhausted():  # the flush above may have used up the budget
                         print(f"[store] write budget reached in {table}; rows after #{n} left for tomorrow")
                         break
                 buf.append(v)
                 bidx.append(n)
-                size += len(v) + 1
+                size += vb + 1
             if buf and not err and (force or self.rows_written + sum(len(i) for _, i in pending) < self.budget):
                 submit(head + ",".join(buf) + tail, None, bidx)
         finally:

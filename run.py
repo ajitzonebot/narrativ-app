@@ -15,7 +15,7 @@ from narrativ import nsedaily as NSED
 from narrativ import shp as SHP
 from narrativ import corpfil as CF
 from narrativ import health as H
-from narrativ.util import prune, write_if_changed
+from narrativ.util import iso_date, prune, write_if_changed
 
 OUT = Path("docs/data")
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -282,11 +282,12 @@ def main(limit: int | None) -> None:
 
     # ---------- Filings (primary), Yahoo statements (fallback), shareholding ----------
     mem = M.all_records()
-    force = set()
+    force, fund0 = set(), None
     for sym, rec in mem.items():
         for c in rec.get("checkpoints", []):
             if c["type"] == "results" and c["status"] == "due" and sym in s0i.index:
-                if F.load().get(sym, {}).get("fetched", "")[:10] < c["due"]:
+                fund0 = F.load() if fund0 is None else fund0  # read once (nothing writes it inside this loop)
+                if fund0.get(sym, {}).get("fetched", "")[:10] < c["due"]:
                     force.add(sym)
     fund = F.refresh(order, force=force)
     cal = exchange.results_calendar(today)
@@ -386,7 +387,7 @@ def main(limit: int | None) -> None:
     btypes, prows = {}, []
     for s in syms:
         k = (mx[s].get("kind") or "general")
-        bt = FN.business_type(mx[s], ind_of.get(s), k)
+        bt = FN.business_type(mx[s], ind_of.get(s), k, s0i.loc[s, "basic_industry"] if "basic_industry" in s0i.columns else None)
         bt, mk, val_ = FN.primary(mx[s], bt)
         btypes[s] = (bt, mk, val_)
         prows.append((s, ind_of.get(s), bt, mk, val_))
@@ -520,7 +521,7 @@ def main(limit: int | None) -> None:
         H.source("data issues", open=reg["open"], systemic_open=reg["open_systemic"], fixed=reg["fixed"])
     except Exception as e:  # noqa: BLE001
         print(f"[issues] failed: {e}")
-    H.mark("levels and decisions")  # sub-stages of the old "funnel, research view, app files" (owner, 26 Nov 2026: 25+ min runs)
+    H.mark("levels and data issues")  # sub-stages of the old "funnel, research view, app files" (owner, 26 Nov 2026: 25+ min runs)
     # ---------- Latest earnings call (narrativ/latest_call.py; owner, 24 Nov 2026) ----------
     # a review must have seen the call for the latest results quarter: exchange / company transcript, else AlphaStreet's
     from narrativ import alphastreet as AS, latest_call as LC
@@ -538,9 +539,10 @@ def main(limit: int | None) -> None:
         if s not in calls:
             calls[s] = latest(s, ex)
         return calls[s]
-    for s in syms:  # stocks with a review: did the review see the latest call? (NSE transcripts + AlphaStreet; ex is not loaded yet)
-        if ((theses.get(s) or {}).get("audit") or {}).get("verdict"):
-            call_pre[s] = latest(s, {})
+    reviewed = [s for s in syms if ((theses.get(s) or {}).get("audit") or {}).get("verdict")]
+    AS.prefetch(reviewed, today)  # AlphaStreet lists in parallel (~3.5 s each on their side); same day cache as AS.calls
+    for s in reviewed:  # stocks with a review: did the review see the latest call? (NSE transcripts + AlphaStreet; ex is not loaded yet)
+        call_pre[s] = latest(s, {})
     print(f"[calls] reviewed stocks: {len(call_pre)}, latest call found {sum(1 for c in call_pre.values() if c and c['state'] == 'found')}")
     dec = {s: FN.decision(ev[s]["L"], ev[s]["out"], theses.get(s), (theses.get(s) or {}).get("scan"), ev[s]["setup"], price_of(s), annc.get(s), today=today,
                           filed=(mx.get(s) or {}).get("filed"), scored=ev[s]["vd"] != "Not enough data",
@@ -560,7 +562,7 @@ def main(limit: int | None) -> None:
     for s, a in corr_applied.items():
         if s in dec:
             dec[s].setdefault("why", []).append("Re-scored with corrected filing values: " + ", ".join(f"{x['field']} ₹{x['now']:,.0f} cr" for x in a))
-    H.mark("latest earnings call check")
+    H.mark("latest call check, decisions and gates")
     aflags = {s: FN.audit_flags(mx.get(s) or {}, ev[s]["lender"]) for s in syms}
     # v1 kept for one week of side-by-side comparison (PLAN.md section 16)
     dec_v1 = {s: FN.decision_v1(ev[s]["L"], ev[s]["out"], theses.get(s), (theses.get(s) or {}).get("scan"), ev[s]["setup"], price_of(s), annc.get(s))["d"]
@@ -726,6 +728,7 @@ def main(limit: int | None) -> None:
             print(f"[calls] intimation {url[-40:]}: {str(e)[:80]}")
             return None
     from narrativ.packs import _text as PK_text
+    AS.prefetch(to_audit, today)
     for s in to_audit:  # idea 2: results due soon, a scheduled call, or results out and the call not yet: review after it
         rd = (cal.get(s) or {}).get("date")
         sc = LC.scheduled_call(s, ann_st, today, intimation_text) if (calls.get(s) or call_of(s) or {}).get("state") != "found" else None
@@ -831,8 +834,8 @@ def main(limit: int | None) -> None:
         if not has_driver(s):
             enrich(s, f"no forward driver yet (priority {ev[s]['pr']})")
     for s, th in theses.items():
-        u = th.get("updated")
-        if u and (today - date.fromisoformat(u)).days > config.THESIS_STALE_DAYS and (s in od_syms or new_docs(s) or evs_any(s, th)):
+        u = iso_date(th.get("updated"))
+        if u and (today - u).days > config.THESIS_STALE_DAYS and (s in od_syms or new_docs(s) or evs_any(s, th)):
             q(s, "thesis older than 90 days and something new is filed", "recheck")
     gap_of = dict(odp["gaps"])
     for x in queue:  # every queued stock carries its scan gaps into the pack
@@ -850,6 +853,7 @@ def main(limit: int | None) -> None:
     if not limit:
         try:
             from narrativ import packs
+            AS.prefetch([x["symbol"] for x in queue], today)
             for x in queue:  # every pack says whether the latest call is in it (idea 1)
                 call_of(x["symbol"])
             packs.build(queue, today, ann_st, ex, dec, ev, mx, annc, theses, mem, MX.val, aflags, calls=calls)
@@ -887,7 +891,7 @@ def main(limit: int | None) -> None:
     breadth = float(sum(1 for t in tech.values() if (t.get("dist200_pct") or 0) > 0) / len(tech)) if tech else 0.0  # own prices
     regime = "RISK ON" if nifty_ok and breadth >= 0.5 else "CAUTION" if nifty_ok or breadth >= 0.4 else "RISK OFF"
 
-    H.mark("research queue and packs")
+    H.mark("memory, ranking, mood, research queue and packs")
     # ---------- Outputs ----------
     OUT.mkdir(parents=True, exist_ok=True)
     now = datetime.now(timezone.utc).isoformat()
@@ -897,10 +901,10 @@ def main(limit: int | None) -> None:
               "queue": len(queue), "verdicts": pd.Series([ev[s]["vd"] for s in syms]).value_counts().to_dict()}
     # Conviction (narrativ/conviction.py, RULES.md "Conviction"): how much verified evidence stands behind each verified
     # Buy. Computed after the decision and the gates; it never changes a decision.
-    conv = {}
+    conv, conv_ok = {}, False
     try:
         from narrativ import conviction as CV
-        fwd_rows = json.loads((OUT / "forward.json").read_text()).get("stocks", {}) if (OUT / "forward.json").exists() else {}
+        fwd_rows = fwd  # forward.json, read once above (only the reader job writes it)
         di = (json.loads((OUT / "data_issues.json").read_text()).get("issues") or {}) if (OUT / "data_issues.json").exists() else {}
         for s in syms:
             if dec[s].get("d") in ("Buy", "Strong Buy"):
@@ -911,6 +915,7 @@ def main(limit: int | None) -> None:
                 if c:
                     conv[s] = c
         print(f"[conviction] {pd.Series([c['level'] for c in conv.values()]).value_counts().to_dict() if conv else 'no verified Buys'}")
+        conv_ok = True
     except Exception as e:  # noqa: BLE001  conviction must not stop the daily run
         print(f"[conviction] failed: {e}")
     picks, detail_syms = [], set(infunnel) | set(theses) | set(req_syms)
@@ -970,6 +975,11 @@ def main(limit: int | None) -> None:
     (OUT / "picks.json").write_text(json.dumps({"v": 2, "updated": now, "date": str(today), "mood": md,
         "regime": {"label": regime, "nifty_above_200dma": nifty_ok, "breadth_pct": round(breadth * 100, 1)},
         "funnel": funnel, "tiers": FN.TIERS, "level_names": FN.LEVEL_NAMES, "top10": PF.top10(picks), "picks": picks}, separators=(",", ":"), ensure_ascii=False))
+    try:  # the factor check's history of every data date (the data branch keeps only 7 days of git history; narrativ/factors.py)
+        from narrativ import factors as FX
+        FX.record({"date": str(today), "level_names": FN.LEVEL_NAMES, "picks": picks})
+    except Exception as e:  # noqa: BLE001
+        print(f"[factors] history not written: {e}")
     (OUT / "queue.json").write_text(json.dumps({"date": str(today), "items": queue}, indent=1, ensure_ascii=False))
     (OUT / "funnel.json").write_text(json.dumps({"date": str(today), "funnel": funnel,
         "removed_by": {FN.LEVEL_NAMES[FN.LEVELS[i]]: sum(1 for s in syms if ev[s]["out"] and ev[s]["out"][0] == i + 1) for i in range(7)},
@@ -1057,7 +1067,7 @@ def main(limit: int | None) -> None:
         news_of = {}
     from narrativ import story as ST
     pick_of = {r_["s"]: r_ for r_ in picks}
-    fwd_st = (json.loads((OUT / "forward.json").read_text()) if (OUT / "forward.json").exists() else {}).get("stocks", {})
+    fwd_st = fwd
     story_st = ST._load()
     H.source("Narrativ sheets", plain_written=len(story_st.get("stocks") or {}), held=len(story_st.get("held") or {}))
     # the loop's scorecard: did verified calls make money (vs the rule candidates and the Nifty)? Run before the detail files
@@ -1065,7 +1075,8 @@ def main(limit: int | None) -> None:
     from narrativ import calls as CALLS
     try:
         cl = CALLS.update(dec, px, bench_close, theses, today, {s: (ev[s]["setup"] or {}).get("stop") for s in syms},
-                          {s: c["level"] for s, c in conv.items()})
+                          {s: c["level"] for s, c in conv.items()} if conv_ok else None,
+                          aliases=alias, universe=set(df["symbol"]))
         H.source("calls", open=cl["open"], verified_3m=(cl["summary"]["verified"]["3m"] or {}).get("avg_vs_nifty"))
     except Exception as e:  # noqa: BLE001
         print(f"[calls] failed: {e}")
@@ -1097,7 +1108,9 @@ def main(limit: int | None) -> None:
                          "analysts": f.get("numberOfAnalystOpinions"), "summary": f.get("longBusinessSummary"), "website": f.get("website"),
                          "next_results": cal.get(s), "bulk_deals": bd, "exchange": {k: x for k, x in (ex.get(s) or {}).items() if k != "events"},
                          "events": uniq_events((mem.get(s) or {}).get("events") or (ex.get(s) or {}).get("events") or [])[:60], "tags": list(s0i.loc[s, "tags"]),
-                         "industry": ind_of.get(s), "rotation": (rot_ind.get(ind_of.get(s)) or {}).get("q"), "lender": e["lender"]}}
+                         "industry": ind_of.get(s), "rotation": (rot_ind.get(ind_of.get(s)) or {}).get("q"), "lender": e["lender"],
+                         # republish scores conviction with the same inputs as this run (C5 needs the selling streak)
+                         "inst_down_q": ((ext(s) or {}).get("shp") or {}).get("inst_down_q")}}
         try:  # the app's Narrativ sheet (narrativ/story.py): plain-words story, model text only where it passed the checks
             det["narrativ"] = ST.sheet(s, pick_of.get(s) or {}, Mx, det["stock"].get("summary"), theses, fwd_st, story_st)
         except Exception as e_:  # noqa: BLE001
@@ -1140,8 +1153,12 @@ def main(limit: int | None) -> None:
             isin_of = {s: s0i.loc[s, "isin"] for s in syms if "isin" in s0i.columns and isinstance(s0i.loc[s, "isin"], str)}
             mcap_of = {s: float(s0i.loc[s, "mcap_cr"]) for s in syms if "mcap_cr" in s0i.columns and pd.notna(s0i.loc[s, "mcap_cr"])}
             mom_of = {p["s"]: (p.get("sc") or [None] * 7)[FN.LEVELS.index("mom")] for p in picks if p.get("s")}
-            dbsync.sync(today, s0i, btypes, {s: ev[s]["lscore"] for s in syms}, picks, details, fins, M.all_records(), theses, md, ann_st,
-                        {"universe": len(syms), "in_funnel": len(infunnel)}, breadth_in=(px, isin_of, mcap_of, mom_of))
+            d1_args = (today, s0i, btypes, {s: ev[s]["lscore"] for s in syms}, picks, details, fins, M.all_records(), theses, md, ann_st,
+                       {"universe": len(syms), "in_funnel": len(infunnel)})
+            if dbsync.deferred():  # DEFER_D1=1: D1 only after this run's data passed the publish gate and was pushed
+                dbsync.defer(d1_args, {"breadth_in": (px, isin_of, mcap_of, mom_of)})
+            else:
+                dbsync.sync(*d1_args, breadth_in=(px, isin_of, mcap_of, mom_of))
         except Exception as e:  # noqa: BLE001
             print(f"[store] sync failed: {e}")
     H.mark("database sync")

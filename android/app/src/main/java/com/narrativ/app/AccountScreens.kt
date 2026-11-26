@@ -214,7 +214,7 @@ fun TrackRecordScreen(st: AppState) {
     }
 }
 
-/** "As one portfolio": the verified Buys as one equal-weight portfolio vs Nifty (calls.json summary.portfolio), or an empty state. */
+/** "As one portfolio": the verified Buys as one portfolio, sized by conviction (High 1, Medium ½, Low ¼), vs Nifty (calls.json summary.portfolio), or an empty state. */
 @Composable
 private fun OnePortfolioCard(p: CallPortfolio?) {
     val a = p?.curve.orEmpty().mapNotNull { it.getOrNull(1)?.content?.toDoubleOrNull() }
@@ -222,7 +222,7 @@ private fun OnePortfolioCard(p: CallPortfolio?) {
     Card(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth(), pad = 16.dp) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             T("As one portfolio", 15.sp, weight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-            T(if (p != null) "equal weight · ${p.days} day${if (p.days == 1) "" else "s"}" else "equal weight", 12.sp, C.dim)
+            T(if (p != null) "sized by conviction · ${p.days} day${if (p.days == 1) "" else "s"}" else "sized by conviction", 12.sp, C.dim)
         }
         if (p == null || a.size < 2 || b.size != a.size) {
             T("Not enough history yet", 13.sp, C.dim, modifier = Modifier.padding(top = 10.dp, bottom = 2.dp))
@@ -460,13 +460,14 @@ fun DataPipelineScreen(st: AppState) {
                 if (iiF == null) SkelLines(3)
                 else if (iss == null || iss.first.issues.isEmpty()) T("No data issue logged yet. Audits add them as they find wrong numbers.", 13.sp, C.dim)
                 else {
-                    T("${iss.first.open} open (${iss.first.openSystemic} systemic) · ${iss.first.fixed} fixed", 13.sp, weight = FontWeight.SemiBold)
+                    T("${iss.first.open} open (${iss.first.openSystemic} systemic) · ${iss.first.corrected} corrected", 13.sp, weight = FontWeight.SemiBold)
                     iss.first.issues.values.sortedWith(compareBy<DataIssue> { it.status != "open" }.thenByDescending { it.firstSeen }).take(30).forEach { d ->
                         Column(Modifier.padding(top = 8.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 T(d.symbol.substringBeforeLast("."), 13.sp, weight = FontWeight.SemiBold)
                                 TypeTag(d.scope, if (d.scope == "systemic") C.amber else C.grey)
-                                T(if (d.status == "fixed") "fixed" + (d.fixedOn?.let { " " + skDay(it) } ?: "") else d.status, 11.sp, if (d.status == "fixed") TierC.lightGreen else TierC.lightRed)
+                                val done = d.status == "corrected" || d.status == "fixed"
+                                T(if (done) d.status + (d.fixedOn?.let { " " + skDay(it) } ?: "") else d.status, 11.sp, if (done) TierC.lightGreen else TierC.lightRed)
                             }
                             T("${d.field}: app ${d.app ?: "–"} → filed ${d.found ?: "–"}", 12.sp, C.dim)
                             d.cause?.let { T(it.replaceFirstChar { c -> c.uppercase() }, 12.sp) }

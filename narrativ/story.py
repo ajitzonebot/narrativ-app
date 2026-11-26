@@ -55,24 +55,20 @@ def cash_position(sym: str | None, root: Path = Path("data/financials"), lender:
     if not sym:
         return None
     try:
-        q = json.loads((root / f"{sym}.json").read_text()).get("quarters") or {}
+        fin = json.loads((root / f"{sym}.json").read_text())
     except (OSError, ValueError):
         return None
-
-    def bs(k, basis=None):
-        x = q.get(k) or {}
-        for bk in ([basis] if basis else ["Consolidated", "Standalone"]):
-            b = (x.get(bk) or {}).get("bs") or {}
-            if b.get("cash") is not None:
-                return bk, b
-        return None, None
-
-    dates = [k for k in sorted(q) if bs(k)[1]]
+    # metrics.series: one basis for every quarter (consolidated when filed for the latest), and filings in the wrong unit
+    # corrected or left out (METROBRAND Sep-2025 was filed 100x too small; audit 26 Nov 2026)
+    from narrativ.metrics import series
+    q = (series(fin) or {}).get("q") or {}
+    dates = [k for k in sorted(q) if ((q[k].get("bs") or {}).get("cash") is not None)]
     if not dates:
         return None
     k = dates[-1]
-    basis, b = bs(k)
-    prev = bs(f"{int(k[:4]) - 1}{k[4:]}", basis)[1]  # the same accounts a year earlier: never consolidated vs standalone
+    b = q[k]["bs"]
+    prev = (q.get(f"{int(k[:4]) - 1}{k[4:]}") or {}).get("bs") or {}
+    prev = prev if prev.get("cash") is not None else None  # the same accounts a year earlier (same basis by construction)
     cr = lambda x: (x or 0) / 1e7  # noqa: E731  rupees -> crore
     cb, br = cr(b.get("cash")) + cr(b.get("bank_bal")), cr(b.get("borr_total"))
     d = datetime.strptime(k, "%Y-%m-%d")
@@ -107,13 +103,12 @@ def cash_position(sym: str | None, root: Path = Path("data/financials"), lender:
 def going(m: dict, sym: str | None = None) -> dict | None:
     def v(k):
         x = m.get(k)
-        return x.get("v") if isinstance(x, dict) else None
+        # not meaningful (growth outside the cap, a tiny base) is left out, as in every other reader (metrics.val)
+        return x.get("v") if isinstance(x, dict) and not x.get("nm") else None
     r, pr = v("rev_yoy_pct"), v("pat_yoy_pct")
-    if r is None and pr is None:
-        return None
     w = lambda x, what: f"{what} {'up' if x >= 0 else 'down'} {abs(x):.0f}%"  # noqa: E731
     parts = [w(pr, "Profit") if pr is not None else None, w(r, "revenue" if pr is not None else "Revenue") if r is not None else None]
-    text = " and ".join(x for x in parts if x) + " on the same quarter last year."
+    text = (" and ".join(x for x in parts if x) + " on the same quarter last year.") if (r is not None or pr is not None) else ""
     # feedback #113 (owner, 26 Nov 2026): cash conversion too, the same figure as the Quality tab's check (cash from
     # operations / EBITDA over the full years filed); not shown for lenders and insurers, where it does not apply
     from narrativ.funnel import cash_conversion
@@ -123,10 +118,15 @@ def going(m: dict, sym: str | None = None) -> dict | None:
         lead = ("Profits are turning into cash" if cc >= 80 else "Most of the profit turns into cash" if cc >= 50 else
                 "Only part of the profit turns into cash" if cc >= 0 else "Profits are not turning into cash: operations used cash")
         text += f" {lead}: {cc:.0f}% cash conversion" + (f" over {yrs} years" if yrs else "") + " (cash from operations ÷ operating profit)."
+    text = text.strip()
     cash = cash_position(sym, lender=m.get("kind") in ("bank", "nbfc", "insurance"))
     if cash:
-        text += "\n" + cash
-    return {"text": text, "tone": "good" if (pr if pr is not None else r) >= 0 else "bad"}
+        text += ("\n" if text else "") + cash
+    if not text:
+        return None
+    g = pr if pr is not None else r
+    tone = ("good" if g >= 0 else "bad") if g is not None else ("bad" if cc is not None and cc < 50 else "good")
+    return {"text": text, "tone": tone}
 
 
 def one_line(t) -> str | None:
@@ -247,6 +247,22 @@ Return JSON only: {{"what": "max {CAPS['what']} characters", "money": "max {CAPS
 "label": "what the company is, 3 to 8 plain words starting with A or An, max {CAPS['label']} characters, e.g. 'A maker of motorcycles and scooters'; no judgement"}}""" + (f"\nYour last answer broke these limits; rewrite shorter: {fix}" if fix else "")
 
 
+_QUOTA = []
+
+
+def _count(model: str, chars: int, status: int) -> None:
+    """The story job's calls in the reader's per-model day count (data/reader/usage.json): both share the free allowance of
+    the same Pacific day (quota.py). Accounting only; a failure here never stops a sheet."""
+    try:
+        if not _QUOTA:
+            from narrativ.quota import Quota
+            _QUOTA.append(Quota())
+        from narrativ.quota import tokens
+        _QUOTA[0].count(model, tokens(chars, 600), refused=status == 429)
+    except Exception as e:  # noqa: BLE001
+        print(f"[story] usage count: {str(e)[:60]}")
+
+
 def ask(key: str, model: str, text: str) -> tuple[dict | None, str | None]:
     import requests
     body = {"contents": [{"parts": [{"text": text}]}], "generationConfig": {"temperature": 0.2}}
@@ -260,6 +276,7 @@ def ask(key: str, model: str, text: str) -> tuple[dict | None, str | None]:
             return None, f"request: {str(e)[:80]}"
         if r.status_code != 503:
             break
+    _count(model, len(text), r.status_code)
     if r.status_code != 200:
         return None, f"HTTP {r.status_code}"
     try:
@@ -357,9 +374,12 @@ def write(max_minutes: float = 30, limit: int = 300) -> None:
             continue
         old = st["stocks"].get(sym) or {}
         # rewritten when the description changes, after a year, or once for sheets written before labels (26 Nov 2026)
-        if old.get("desc_len") == len(desc) and str(old.get("date", "")) > str(int(today[:4]) - 1) + today[4:] and "label_tried" in old:
-            continue
         plans = plans_of(sym, theses, forward)
+        # also rewritten when management's plans changed since (stored rewordings are of the old plans; audit 26 Nov 2026)
+        same_plans = old.get("plans_src") == [x["text"] for x in plans] or ("plans_src" not in old and not plans)
+        if old.get("desc_len") == len(desc) and str(old.get("date", "")) > str(int(today[:4]) - 1) + today[4:] and "label_tried" in old \
+                and (same_plans or "plans_src" not in old):
+            continue
         facts = desc + " " + " ".join(f"{x['text']} {x.get('due') or ''}" for x in plans) + " " + (p.get("n") or "")  # due dates: "by March 2027"
         verdict = one_line(p.get("t"))
         for m in [x for x in MODELS if x not in dead]:
@@ -373,8 +393,10 @@ def write(max_minutes: float = 30, limit: int = 300) -> None:
                 held += 1
                 st.setdefault("held", {})[sym] = {"model": m, "date": today, "why": bad[:4]}
                 continue
+            paired = pair_plans(plans, [str(x).strip() for x in (out.get("plans") or [])], n=4)
             st["stocks"][sym] = {"what": out["what"].strip(), "money": out["money"].strip(),
-                                 "plans": [str(x).strip() for x in (out.get("plans") or [])[:2]],
+                                 "plans": [{"src": x["text"], "text": y["text"]} for x, y in zip(plans, paired) if y["text"] != x["text"]][:2],
+                                 "plans_src": [x["text"] for x in plans],
                                  "model": m, "date": today, "desc_len": len(desc), "label_tried": True}
             if out.get("label") and not check_label(out["label"], facts):
                 st["stocks"][sym]["label"] = str(out["label"]).strip().rstrip(".;:")
@@ -392,13 +414,58 @@ def write(max_minutes: float = 30, limit: int = 300) -> None:
     print(f"[story] wrote {done}, held {held} (failed checks), {errs} model errors; {len(st['stocks'])} stored; {time.time() - t0:.0f}s")
 
 
+# ---------------------------------------------------------------- pairing a reworded plan with its source
+_STOP = {"the", "a", "an", "of", "in", "to", "by", "and", "for", "on", "at", "its", "with", "from", "into", "over", "per", "as"}
+
+
+def _words(s) -> set:
+    return {w for w in re.findall(r"[a-z]+", str(s or "").lower()) if len(w) > 2 and w not in _STOP}
+
+
+def pair_plans(plans: list[dict], plain: list, n: int = 2) -> list[dict]:
+    """[{text, due}] for the first n source plans, each with the model's plain rewording only when that rewording is of
+    this plan (audit 26 Nov 2026: the model picks and reorders plans, so pairing by list position put "1,500 crore by
+    2030" beside a March 2027 due date). A rewording is of a plan when it was stored with that plan's text ("src"), or,
+    for sheets stored before, when every number in it is in the plan (its text and due date) and they share words.
+    Anything else shows the plan's own words."""
+    cands = []
+    for x in plain or []:
+        if isinstance(x, dict):
+            cands.append((str(x.get("text") or "").strip(), x.get("src")))
+        elif x:
+            cands.append((str(x).strip(), None))
+    used, out = set(), []
+    for x in plans[:n]:
+        src = x.get("text") or ""
+        have = _nums(f"{src} {x.get('due') or ''}")
+        best, score = None, 0.0
+        for i, (t, s0) in enumerate(cands):
+            if i in used or not t:
+                continue
+            if s0 is not None:
+                if s0 == src:
+                    best, score = i, 2.0
+                    break
+                continue
+            big = {v for v in _nums(t) if v > 12}
+            if not all(any(abs(v - h) < 1 for h in have) for v in big):
+                continue
+            a, b = _words(t), _words(src)
+            ov = len(a & b) / max(1, min(len(a), len(b)))
+            if ov >= 0.25 and ov > score:
+                best, score = i, ov
+        if best is not None:
+            used.add(best)
+        out.append({"text": cands[best][0] if best is not None else src, "due": x.get("due")})
+    return out
+
+
 # ---------------------------------------------------------------- the dossier field
 def sheet(sym: str, row: dict, metrics: dict, summary: str | None, theses: dict, forward: dict, st: dict | None = None) -> dict | None:
     st = st if st is not None else _load()
     w = (st.get("stocks") or {}).get(sym) or {}
     plans = plans_of(sym, theses, forward)
-    plain = w.get("plans") or []
-    pl = [{"text": plain[i] if i < len(plain) else x["text"], "due": x.get("due")} for i, x in enumerate(plans[:2])]
+    pl = pair_plans(plans, w.get("plans") or [])
     what = w.get("what")
     if not what and summary:
         what = re.split(r"(?<=[.!?])\s", summary.strip())[0][:CAPS["what"]]  # first sentence of the description until the model writes it

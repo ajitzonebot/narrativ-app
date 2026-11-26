@@ -41,6 +41,10 @@ jobs:
           repository: ajitzonebot/Narrativ
           token: ${{ secrets.NARRATIV_RW_TOKEN }}
           persist-credentials: false
+      - name: Data files from the data branch (stage 3+; does nothing before)
+        env:
+          GIT_PUSH_TOKEN: ${{ secrets.NARRATIV_RW_TOKEN }}
+        run: python3 -m narrativ.databranch checkout --force
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -50,19 +54,20 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           STORY_COMPARE_N: ${{ inputs.n }}
+          # inputs reach the shell only as env values, checked against a list (Cloudflare audit 26 Nov 2026)
+          STORY_MODE: ${{ inputs.mode || 'write' }}
         run: |
+          case "$STORY_MODE" in write|compare) ;; *) echo "unknown mode: $STORY_MODE"; exit 1 ;; esac
+          case "$STORY_COMPARE_N" in ''|*[!0-9]*) [ -z "$STORY_COMPARE_N" ] || { echo "n must be a number"; exit 1; } ;; esac
           pip install -q -r requirements.txt
-          python -m narrativ.story --${{ inputs.mode || 'write' }}
+          python -m narrativ.story "--$STORY_MODE"
       - name: Commit
         if: always()
         env:
           GIT_PUSH_TOKEN: ${{ secrets.NARRATIV_RW_TOKEN }}
         run: |
           git config user.name "github-actions[bot]"; git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/story.json $(ls data/story_compare.json 2>/dev/null)
-          git diff --cached --quiet && exit 0
-          git commit -m "story: $(TZ=Asia/Kolkata date +'%Y-%m-%d %H:%M') sheets"
-          bash scripts/push_retry.sh -X theirs
+          bash scripts/publish.sh -m "story: $(TZ=Asia/Kolkata date +'%Y-%m-%d %H:%M') sheets" --mine all -- data/story.json data/story_compare.json
       - name: Save the log in the private repo
         if: failure()
         shell: bash
@@ -94,6 +99,8 @@ jobs:
 
 env:
   NARRATIV_REPO: ajitzonebot/Narrativ
+  DATA_STAGE: ${{ vars.DATA_STAGE || '0' }}   # narrativ/databranch.py: 0 main only, 1-2 + data branch, 3+ data branch
+  APP_REF: ${{ vars.APP_REF || 'main' }}      # the branch the app reads (appsync and the Worker follow it)
 
 defaults:
   run:

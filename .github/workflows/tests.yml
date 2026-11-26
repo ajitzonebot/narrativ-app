@@ -64,6 +64,8 @@ jobs:
 
 env:
   NARRATIV_REPO: ajitzonebot/Narrativ
+  DATA_STAGE: ${{ vars.DATA_STAGE || '0' }}   # narrativ/databranch.py: 0 main only, 1-2 + data branch, 3+ data branch
+  APP_REF: ${{ vars.APP_REF || 'main' }}      # the branch the app reads (appsync and the Worker follow it)
 
 defaults:
   run:

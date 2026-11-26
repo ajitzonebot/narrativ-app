@@ -191,3 +191,57 @@ def test_credentials_derived_from_the_api_token(monkeypatch, s3):
 def test_no_credentials_is_a_quiet_skip(repo, monkeypatch):
     monkeypatch.delenv("CLOUDFLARE_ACCOUNT_ID", raising=False)
     assert appsync.sync() == {"ok": False, "puts": 0, "uploaded": 0, "deletes": 0, "failed": 0, "unchanged": 0}
+
+
+# ---------------------------------------------------------------- data-branch plan, stage 0
+def test_ref_data_uploads_from_origin_data_not_head(repo, s3, tmp_path):
+    git("checkout", "-qb", "data")
+    (repo / "picks.json").write_text('{"v":"data"}')
+    git("commit", "-qam", "data side", t=1_700_000_200)
+    git("update-ref", "refs/remotes/origin/data", "HEAD")
+    git("checkout", "-q", "main")  # the job's work tree is main
+    r = appsync.sync(r2=client(s3), ref="data")
+    assert r["ok"] and s3.objs["app/data/picks.json"] == b'{"v":"data"}'
+    m = s3.manifest()
+    assert m["ref"] == "data" and m["sha"] == git("rev-parse", "origin/data")
+
+
+def test_main_default_records_ref_main(repo, s3, monkeypatch):
+    monkeypatch.delenv("APP_REF", raising=False)
+    appsync.sync(r2=client(s3))
+    assert s3.manifest()["ref"] == "main"
+
+
+def test_same_tree_new_sha_rewrites_manifest_without_uploads(repo, s3):
+    appsync.sync(r2=client(s3))
+    old = s3.manifest()
+    git("commit", "-q", "--amend", "-m", "rewritten (trim)", t=1_700_000_000)  # same tree, same date, new sha
+    s3.calls.clear()
+    r = appsync.sync(r2=client(s3))
+    m = s3.manifest()
+    assert r["ok"] and s3.puts() == [] and m["sha"] == git("rev-parse", "HEAD") != old["sha"] and m["blobs"] == old["blobs"]
+
+
+def test_switching_ref_ignores_the_newer_commit_skip(repo, s3):
+    appsync.sync(r2=client(s3))
+    m = s3.manifest()
+    s3.objs[appsync.MANIFEST_KEY] = json.dumps({**m, "ct": m["ct"] + 999}).encode()  # main manifest looks newer
+    git("update-ref", "refs/remotes/origin/data", "HEAD")
+    r = appsync.sync(r2=client(s3), ref="data")
+    assert r["ok"] and s3.manifest()["ref"] == "data"
+
+
+def test_mass_delete_is_refused(repo, s3, monkeypatch):
+    appsync.sync(r2=client(s3))
+    m = s3.manifest()
+    fake = {f"data/fin/X{i}.json": "a" * 40 for i in range(200)}  # R2 holds 200 more files than this tree
+    s3.objs[appsync.MANIFEST_KEY] = json.dumps({**m, "blobs": {**m["blobs"], **fake}}).encode()
+    s3.calls.clear()
+    r = appsync.sync(r2=client(s3))
+    assert not r["ok"] and [c for c in s3.calls if c[0] in ("PUT", "DELETE")] == []
+    monkeypatch.setenv("APPSYNC_ALLOW_DELETES", "1")
+    assert appsync.sync(r2=client(s3))["deletes"] == 200
+
+
+def test_unknown_ref_is_a_quiet_failure(repo, s3):
+    assert not appsync.sync(r2=client(s3), ref="gh-pages")["ok"] and s3.objs == {}

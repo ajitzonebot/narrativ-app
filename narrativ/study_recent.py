@@ -215,7 +215,7 @@ def _study_month(T: str) -> list[dict]:
     bts, prows = {}, []
     for s in syms:
         try:
-            bt = FN.business_type(mx[s], ind_of[s], mx[s].get("kind") or "general")
+            bt = FN.business_type(mx[s], ind_of[s], mx[s].get("kind") or "general", (RP.META.get(s) or {}).get("b"))
             bt, mk, cur = FN.primary(mx[s], bt)
         except Exception:  # noqa: BLE001
             bt, mk, cur = None, None, None

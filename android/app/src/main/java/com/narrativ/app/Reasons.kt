@@ -56,7 +56,7 @@ fun industryDataText(r: Rot?, p: IndPack?): String {
     val mom = r?.mom ?: p?.mom
     val parts = mutableListOf<String>()
     val ups = listOfNotNull(r1m?.let { "${skSgn(it)} in a month" }, r3m?.let { "${skSgn(it)} in 3 months" })
-    if (ups.isNotEmpty()) parts += "Up " + ups.joinToString(" and ")
+    if (ups.isNotEmpty()) parts += "Price " + ups.joinToString(" and ")
     if (ratio != null) parts += "strength vs the market ${skFx(ratio)} (100 = in line)" +
         (mom?.let { ", " + (if (it >= 100) "rising" else "easing") + " (${skFx(it)})" } ?: "")
     val out = StringBuilder()
@@ -109,7 +109,8 @@ fun IndustryWhySheet(st: AppState, name: String, rot: Rot?, data: IndustryWhyDat
         }
         T("Written by Narrativ.ai from the linked sources" + (entry?.date?.let { ", ${skDay(it)}" } ?: "") + ". A reason without a source is not shown.",
             12.sp, C.dim, lineHeight = 17.sp, modifier = Modifier.padding(top = 16.dp))
-        val n = rot?.n ?: pack?.facts?.members
+        // the count of the list the link opens (audit 26 Nov 2026: rotation n counted stocks with a price series)
+        val n = st.picks?.picks?.count { Filt(industry = name, industryExact = true).match(it) }?.takeIf { it > 0 } ?: rot?.n ?: pack?.facts?.members
         MoreLink(if (n != null) "See the $n stocks" else "See the stocks") { onDismiss(); st.go(Screen.Screener("ind:$name")) }
     }
 }

@@ -122,7 +122,11 @@ def _text(url: str, ns) -> tuple[str | None, int | None]:
         return _docling_only(url)
 
 
+_FETCHES = [0]  # PDF downloads this process: the polite pause follows a download, not a text-cache hit (cost audit 26 Nov 2026)
+
+
 def _pdf_bytes(url: str, ns) -> bytes | None:
+    _FETCHES[0] += 1
     rq = __import__("requests")
     bh = {"User-Agent": "Mozilla/5.0", "Referer": "https://www.bseindia.com/"}
     r = ns.s.get(url, timeout=60) if "nseindia" in url else rq.get(url, headers=bh, timeout=60)
@@ -425,6 +429,7 @@ def build(queue: list[dict], today: date, ann_st: dict, ex: dict, dec: dict, ev:
                 docs.append(rd)
             for d in _docs_for(s, ann_st, ex, today):
                 ns = ns or NSESession()
+                f0 = _FETCHES[0]
                 txt, pages, src = doc_text(d["url"], ns, d["kind"])
                 n_docs += 1
                 if src != d["url"]:  # the filing was a cover letter: the document is on the company's website
@@ -460,7 +465,8 @@ def build(queue: list[dict], today: date, ann_st: dict, ex: dict, dec: dict, ev:
                 else:
                     d.update({"has_text": False, "excerpts": [], "note": "no text layer or not reachable: open the PDF yourself or skip"})
                 docs.append(d)
-                time.sleep(0.4)
+                if _FETCHES[0] != f0:
+                    time.sleep(0.4)
         call = (calls or {}).get(s)
         if call:
             call = _latest_call_docs(call, docs, review, time.time() - t0 < max_minutes * 60)

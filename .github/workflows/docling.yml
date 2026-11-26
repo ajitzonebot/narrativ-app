@@ -95,6 +95,10 @@ jobs:
           token: ${{ secrets.NARRATIV_RW_TOKEN }}
           persist-credentials: false
           ref: main
+      - name: Data files from the data branch (stage 3+; does nothing before)
+        env:
+          GIT_PUSH_TOKEN: ${{ secrets.NARRATIV_RW_TOKEN }}
+        run: python3 -m narrativ.databranch checkout --force
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -107,7 +111,10 @@ jobs:
       - name: Convert
         env:
           PYTHONUNBUFFERED: "1"
-        run: python -m narrativ.docread "${{ inputs.max_docs || '40' }}"
+          MAX_DOCS: ${{ inputs.max_docs || '40' }}
+        run: |
+          case "$MAX_DOCS" in ''|*[!0-9]*) echo "max_docs must be a number"; exit 1 ;; esac
+          python -m narrativ.docread "$MAX_DOCS"
       - name: Commit results
         if: always()
         env:
@@ -115,10 +122,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/docling
-          git diff --cached --quiet && exit 0
-          git commit -m "data: docling $(TZ=Asia/Kolkata date +%F)"
-          bash scripts/push_retry.sh
+          bash scripts/publish.sh -m "data: docling $(TZ=Asia/Kolkata date +%F)" -- data/docling
       - name: Save the log in the private repo
         if: failure()
         shell: bash
@@ -150,6 +154,8 @@ jobs:
 
 env:
   NARRATIV_REPO: ajitzonebot/Narrativ
+  DATA_STAGE: ${{ vars.DATA_STAGE || '0' }}   # narrativ/databranch.py: 0 main only, 1-2 + data branch, 3+ data branch
+  APP_REF: ${{ vars.APP_REF || 'main' }}      # the branch the app reads (appsync and the Worker follow it)
 
 defaults:
   run:

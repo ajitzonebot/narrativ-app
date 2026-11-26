@@ -1,0 +1,41 @@
+name: data-trim
+
+# Stage 4 of the data branch (narrativ/databranch.py, README "Data branch"): once a week the `data` branch keeps only the
+# last 7 days of history. The tip's files never change; the history before the window is kept 30 days as an R2 bundle
+# (archive/data-branch-<date>.bundle). Below stage 4 (Actions variable DATA_STAGE) the job does nothing.
+on:
+  schedule:
+    - cron: "40 20 * * 0"   # Monday 02:10 IST, no other job running
+  workflow_dispatch:
+    inputs:
+      test_ref: { description: "Dry run: push the trimmed history to this branch instead (e.g. data-trim-test)", default: "" }
+
+permissions:
+  contents: read
+
+concurrency:
+  group: funnel
+  cancel-in-progress: false
+
+jobs:
+  trim:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Trim the data branch to 7 days
+        env:
+          GIT_PUSH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          TEST_REF: ${{ inputs.test_ref }}
+        run: |
+          case "$TEST_REF" in ''|data-trim-test*) ;; *) echo "test_ref must start with data-trim-test"; exit 1 ;; esac
+          if [ -n "$TEST_REF" ]; then python -m narrativ.databranch trim --test-ref "$TEST_REF"; else python -m narrativ.databranch trim; fi

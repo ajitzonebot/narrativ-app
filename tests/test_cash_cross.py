@@ -9,6 +9,9 @@ from narrativ.technicals import ma_cross
 
 
 def _fin(tmp_path, q):
+    for bases in q.values():  # metrics.series keeps quarters with a revenue line
+        for p in bases.values():
+            p.setdefault("q", {"rev": 1e9})
     (tmp_path / "X.NS.json").write_text(json.dumps({"quarters": q}))
     return tmp_path
 
@@ -50,3 +53,13 @@ def test_year_ago_from_the_same_accounts(tmp_path):
     q = {"2025-09-30": {"Standalone": {"bs": {"cash": 5e9}}},
          "2026-09-30": {"Consolidated": {"bs": {"cash": 1e10}}}}
     assert "a year earlier" not in cash_position("X.NS", _fin(tmp_path, q))
+
+
+def test_cash_uses_the_unit_corrected_series(tmp_path):
+    # a quarter filed 100x too small (crore figures under a "Lakhs" label, METROBRAND Sep-2025): corrected before comparing
+    def p(rev, cash, cap, rnd="Crores"):
+        return {"Consolidated": {"q": {"rev": rev, "exp": rev * 0.8, "pat": rev * 0.1, "share_cap": cap}, "bs": {"cash": cash}, "rounding": rnd}}
+    q = {"2025-03-31": p(1e10, 4e8, 1e8), "2025-06-30": p(1e10, 4e8, 1e8), "2025-09-30": p(1e8, 4e6, 1e6, "Lakhs"),
+         "2025-12-31": p(1e10, 4e8, 1e8), "2026-03-31": p(1e10, 4e8, 1e8), "2026-06-30": p(1e10, 4e8, 1e8), "2026-09-30": p(1e10, 4.2e8, 1e8)}
+    t = cash_position("X.NS", _fin(tmp_path, q))
+    assert "₹42 cr" in t and "5% higher than a year earlier" in t

@@ -1,8 +1,9 @@
 from narrativ import upside as UP
 
 
-def q(revs, pats, margins):
-    return [[f"q{i}", r, p, m] for i, (r, p, m) in enumerate(zip(revs, pats, margins))]
+def q(revs, pats, margins, last="2026-09-30"):
+    n = len(revs)
+    return [[UP._back(last, n - 1 - i), r, p, m] for i, (r, p, m) in enumerate(zip(revs, pats, margins))]
 
 
 def test_profit_speeding():
@@ -53,3 +54,11 @@ def test_replay_u1_boost_is_a_variant_only():
     rows["A"]["rs"] = 60  # A leads by 4.5 points without the boost
     assert R._pick(rows, R.CUR, {**R.BASE_W, "_boost": {"U1": 10}})[0] == "B"
     assert R._pick(rows, R.CUR, R.BASE_W)[0] == "A"  # live ranking: no U1 boost (removed 25 Nov 2026)
+
+
+def test_quarters_matched_by_date_not_position():
+    assert UP._back("2026-09-30", 4) == "2025-09-30" and UP._back("2026-03-31", 1) == "2025-12-31"
+    rows = q([100] * 4 + [112, 113, 114, 115], [10, 10, 10, 10, 11, 12, 13, 14], [15] * 8)
+    gap = rows[:3] + rows[4:]  # one quarter not filed: the last 7 are no longer 7 consecutive quarters
+    assert UP.profit_speeding(gap) == (None, None)
+    assert UP.operating_leverage(gap) == (None, None)

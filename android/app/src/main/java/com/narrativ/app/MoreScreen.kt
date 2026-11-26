@@ -275,7 +275,7 @@ fun FeedbackSheet(st: AppState) {
             sending = true
             scope.launch {
                 val res = if (type == "Stock request") {
-                    val sym = text.trim().split(Regex("[\\s:,]+")).first().uppercase()
+                    val sym = text.trim().split(Regex("[\\s:,]+")).first().uppercase().let { if (it.contains(".")) it else "$it.NS" }
                     st.requestScan(sym, text)
                 } else st.sendFeedback(type, text, stock)
                 sending = false

@@ -52,6 +52,10 @@ jobs:
         with:
           ref: main
           persist-credentials: true   # narrativ.reader saves to main itself (git push inside the run)
+      - name: Data files from the data branch (stage 3+; does nothing before)
+        env:
+          GIT_PUSH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 -m narrativ.databranch checkout --force
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"

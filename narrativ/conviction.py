@@ -24,13 +24,10 @@ margin-of-safety gate; price in stage 2 and strong momentum did not help inside 
 import re
 from datetime import date, timedelta
 
-RULE = "conviction v1.1 (2026-11-25)"  # v1.1: C2 accepts the R7 "debt_leases" tag; C1 promise dates verified as drivers
 BUY = ("Buy", "Strong Buy")
 HORIZON_DAYS = 548  # 18 months, as RULES.md R4
 LENDERS = ("bank", "nbfc", "insurance")
 LIVE_SETUPS = ("Breakout", "Pullback", "Base")
-CORE = ("C1", "C3")
-HIGH, LOW = 6, 3
 NAMES = {
     "C1": "Two independent dated triggers (18 months)",
     "C2": "Clean independent review",

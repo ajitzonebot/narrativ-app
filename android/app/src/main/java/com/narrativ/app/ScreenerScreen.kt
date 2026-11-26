@@ -196,7 +196,7 @@ fun ScreenerScreen(st: AppState, preset: String?) {
                 ToggleChip("Verified only", on, { f = f.copy(research = if (on) "Any" else "Verified"); limit = 60 }, count = nVerList, accent = TierC.lightGreen, icon = Icons.Rounded.Check)
                 Box(Modifier.padding(horizontal = 2.dp).size(1.dp, 22.dp).background(C.line))
                 DECISION_ORDER.filter { (dec[it] ?: 0) > 0 || f.dc == it }.forEach { d ->
-                    ToggleChip(d, f.dc == d, { f = f.copy(dc = if (f.dc == d) null else d, showRemoved = if (f.dc == d) f.showRemoved else d.endsWith("Sell") || f.showRemoved); limit = 60 },
+                    ToggleChip(d, f.dc == d, { f = f.copy(dc = if (f.dc == d) null else d, showRemoved = if (f.dc == d) (if (d.endsWith("Sell")) false else f.showRemoved) else d.endsWith("Sell") || f.showRemoved); limit = 60 },
                         count = dec[d], dot = decisionColor(d), accent = decisionColor(d))
                 }
             }

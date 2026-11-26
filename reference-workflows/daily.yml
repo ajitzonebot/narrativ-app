@@ -38,6 +38,10 @@ jobs:
           done
           echo "republish still running after 20 minutes; going on"
       - uses: actions/checkout@v4
+      - name: Data files from the data branch (stage 3+; does nothing before)
+        env:
+          GIT_PUSH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 -m narrativ.databranch checkout --force
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -85,6 +89,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEFER_D1: "1"   # D1 is written after the publish (step "Database sync"), so a build the gate refuses never reaches D1
         run: python run.py
       - name: Commit results
         if: steps.skip.outputs.skip != 'true'
@@ -93,10 +98,24 @@ jobs:
           # after the push, scripts/push_retry.sh uploads changed docs/data files to R2 (narrativ/appsync.py; the Worker reads R2 first)
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # --archive: one dated archive of the published docs/data and data to R2 (narrativ/archive.py, kept 30 days)
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A docs/data data RULES.md
-          git diff --cached --quiet && exit 0
-          git commit -m "data: daily funnel $(date -u +%F)"
-          bash scripts/push_retry.sh
+          # scripts/publish.sh: the gate refuses a broken build (no picks, files missing, JSON that does not parse): nothing is
+          # committed, the last data stays live. DATA_STAGE picks main or the data branch (narrativ/databranch.py)
+          bash scripts/publish.sh -m "data: daily funnel $(date -u +%F)" --gate --archive -- docs/data data RULES.md
+      # only after the publish succeeded (a refused build stops the job above): D1 gets exactly what was published
+      - name: Database sync (after the publish)
+        if: steps.skip.outputs.skip != 'true'
+        env:
+          PYTHONUNBUFFERED: "1"
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          GIT_PUSH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APP_R2: "0"   # the manifest is not an app file
+        run: |
+          python -m narrativ.dbsync --deferred
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          bash scripts/publish.sh -m "data: D1 manifest $(date -u +%F)" -- data/d1_manifest.json

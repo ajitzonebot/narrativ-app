@@ -10,6 +10,7 @@ request per stock per day, cached; transcripts cached for good) and label everyt
 """
 import json
 import re
+import threading
 import time
 from datetime import date
 from pathlib import Path
@@ -18,21 +19,61 @@ API = "https://api.alphastreet.co.in"
 CACHE = Path("data/source_cache/alphastreet")
 UA = {"User-Agent": "Mozilla/5.0 (personal research; daily, a few requests)"}
 TRANSCRIPT_URL = re.compile(r"^https://api\.alphastreet\.co\.in/transcript/([0-9a-f-]{36})$")
-PAUSE = 0.6
+PAUSE = 0.6  # at least this long between request starts, also when THREADS requests are in flight
+THREADS = 6  # their server takes ~3.5 s a list request; requests overlap, starts stay PAUSE apart (cost audit 26 Nov 2026)
 _last = [0.0]
+_pace = threading.Lock()
+_local = threading.local()
+
+
+def _session():
+    s = getattr(_local, "s", None)
+    if s is None:
+        import requests
+        s = _local.s = requests.Session()
+        s.headers.update(UA)
+    return s
 
 
 def _get(path: str):
-    import requests
-    wait = PAUSE - (time.time() - _last[0])
-    if wait > 0:
-        time.sleep(wait)
-    _last[0] = time.time()
-    r = requests.get(API + path, headers=UA, timeout=30)
+    with _pace:  # one start every PAUSE seconds across threads
+        wait = PAUSE - (time.time() - _last[0])
+        if wait > 0:
+            time.sleep(wait)
+        _last[0] = time.time()
+    r = _session().get(API + path, timeout=30)
     if r.status_code == 404:
         return None
     r.raise_for_status()
     return r.json()
+
+
+def _pool(fn, items) -> None:
+    """Run fn over items on THREADS threads; results land in the same day / file caches the sequential path reads. Any
+    failure here only means the later sequential call fetches that item itself (the path before 26 Nov 2026)."""
+    items = list(dict.fromkeys(items))
+    if not items:
+        return
+    try:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=THREADS) as ex:
+            list(ex.map(fn, items))
+    except Exception as e:  # noqa: BLE001
+        print(f"[alphastreet] prefetch stopped: {str(e)[:80]}")
+
+
+def _listed_today(t: str, day: str) -> bool:
+    f = CACHE / "lists" / f"{t.removesuffix('.NS').removesuffix('.BO')}.json"
+    try:
+        return f.exists() and json.loads(f.read_text()).get("day") == day
+    except ValueError:
+        return False
+
+
+def prefetch(tickers, today: date | None = None) -> None:
+    """Fetch today's call lists of these stocks in parallel (cached for the day, exactly as calls() caches them)."""
+    day = str(today or date.today())
+    _pool(lambda t: calls(t, today), [t for t in tickers if not _listed_today(t, day)])
 
 
 def calls(ticker: str, today: date | None = None) -> list[dict]:
@@ -124,10 +165,14 @@ def card_metrics(ms) -> list:
     return out[:3]
 
 
+def _card_call(ticker: str, today: date | None = None) -> dict | None:
+    return next((x for x in calls(ticker, today) if x.get("event_type") in (None, "earnings_conference")
+                 and str(x.get("transcript_status") or "").upper() == "FINAL"), None)
+
+
 def card(ticker: str, today: date | None = None) -> dict | None:
     """The app's 'Latest call' card: the latest FINAL earnings call's AlphaBrief (AlphaStreet has briefs for the latest call)."""
-    c = next((x for x in calls(ticker, today) if x.get("event_type") in (None, "earnings_conference")
-              and str(x.get("transcript_status") or "").upper() == "FINAL"), None)
+    c = _card_call(ticker, today)
     if not c:
         return None
     b = brief(c["id"])
@@ -145,6 +190,13 @@ def refresh_cards(priority: list[str], rest: list[str], today: date) -> dict:
     n = max(1, -(-len(rest) // ROTATE))
     k = today.toordinal() % n
     todo = list(dict.fromkeys(priority + rest[k * ROTATE:(k + 1) * ROTATE]))
+    prefetch(todo, today)  # lists, then the briefs of the calls they name, in parallel; the loop below reads the caches
+
+    def _b(s):
+        c = _card_call(s, today)
+        if c:
+            brief(c["id"])
+    _pool(_b, todo)
     for s in todo:
         try:
             c = card(s, today)
@@ -161,8 +213,19 @@ def refresh_cards(priority: list[str], rest: list[str], today: date) -> dict:
     return st
 
 
+_brief_run: dict = {}  # call id -> brief or None, this process only: a missing brief is asked once per run, as before
+
+
 def brief(call_id: str) -> dict | None:
     """AlphaBrief for a call (AI-written by AlphaStreet: a lead, never a fact for scoring)."""
+    if call_id in _brief_run:
+        return _brief_run[call_id]
+    b = _brief(call_id)
+    _brief_run[call_id] = b
+    return b
+
+
+def _brief(call_id: str) -> dict | None:
     f = CACHE / "briefs" / f"{call_id}.json"
     if f.exists():
         return json.loads(f.read_text())

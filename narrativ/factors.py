@@ -9,10 +9,17 @@ history (each day's scores and closes for every scored stock) and measures, for 
 and the average forward return by decision (Strong Buy .. Strong Sell) minus the universe average. Horizons are in daily
 snapshots (trading days). Few start days = noise: `conclusive` needs MIN_DATES start days per horizon.
 Output docs/data/factors.json; read by the weekly review (rules change only on repeated evidence, RULES.md).
-python -m narrativ.factors   (needs the full commit history of docs/data/picks.json: fetch-depth 0, `filter: blob:none` is fine)
+python -m narrativ.factors   (reads data/factor_history/; without it, the git history of docs/data/picks.json: fetch-depth 0)
+python -m narrativ.factors --backfill-history   (once: write data/factor_history/ from the git history)
+
+Snapshot history (data branch, 26 Nov 2026): the data branch keeps 7 days of git history, so every data date's slim
+picks.json is kept as data/factor_history/<date>.json.gz (written by run.py after each build, rewritten by republish.py
+for the same date: the last publish of a date wins, as the last commit did).
 """
+import gzip
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 import pandas as pd
@@ -48,7 +55,41 @@ def _prefetch(shas: list[str]) -> None:
         print(f"[factors] prefetch skipped: {e}")
 
 
+HIST = Path("data/factor_history")
+
+
+def record(picks: dict, root: Path = HIST) -> Path | None:
+    """Keep this data date's slim picks.json (deterministic bytes: an unchanged day rewrites nothing)."""
+    d = picks.get("date")
+    if not d or not picks.get("picks"):
+        return None
+    root.mkdir(parents=True, exist_ok=True)
+    f = root / f"{str(d)[:10]}.json.gz"
+    blob = gzip.compress(json.dumps(slim(picks), separators=(",", ":"), ensure_ascii=False).encode(), compresslevel=9, mtime=0)
+    if not f.exists() or f.read_bytes() != blob:
+        f.write_bytes(blob)
+    return f
+
+
+def history(root: Path = HIST) -> dict[str, dict]:
+    out = {}
+    for f in sorted(root.glob("*.json.gz")) if root.exists() else []:
+        try:
+            d = json.loads(gzip.decompress(f.read_bytes()))
+        except (OSError, ValueError):
+            continue
+        if d.get("date") and d.get("picks"):
+            out[d["date"]] = d
+    return dict(sorted(out.items()))
+
+
 def snapshots() -> dict[str, dict]:
+    """{date: slim picks.json}: data/factor_history/ when it exists, else the git history (last commit of each data date)."""
+    h = history()
+    return h if h else git_snapshots()
+
+
+def git_snapshots() -> dict[str, dict]:
     """{date: slim picks.json} from git history, the last commit of each data date."""
     shas = subprocess.run(["git", "log", "--format=%H", "--", "docs/data/picks.json"], capture_output=True, text=True,
                           check=True).stdout.split()
@@ -145,5 +186,16 @@ def run() -> dict:
     return res
 
 
+def backfill_history(root: Path = HIST) -> int:
+    snaps = git_snapshots()
+    for d in snaps.values():
+        record(d, root)
+    print(f"[factors] factor history: {len(snaps)} dates written to {root}")
+    return len(snaps)
+
+
 if __name__ == "__main__":
-    run()
+    if "--backfill-history" in sys.argv[1:]:
+        backfill_history()
+    else:
+        run()

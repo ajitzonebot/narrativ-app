@@ -21,6 +21,10 @@ jobs:
           fetch-depth: 0
           filter: blob:none   # history of commits and trees only; factors.py fetches just the picks.json blobs it reads
           persist-credentials: true   # factors.py fetches those blobs from the private repo during the run
+      - name: Data files from the data branch (stage 3+; does nothing before)
+        env:
+          GIT_PUSH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 -m narrativ.databranch checkout --force
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -35,7 +39,4 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/data/factors.json
-          git diff --cached --quiet && exit 0
-          git commit -m "data: factor check $(TZ=Asia/Kolkata date +%F)"
-          bash scripts/push_retry.sh
+          bash scripts/publish.sh -m "data: factor check $(TZ=Asia/Kolkata date +%F)" -- docs/data/factors.json

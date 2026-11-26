@@ -53,7 +53,10 @@ def _load(quick: bool) -> None:
     syms = [r["s"] for r in picks]
     if quick:
         syms = syms[:300]
-    META.update({r["s"]: {"i": r.get("i"), "sec": r.get("sec")} for r in picks})
+    # basic industry for the business type, as run.py (exchange classification by ISIN)
+    cls = json.loads(Path("data/classification.json").read_text()) if Path("data/classification.json").exists() else {}
+    ue = json.loads(Path("data/universe_exchange.json").read_text()).get("stocks", {}) if Path("data/universe_exchange.json").exists() else {}
+    META.update({r["s"]: {"i": r.get("i"), "sec": r.get("sec"), "b": (cls.get((ue.get(r["s"]) or [None])[0]) or {}).get("b")} for r in picks})
     for s in syms:
         f = Path(f"data/financials/{s}.json")
         if s in px and f.exists():
@@ -139,7 +142,7 @@ def _score(T: str) -> dict:
     istats = FN.industry_stats([(ind_of.get(s), mx[s]) for s in syms])
     bts, prows = {}, []
     for s in syms:
-        bt = FN.business_type(mx[s], ind_of.get(s), mx[s].get("kind") or "general")
+        bt = FN.business_type(mx[s], ind_of.get(s), mx[s].get("kind") or "general", (META.get(s) or {}).get("b"))
         bt, mk, v_ = FN.primary(mx[s], bt)
         bts[s] = (bt, mk, v_)
         prows.append((s, ind_of.get(s), bt, mk, v_))

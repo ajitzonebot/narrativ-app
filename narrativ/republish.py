@@ -148,7 +148,8 @@ def main(before: str | None) -> None:
             pass
         try:  # conviction follows the new decision (same rule as the daily run; shareholding streak from the evening run)
             cv = CV.assess(nd, det["levels"], det.get("setup"), ver[s], det.get("metrics"), today,
-                           reader=fwd_rows.get(s),
+                           reader=fwd_rows.get(s), lender=(det.get("stock") or {}).get("lender"),
+                           shp={"inst_down_q": (det.get("stock") or {}).get("inst_down_q")},
                            open_issues=sum(1 for x in issues.values() if x.get("symbol") == s and x.get("status") == "open"))
         except Exception as e:  # noqa: BLE001
             print(f"[republish] conviction failed for {s}: {e}")
@@ -177,6 +178,20 @@ def main(before: str | None) -> None:
         picks["top10"] = PF.top10(picks["picks"])  # a newly passed stock joins the Top 10 at the next poll
         picks["research_updated"] = datetime.now(timezone.utc).isoformat()
         (OUT / "picks.json").write_text(json.dumps(picks, separators=(",", ":"), ensure_ascii=False))
+        try:  # the same date's factor history follows the published decisions (narrativ/factors.py)
+            from narrativ import factors as FX
+            FX.record(picks)
+        except Exception as e:  # noqa: BLE001
+            print(f"[republish] factor history: {e}")
+    # funnel.json carries the same counts (audit 26 Nov 2026: it kept the evening's Buy 29 / researched 199 all day)
+    fp = OUT / "funnel.json"
+    if fp.exists():
+        fj = json.loads(fp.read_text())
+        fn = fj.get("funnel") or {}
+        new = {k: (picks.get("funnel") or {}).get(k) for k in ("decisions", "researched") if (picks.get("funnel") or {}).get(k) is not None}
+        if any(fn.get(k) != v for k, v in new.items()):
+            fj["funnel"] = {**fn, **new}
+            fp.write_text(json.dumps(fj, ensure_ascii=False, separators=(",", ":")))
     (OUT / "research.json").write_text(json.dumps(research, ensure_ascii=False, separators=(",", ":")))
     rej = {s: len(rep[s]["rejected"]) for s in syms if rep[s]["rejected"]}
     print(f"[republish] {len(syms)} stocks: {', '.join(syms)}; rating changes: {moved or 'none'}; verifier rejections: {rej or 'none'}")

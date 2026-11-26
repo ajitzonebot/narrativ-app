@@ -170,9 +170,26 @@ def set_conviction(calls: list[dict], conviction: dict, today) -> None:
 
 
 def update(dec: dict, px: dict, bench: pd.Series, theses: dict, today, stops: dict | None = None,
-           conviction: dict | None = None) -> dict:
+           conviction: dict | None = None, aliases: dict | None = None, universe: set | None = None) -> dict:
     st = json.loads(OUT.read_text()) if OUT.exists() else {"calls": []}
     calls = st["calls"]
+    for c in calls:  # a company that moved symbol (BSE -> NSE) keeps its calls, as research and memory do (audit 26 Nov 2026)
+        if aliases and c["symbol"] in aliases:
+            c["symbol"] = aliases[c["symbol"]]
+    seen = set()  # after a move, the older open call stays; one opened under the new symbol is a duplicate
+    for c in sorted(calls, key=lambda c: c["date"]):
+        k = (c["symbol"], c["kind"])
+        if not c.get("ended"):
+            c["_dup"] = k in seen
+            seen.add(k)
+    calls[:] = [c for c in calls if not c.pop("_dup", False)]
+    if universe:  # a stock that left the universe (below the size floor, delisted) ends its open calls today
+        gone = [c for c in calls if not c.get("ended") and c["symbol"] not in universe]
+        if len(gone) <= max(3, len(calls) // 10):  # many at once means a short universe list, not real exits
+            for c in gone:
+                c["ended"], c["end_decision"] = str(today), "Left the universe"
+        else:
+            print(f"[calls] {len(gone)} open calls not in today's universe: universe list looks short, none ended")
     for c in calls:  # date each call by the close it was entered at (older calls carried the run date)
         if "run" not in c:
             c["run"] = c["date"]
@@ -240,7 +257,7 @@ def update(dec: dict, px: dict, bench: pd.Series, theses: dict, today, stops: di
             continue
         end = c.get("ended")  # returns freeze at the end: a holder who exited holds no more of the stock
         for h, n in HORIZONS.items():
-            if c.get(h) is None:
+            if c.get(h) is None or c.get(f"{h}_vs_nifty") is None:  # a Nifty close missing that day is filled on a later run
                 r, b = _held(close, c["date"], n, c["price"], end), _held(bench, c["date"], n, None, end)
                 if r is not None:
                     c[h], c[f"{h}_vs_nifty"] = r, (round(r - b, 2) if b is not None else None)

@@ -27,6 +27,7 @@ class FakeCF:
         self.headers = {}
         self.fail_if = None  # substring of a statement that should fail
         self.usage_today = None  # JSON usage the run_log row of today holds (an earlier run the same day)
+        self.usage_date = None   # that row's data date
         self.lists = 0
 
     def get(self, url, params=None, timeout=None):
@@ -53,8 +54,8 @@ class FakeCF:
         c = re.match(r"SELECT COUNT\(\*\) AS n FROM (\w+)", s)
         if c:
             res = [{"results": [{"n": self.rows.get(c[1], 0)}], "meta": {"rows_written": 0}}]
-        elif s.startswith("SELECT usage FROM run_log") and self.usage_today:
-            res = [{"results": [{"usage": self.usage_today}], "meta": {"rows_written": 0}}]
+        elif s.startswith("SELECT usage") and self.usage_today:
+            res = [{"results": [{"usage": self.usage_today, "date": self.usage_date}], "meta": {"rows_written": 0}}]
         else:
             res = [{"results": [], "meta": {"rows_written": 1}}]
         return FakeResp({"success": True, "result": res})
@@ -362,7 +363,7 @@ def test_recent_events_rerun_sends_only_new_and_no_backfill(cf):
     assert cf.rows_sent("event") == 3  # 2 recent + the older one as backfill
     assert any(s.startswith("SELECT MIN(date) AS m FROM event") for s, _ in cf.sql)
     cf.sql.clear()
-    cf.usage_today = json.dumps({"d1_rows_written_today": 500})  # a rerun the same day
+    cf.usage_today = json.dumps({"d1_rows_written_today": 500, "utc_day": dbsync._utc_day()})  # a rerun the same UTC day
     a["rows"]["S2.NS"] = [["2026-11-24", "Order", "New order", "u/3", "event", None]]
     run("2026-11-24", s0i, picks, details, ann_st=a)
     assert cf.rows_sent("event") == 1 and "u/3" in cf.inserts("event")[0]

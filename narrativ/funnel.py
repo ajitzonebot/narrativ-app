@@ -56,6 +56,17 @@ def lender_type(kind: str | None, source: str | None, sector: str | None, indust
         return _LENDER_BASIC[basic]
     return {"Banks": "bank", "Insurance": "insurer", "Finance": "nbfc"}.get(industry or "", "financial (unclassified)")
 
+# Business types follow the exchange classification the universe carries since Nov 2026 (NSE / BSE industry, basic industry).
+# The Yahoo names before it ("Steel", "Real Estate - Development") matched almost nothing after the switch (audit 26 Nov 2026).
+CYCLICAL_IND = {"Ferrous Metals", "Non - Ferrous Metals", "Diversified Metals", "Minerals & Mining", "Consumable Fuels",
+                "Cement & Cement Products", "Other Construction Materials", "Paper, Forest & Jute Products",
+                "Chemicals & Petrochemicals", "Fertilizers & Agrochemicals"}
+CYCLICAL_BASIC = {"Oil Exploration & Production", "Refineries & Marketing", "Other Textile Products", "Shipping",
+                  "Iron & Steel Products", "Aluminium, Copper & Zinc Products", "Passenger Cars & Utility Vehicles", "2/3 Wheelers",
+                  "Commercial Vehicles"}
+ORDER_BOOK_IND = {"Construction", "Aerospace & Defense", "Electrical Equipment", "Industrial Manufacturing", "Transport Infrastructure"}
+ORDER_BOOK_BASIC = {"Construction Vehicles", "Tractors", "Compressors, Pumps & Diesel Engines"}
+REALTY_IND = {"Realty"}
 CYCLICAL = {"Steel", "Aluminum", "Copper", "Other Industrial Metals & Mining", "Other Precious Metals & Mining", "Coking Coal",
             "Thermal Coal", "Oil & Gas E&P", "Oil & Gas Refining & Marketing", "Oil & Gas Integrated", "Building Materials",
             "Paper & Paper Products", "Chemicals", "Agricultural Inputs", "Textile Manufacturing", "Lumber & Wood Production",
@@ -436,7 +447,7 @@ def quality(Mx, lender, ind):
 
 
 # ------------------------------------------------------------------ L3 Business valuation
-def business_type(Mx, industry, kind):
+def business_type(Mx, industry, kind, basic=None):
     if kind == "bank":
         return "Bank"
     if kind == "nbfc":
@@ -445,11 +456,12 @@ def business_type(Mx, industry, kind):
         return "Insurer"
     if (v(Mx, "investments_pct_assets") or 0) > 50:
         return "Holding company"
-    if industry in REALTY:
+    if industry in REALTY or industry in REALTY_IND:
         return "Real estate developer"
-    if industry in CYCLICAL or (v(Mx, "margin_range_12q_pts") or 0) > 8:
+    if (industry in CYCLICAL or industry in CYCLICAL_IND or basic in CYCLICAL_BASIC
+            or (v(Mx, "margin_range_12q_pts") or 0) > 8):
         return "Cyclical"
-    if industry in ORDER_BOOK:
+    if industry in ORDER_BOOK or industry in ORDER_BOOK_IND or basic in ORDER_BOOK_BASIC:
         return "Order-book"
     at = v(Mx, "asset_turnover")
     pat = v(Mx, "pat_ttm_cr")
@@ -563,6 +575,9 @@ def valuation(Mx, btype, mkey, cur, hist, peer, lender):
     qs = [r for r in (Mx.get("quarterly") or []) if isinstance(r, list) and len(r) > 3 and r[3] is not None]
     # 12 quarters: last 4 vs the 8 before; 8 to 11 quarters: last 4 vs all the (4 to 7) quarters before (a third of stocks
     # have fewer than 12 filed quarters and could never trigger it)
+    # consecutive quarter ends only: `quarterly` holds the filed quarters, so a gap stretched both windows (audit 26 Nov 2026)
+    from .upside import _run
+    qs = next((r for r in (_run(qs, n) for n in range(12, 7, -1)) if r), [])
     if not lender and tier in (1, 2) and len(qs) >= 8:
         base = qs[-12:-4]
         now_m = sum(r[3] for r in qs[-4:]) / 4
@@ -833,11 +848,16 @@ def discovery(inst, analysts, df, bulk, nse=None):
         vr = float(df["Volume"].iloc[-50:].mean()) / v200 if v200 > 0 else None
     inst_buy = [b for b in bulk or [] if str(b.get("side", "")).upper() == "BUY" and any(w in f" {str(b.get('client', '')).upper()}" for w in INST_WORDS)]
     an = analysts if analysts is not None else (0 if inst is not None else None)
-    items.append(it("D1", "Institutional holding", None if inst is None else (2 if inst < 10 else 1 if inst <= 25 else 0), pc(inst), note="Yahoo (labelled)"))
+    sp = (nse or {}).get("shp")
+    # D1 on NSE's shareholding pattern, the official filing (owner, 26 Nov 2026); Yahoo only when no filing is loaded
+    if sp and sp.get("inst") is not None:
+        inst, src = sp["inst"], "NSE shareholding pattern" + (f" · {sp['asof']}" if sp.get("asof") else "")
+    else:
+        src = "Yahoo (labelled)"
+    items.append(it("D1", "Institutional holding", None if inst is None else (2 if inst < 10 else 1 if inst <= 25 else 0), pc(inst), note=src))
     items.append(it("D2", "Analysts covering", None if an is None else (2 if an <= 2 else 1 if an <= 8 else 0), None if an is None else str(an), note="Yahoo (labelled)"))
     items.append(it("D3", "Volume 50 days vs 200 days", None if vr is None else (2 if vr >= 1.3 else 1), None if vr is None else f"{vr:.2f}x"))
     items.append(it("D4", "Institutional bulk buys (1 month)", 2 if inst_buy else 1, str(len(inst_buy))))
-    sp = (nse or {}).get("shp")
     if sp:
         c1, c4 = sp.get("inst_1q"), sp.get("inst_4q")
         if c1 is not None:

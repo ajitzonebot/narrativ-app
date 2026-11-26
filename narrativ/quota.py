@@ -2,9 +2,11 @@
 
 Limits are the Narrativ project's free tier as shown in AI Studio (aistudio.google.com/rate-limit, read 26 Nov 2026), set a
 little under Google's numbers. Every call is counted per model per Pacific day (the free tier resets at midnight Pacific,
-about 13:30 IST) in data/reader/usage.json. The story job (narrativ/story.py) does not use this count: it runs at 06:30 and
-09:30 IST, a different Pacific day from the evening reader, and stops a model at its first 429. A refused call (HTTP 429) is
-retried once after a minute; a second refusal ends that model for the day and the caller moves to the next model in its list.
+about 13:30 IST) in data/reader/usage.json. The story job (narrativ/story.py) does not write this count, and its 06:30 and
+09:30 IST runs fall in the SAME Pacific day as the previous evening's reader (17:40 IST is ~04:10 Pacific; 06:30 IST next
+day is ~17:00 Pacific, before the reset; audit 26 Nov 2026). So the reader leaves STORY_RESERVE calls of each story model
+unused (reader_cap). A refused call (HTTP 429) is retried once after a minute; a second refusal in a row ends that model for
+the day and the caller moves to the next model in its list (a successful call resets the count).
 Pacing is by tokens as well as requests: at ~27k tokens a transcript, 250K tokens a minute allows ~9 documents a minute.
 """
 import json
@@ -22,12 +24,24 @@ PACIFIC = ZoneInfo("America/Los_Angeles")
 # model id pattern -> (requests a minute, tokens a minute, requests a day we allow ourselves); Google's numbers in comments
 LIMITS = [
     (r"^gemini-3\.5-flash-lite", 14, 240_000, 480),   # 15 / 250K / 500
-    (r"^gemini-3\.1-flash-lite", 14, 240_000, 480),   # 15 / 250K / 500 (the story job uses it on another Pacific day)
+    (r"^gemini-3\.1-flash-lite", 14, 240_000, 480),   # 15 / 250K / 500 (shared with the story job: reader_cap)
     (r"^gemini-2\.5-flash-lite", 9, 240_000, 19),     # 10 / 250K / 20
     (r"flash-lite", 9, 240_000, 19),                  # any other Flash-Lite alias: careful default
     (r"^gemma-4", 28, 15_000, 14_000),                # 30 / 16K / 14.4K (26B and 31B counted apart)
     (r".", 4, 240_000, 19),                           # Gemini 4 Hydrogen, 3.8 / 3.6 / 3 / 2.5 Flash: 5 / 250K / 20
 ]
+
+
+# models the story job calls (narrativ/story.py MODELS), as patterns so a resolved id ("-preview", "-001") still matches
+STORY_MODELS = [r"^gemini-3\.1-flash-lite", r"^gemma-4-31b", r"^gemma-4-26b", r"^gemini-flash-lite-latest"]
+STORY_RESERVE = 250  # calls a day kept for the story job (up to 300 sheets a run, most sheets one call; backfill days use more)
+
+
+def reader_cap(model: str) -> int | None:
+    """The reader's own daily cap on a model: its allowance minus STORY_RESERVE for a story model; None for other models."""
+    if any(re.search(p, model) for p in STORY_MODELS):
+        return max(0, limits(model)[2] - STORY_RESERVE)
+    return None
 
 
 def limits(model: str) -> tuple[int, int, int]:
@@ -70,7 +84,7 @@ class Quota:
         """Wait until a call fits this minute's requests and tokens, then count it. False: the day's allowance is used (or the
         model was refused twice), or the wait would pass stop_at."""
         rpm, tpm, rpd = limits(model)
-        rpd = min(rpd, cap) if cap else rpd
+        rpd = min(rpd, cap) if cap is not None else rpd
         est = min(est_tokens, tpm)
         while True:
             with self.lock:
@@ -95,8 +109,22 @@ class Quota:
                 return False
             time.sleep(wait)
 
+    def count(self, model: str, est_tokens: int = 0, refused: bool = False) -> None:
+        """Count a call made outside take() (the story job): accounting only, nothing is held back (cost audit 26 Nov 2026)."""
+        with self.lock:
+            rec = self.day().setdefault(model, {"calls": 0, "refused": 0, "tokens": 0})
+            rec["refused" if refused else "calls"] += 1
+            rec["tokens"] += 0 if refused else est_tokens
+            rec["story"] = rec.get("story", 0) + 1
+            self._save()
+
+    def ok(self, model: str) -> None:
+        """A call that was not refused: the next 429 is a first refusal again (audit 26 Nov 2026)."""
+        with self.lock:
+            self.refusals[model] = 0
+
     def refused(self, model: str) -> bool:
-        """Record a 429. True: wait a minute and try once more; False: the model is done for today."""
+        """Record a 429. True: wait a minute and try once more; False: two in a row, the model is done for today."""
         with self.lock:
             rec = self.day().setdefault(model, {"calls": 0, "refused": 0, "tokens": 0})
             rec["refused"] += 1

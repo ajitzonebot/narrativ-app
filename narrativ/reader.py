@@ -19,7 +19,8 @@ Test (python -m narrativ.reader --test MODEL [LIMIT]): compare a model with Clau
 (data/reader_test/; results 19 Nov 2026: Flash-Lite found 51% of Claude's items on 56 stocks, 95% quotes verified, 13 s a
 document; Flash found 74% on 4 stocks, 97% verified, 317 s a document).
 Lanes (owner, 26 Nov 2026; narrativ/quota.py guards the free allowance per model per Pacific day, data/reader/usage.json):
-  lite  = stage 1: Gemini 3.5 Flash-Lite, then 3.1 Flash-Lite (400 a day), then 2.5 Flash-Lite.
+  lite  = stage 1: Gemini 3.5 Flash-Lite, then 3.1 Flash-Lite (its allowance minus quota.STORY_RESERVE, kept for the
+          next morning's story job, which shares the Pacific day), then 2.5 Flash-Lite.
   flash = stage 2: Gemini 4 Hydrogen, 3.8, 3.6, 3, 2.5 Flash, 19 a day each.
   agreement: on a document both lanes read, a row either model found in the other's rows is marked agree=True; agreed rows
          go first in forward.json and the packs. Claude still confirms every row it uses.
@@ -41,7 +42,7 @@ from pathlib import Path
 import requests
 
 from narrativ import packs
-from narrativ.quota import USAGE, Quota, resolve, tokens
+from narrativ.quota import USAGE, Quota, reader_cap, resolve, tokens
 from narrativ.verify import nums, quoted_in
 
 API = "https://generativelanguage.googleapis.com/v1beta"
@@ -53,7 +54,9 @@ LITE_LANE = [r"^gemini-3\.5-flash-lite", r"^gemini-3\.1-flash-lite", r"^gemini-2
 FLASH_LANE = [r"hydrogen", r"^gemini-3\.8-flash(?!-lite)", r"^gemini-3\.6-flash(?!-lite)", r"^gemini-3-flash(?!-lite)",
               r"^gemini-2\.5-flash(?!-lite)"]
 CHECK_LANE = [r"^gemma-4-31b", r"^gemma-4-26b"]
-LANE_CAP = {"gemini-3.1-flash-lite": 400}  # headroom under its 500 a day (manual story runs on the same Pacific day)
+# the reader's cap per model: a story model keeps quota.STORY_RESERVE calls for the next morning's story job, which falls in the
+# same Pacific day (audit 26 Nov 2026); matched by pattern, so a resolved "-preview" id is capped too
+lane_cap = reader_cap
 MINUTES = 170  # stop starting new documents after this (job limit 200)
 STORE, DOCS, STATS = Path("data/reader/store.json"), Path("data/reader/docs.json"), Path("data/reader/stats.jsonl")
 FORWARD = Path("docs/data/forward.json")
@@ -312,34 +315,19 @@ def _stage_run(name: str, lane: list[str], todo: list[dict], key: str, store: di
                 log["no_text"] += 1
                 continue
         est = tokens(min(len(text), MAX_DOC_CHARS) + len(PROMPT))
-        raw = meta = model = None
-        for model in lane:
-            if not quota.take(model, est, stop_at, LANE_CAP.get(model)):
-                continue
-            t0 = time.time()
-            raw, meta = read(key, model, text)
-            if meta.get("error") == "HTTP 429" and quota.refused(model):  # first refusal: wait a minute, one more try
-                time.sleep(60)
-                if quota.take(model, est, stop_at, LANE_CAP.get(model)):
-                    raw, meta = read(key, model, text)
-            if meta.get("error") in ("HTTP 429",):
-                quota.refused(model)
-                continue  # next model in the lane
-            if meta.get("error") == "HTTP 400":  # often this document (too large / invalid), not the model: 3 in a run end the model
-                bad400[model] += 1
-                if bad400[model] >= 3:
-                    quota.gone(model)
-                    log[f"{name}_gone"] += 1
-                break
-            if meta.get("error") in ("HTTP 404", "HTTP 403"):
-                quota.gone(model)
-                log[f"{name}_gone"] += 1
-                continue
-            break
-        if raw is None and meta is None:
-            break  # every model of the lane is out for today
-        if meta.get("error") == "HTTP 429":
-            break  # the last model refused too: out of allowance today, not this document's failure (review 26 Nov 2026)
+        raw, meta, model, called = _read_lane(lane, key, text, est, stop_at, quota, bad400, log, name)
+        if not called:
+            break  # no model of the lane could take a call (allowance used, or past stop_at)
+        if model is None:
+            continue  # models were called but refused (429) or are gone (404 / 403): not this document's failure
+        t0 = meta.pop("_t0")
+        if meta.get("error") == "HTTP 400":  # every model that read it said 400: logged, never counted as a fail (audit 26 Nov 2026)
+            with lock:
+                prev = e.get(name) or {}
+                e[name] = {"model": model, "fails": prev.get("fails") or 0, "error": meta["error"]}
+            log[f"{name}_errors"] += 1
+            print(f"[reader] {name} {d['s']} ({model}): HTTP 400 from every model")
+            continue
         if meta.get("error"):
             errs[model] += 1
             if errs[model] >= 3:
@@ -370,6 +358,46 @@ def _stage_run(name: str, lane: list[str], todo: list[dict], key: str, store: di
         time.sleep(pace)
 
 
+def _read_lane(lane: list[str], key: str, text: str, est: int, stop_at: float, quota: Quota, bad400: Counter, log: dict, name: str):
+    """One document through the lane's models (audit 26 Nov 2026). Returns (rows, meta, model, called): the answer of the
+    model that read it (or of the last model that said 400), model None when none answered; called False when no model of
+    the lane could take a call at all. A 429 is retried once after a minute (two in a row end the model;
+    a call that is not refused resets the count), a 404 / 403 ends the model for the run, and a 400 moves on to the next model
+    (three 400s in a run end a model). Other errors (timeouts, 5xx) are the document's and stop here."""
+    last = None  # (raw, meta, model) of the last model that answered with a 400
+    called = False
+    for model in lane:
+        if not quota.take(model, est, stop_at, lane_cap(model)):
+            continue
+        called = True
+        t0 = time.time()
+        raw, meta = read(key, model, text)
+        if meta.get("error") == "HTTP 429":
+            if quota.refused(model):  # first refusal: wait a minute, one more try
+                time.sleep(60)
+                if quota.take(model, est, stop_at, lane_cap(model)):
+                    t0 = time.time()
+                    raw, meta = read(key, model, text)
+                    if meta.get("error") == "HTTP 429":
+                        quota.refused(model)  # second in a row: the model is out for today
+            if meta.get("error") == "HTTP 429":
+                continue  # next model in the lane; nothing recorded against the document
+        quota.ok(model)
+        if meta.get("error") in ("HTTP 404", "HTTP 403"):
+            quota.gone(model)
+            log[f"{name}_gone"] += 1
+            continue
+        if meta.get("error") == "HTTP 400":  # often the document (too large / invalid), sometimes the model: try the next one
+            bad400[model] += 1
+            if bad400[model] >= 3:
+                quota.gone(model)
+                log[f"{name}_gone"] += 1
+            last = (raw, dict(meta, _t0=t0), model)
+            continue
+        return raw, dict(meta, _t0=t0), model, True
+    return (*last, True) if last else (None, None, None, called)
+
+
 def context(text: str, quote: str, around: int = 1500) -> str:
     """The quote with the text around it (for the row check); the quote alone when its place is not found exactly."""
     i = text.find(quote[:80])
@@ -377,6 +405,8 @@ def context(text: str, quote: str, around: int = 1500) -> str:
         return quote
     return text[max(0, i - around): i + len(quote) + around]
 
+
+CHECK_TRIES = 2  # a row whose check call failed is tried once more in the same run
 
 CHECK_PROMPT = """You check one row extracted from an Indian company's filed document. Use only the text below.
 Extracted: value={value} unit={unit} due={due} (due = end of the period the statement refers to, YYYY-MM-DD)
@@ -390,7 +420,20 @@ Q3 FY27 ends 2026-12-31)? Is it a management statement, not an analyst's questio
 def check_rows(lane: list[str], checks: list, done_flag: threading.Event, key: str, store: dict, lock, stop_at: float,
                log: dict, quota: Quota) -> None:
     """Lane D: Gemma 4 checks each dated row against the text around its quote. The row keeps `check`: "ok" or "doubt: ...";
-    Claude sees it in the pack. A row not checked by the end of the run stays unchecked."""
+    Claude sees it in the pack. A row not checked by the end of the run stays unchecked. A timeout, server error or
+    unreadable reply puts the row back once (CHECK_TRIES); error kinds are counted in `check_err` (cost audit 26 Nov 2026:
+    497 of 593 checks failed on 26 Nov with no record of why)."""
+    tries: dict = {}
+
+    def failed(item, kind):
+        log["check_errors"] += 1
+        log.setdefault("check_err", {})
+        log["check_err"][kind] = log["check_err"].get(kind, 0) + 1
+        k = item[:3]
+        tries[k] = tries.get(k, 0) + 1
+        if tries[k] < CHECK_TRIES:
+            checks.append(item)
+
     while time.time() < stop_at:
         if not checks:
             if done_flag.is_set():
@@ -405,8 +448,8 @@ def check_rows(lane: list[str], checks: list, done_flag: threading.Event, key: s
         try:
             res = requests.post(f"{API}/models/{model}:generateContent", headers={"x-goog-api-key": key}, timeout=(30, 120),
                                 json={"contents": [{"parts": [{"text": p}]}], "generationConfig": {"temperature": 0}})
-        except requests.RequestException:
-            log["check_errors"] += 1
+        except requests.RequestException as e:
+            failed((url, name, i, ctx, r), "timeout" if isinstance(e, requests.Timeout) else "network")
             continue
         if res.status_code == 429:
             if quota.refused(model):
@@ -414,16 +457,24 @@ def check_rows(lane: list[str], checks: list, done_flag: threading.Event, key: s
             checks.insert(0, (url, name, i, ctx, r))
             continue
         if res.status_code != 200:
-            log["check_errors"] += 1
             if res.status_code in (400, 403, 404):
+                log["check_errors"] += 1
+                log.setdefault("check_err", {})
+                log["check_err"][f"http_{res.status_code}"] = log["check_err"].get(f"http_{res.status_code}", 0) + 1
                 quota.gone(model)
+            else:
+                failed((url, name, i, ctx, r), f"http_{res.status_code}")
             continue
         try:
             parts = res.json()["candidates"][0]["content"]["parts"]  # Gemma 4 may put its thinking first (thought=true)
             t = "".join(p.get("text", "") for p in parts if not p.get("thought")) or "".join(p.get("text", "") for p in parts)
             v = json.loads(t[t.find("{"): t.rfind("}") + 1])
         except Exception:  # noqa: BLE001
-            log["check_errors"] += 1
+            try:
+                fr = (res.json().get("candidates") or [{}])[0].get("finishReason")
+            except Exception:  # noqa: BLE001
+                fr = None
+            failed((url, name, i, ctx, r), f"reply_{str(fr or 'unreadable').lower()}")
             continue
         verdict = "ok" if v.get("ok") is True else "doubt: " + str(v.get("why") or "not confirmed")[:90]
         with lock:
@@ -516,15 +567,20 @@ def _git(*a: str, check: bool = True) -> subprocess.CompletedProcess:
 
 
 def save(store: dict, tries: int = 5) -> bool:
-    """Commit the reader's work onto the latest main and push, conflict-free by construction: the work tree is reset to
-    origin/main, the reader's own files (OWN; nothing else writes them) are put back, and reader rows are attached to main's
-    current packs. A rebase of the whole run's commit failed on 23 Nov 2026 (the daily run had rewritten packs meanwhile)
-    and lost ~2 hours of reading and the day's free quota; saving every SAVE_EVERY also caps what a crash can lose."""
+    """Commit the reader's work onto the latest data and push, conflict-free by construction: the reader's own files (OWN;
+    nothing else writes them) are put back, and reader rows are attached to the current packs. A rebase of the whole run's
+    commit failed on 23 Nov 2026 (the daily run had rewritten packs meanwhile) and lost ~2 hours of reading and the day's
+    free quota; saving every SAVE_EVERY also caps what a crash can lose.
+    Stages (narrativ/databranch.py, DATA_STAGE): below 3 the work tree is reset to origin/main and the commit goes to main
+    (then the data branch follows from stage 1); from 3 the packs are refreshed from the data branch and the commit goes there."""
     _last_save[0] = time.time()
     label_agreement(store)
     STORE.write_text(json.dumps(store, ensure_ascii=False, indent=0))
     forward(store)
     keep = {p: p.read_bytes() for p in OWN if p.exists()}
+    from . import databranch
+    if databranch.stage() >= 3:
+        return _save_data(store, keep, tries)
     for i in range(tries):
         try:
             _git("fetch", "-q", "origin", "main")
@@ -540,14 +596,42 @@ def save(store: dict, tries: int = 5) -> bool:
                  "commit", "-q", "-m", f"data: reader {datetime.now(IST):%Y-%m-%d %H:%M} IST")
             if _git("push", "-q", "origin", "HEAD:main", check=False).returncode == 0:
                 print(f"[reader] saved to main ({sum(1 for e in store.values() for m in ('lite', 'flash') if 'rows' in (e.get(m) or {}))} documents read, {n} packs patched)")
-                if os.environ.get("CLOUDFLARE_API_TOKEN"):  # patched packs to R2, after the push (never fatal)
-                    from . import appsync
-                    appsync.sync()
+                if databranch.stage() >= 1:  # the data branch copies main's data paths (and uploads to R2 when the app reads it)
+                    try:
+                        databranch.follow()
+                    except Exception as e:  # noqa: BLE001
+                        print(f"::warning::reader: data branch did not follow main: {e}")
+                if os.environ.get("CLOUDFLARE_API_TOKEN") and os.environ.get("APP_REF", "main") != "data":
+                    from . import appsync  # patched packs to R2, after the push (never fatal)
+                    appsync.sync(rev=_git("rev-parse", "HEAD").stdout.strip(), ref="main")
                 return True
         except subprocess.CalledProcessError as e:
             print(f"[reader] save attempt {i + 1}: git {' '.join(e.cmd[1:3])}: {(e.stderr or '').strip()[:200]}")
         time.sleep(5 * (i + 1))
     print("::error::reader: saving to main failed after retries")
+    return False
+
+
+def _save_data(store: dict, keep: dict, tries: int) -> bool:
+    """Stage 3+: packs refreshed from the data tip, OWN put back, reader rows attached, one data-branch commit (a pack another
+    job changed meanwhile: this save's copy wins, as PUSH_MINE did; the next save re-attaches the rows)."""
+    from . import databranch
+    for i in range(tries):
+        try:
+            databranch.checkout(paths=[str(packs.OUT)], force=True, even_if_tracked=True)
+            for p, b in keep.items():
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_bytes(b)
+            n = patch_packs(store)
+            rc = databranch.commit(f"data: reader {datetime.now(IST):%Y-%m-%d %H:%M} IST", [*(str(p) for p in OWN), str(packs.OUT)],
+                                   mine=str(packs.OUT) + "/", picks=False)
+            if rc == 0:
+                print(f"[reader] saved to the data branch ({n} packs patched)")
+                return True
+        except Exception as e:  # noqa: BLE001
+            print(f"[reader] save attempt {i + 1}: {str(e)[:200]}")
+        time.sleep(5 * (i + 1))
+    print("::error::reader: saving to the data branch failed after retries")
     return False
 
 

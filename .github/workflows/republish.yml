@@ -49,6 +49,12 @@ jobs:
           token: ${{ secrets.NARRATIV_RW_TOKEN }}
           fetch-depth: 300
           persist-credentials: false
+      # stage 3+ (narrativ/databranch.py): data/republish_base.txt and the data files live on the data branch
+      - name: Data files from the data branch (stage 3+; does nothing before)
+        if: steps.d.outputs.busy != 'true'
+        env:
+          GIT_PUSH_TOKEN: ${{ secrets.NARRATIV_RW_TOKEN }}
+        run: python3 -m narrativ.databranch checkout --force
       - name: Anything new since the last publish?
         id: n
         if: steps.d.outputs.busy != 'true'
@@ -102,10 +108,7 @@ jobs:
           echo "${{ steps.n.outputs.head }}" > data/republish_base.txt
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/data data/research_log.json data/republish_base.txt
-          git diff --cached --quiet && exit 0
-          git commit -m "data: research published $(TZ=Asia/Kolkata date '+%F %H:%M') IST"
-          bash scripts/push_retry.sh
+          bash scripts/publish.sh -m "data: research published $(TZ=Asia/Kolkata date '+%F %H:%M') IST" -- docs/data data/research_log.json data/republish_base.txt data/factor_history
       - name: Save the log in the private repo
         if: failure()
         shell: bash
@@ -126,6 +129,8 @@ jobs:
 
 env:
   NARRATIV_REPO: ajitzonebot/Narrativ
+  DATA_STAGE: ${{ vars.DATA_STAGE || '0' }}   # narrativ/databranch.py: 0 main only, 1-2 + data branch, 3+ data branch
+  APP_REF: ${{ vars.APP_REF || 'main' }}      # the branch the app reads (appsync and the Worker follow it)
 
 defaults:
   run:

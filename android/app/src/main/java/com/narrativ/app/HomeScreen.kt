@@ -314,11 +314,11 @@ fun HowWeKnowSheet(st: AppState, rp: ReplayFile, cf: CallsFile?, onDismiss: () -
         GroupedBars(names.map { it to null }, listOf(C.teal to hs.map { it.avgVsNifty }, grey to ha.map { it?.avgVsNifty }),
             Modifier.fillMaxWidth().height(130.dp), { sg1(it, "") })
         cf?.summary?.now?.takeIf { it.n > 0 }?.let { now ->
-            val since = cf.calls.minOfOrNull { it.date }
+            val since = cf.calls.filter { it.kind == "verified" }.minOfOrNull { it.date }
             Row(Modifier.padding(top = 16.dp, bottom = 6.dp), verticalAlignment = Alignment.Bottom) {
-                T("Live Buys", 15.sp, weight = FontWeight.SemiBold)
+                T("Verified calls", 15.sp, weight = FontWeight.SemiBold)
                 Text(androidx.compose.ui.text.buildAnnotatedString {
-                    append("  " + listOfNotNull(since?.let { "since ${shortDate(it)}" }, "${now.n} Buys").joinToString(" · "))
+                    append("  " + listOfNotNull(since?.let { "since ${shortDate(it)}" }, "${now.n} calls").joinToString(" · "))
                     now.avgVsNifty?.let { v -> append(" · avg "); pushStyle(androidx.compose.ui.text.SpanStyle(color = gainColor(v))); append(vsNifty(v)); pop(); append(" vs Nifty") }
                 }, fontSize = 12.sp, color = C.dim, maxLines = 2)
             }
@@ -468,7 +468,8 @@ fun InfoButton(onClick: () -> Unit) {
 @Composable
 fun TopTenInfoSheet(st: AppState, top: List<P>, rp: ReplayFile?, onEvidence: () -> Unit, onDismiss: () -> Unit) {
     BottomSheet(onDismiss, "About today's Top 10") {
-        T("Verified Buys only, at most 2 per industry, ranked by readiness. ${top.size} verified Buy${if (top.size == 1) "" else "s"} today.", 13.sp, lineHeight = 18.sp)
+        T(run { val nv = st.picks?.picks?.count { it.dc in setOf("Buy", "Strong Buy") && it.vf == "pass" } ?: top.size
+            "Verified Buys only, at most 2 per industry, ranked by readiness. $nv verified Buy${if (nv == 1) "" else "s"} today, ${top.size} in the Top 10." }, 13.sp, lineHeight = 18.sp)
         rp?.let { r ->
             val cur = r.variants["current rules"]; val any = r.baselines["every stock scored"]
             if (cur != null && cur.m6.n > 0 && cur.m6.winPct != null) Box(Modifier.padding(top = 10.dp)) { TrackBars(cur, any, onEvidence) }

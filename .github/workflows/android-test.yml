@@ -76,6 +76,8 @@ jobs:
           gh release download --repo "$REPO" --pattern "*.apk" --output app.apk
           ls -la app.apk
       - uses: reactivecircus/android-emulator-runner@v2
+        env:
+          LOOKS: ${{ inputs.looks }}  # read by shots.sh; inputs never in the script text
         with:
           api-level: 34
           target: google_apis
@@ -83,7 +85,7 @@ jobs:
           profile: pixel_6
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: LOOKS="${{ inputs.looks }}" bash android/ci/shots.sh >> "$RUNNER_TEMP/narrativ.log" 2>&1
+          script: bash android/ci/shots.sh >> "$RUNNER_TEMP/narrativ.log" 2>&1
       - name: Save the screenshots in the private repo (branch ci-shots)
         if: always()
         env:
@@ -131,6 +133,8 @@ jobs:
 
 env:
   NARRATIV_REPO: ajitzonebot/Narrativ
+  DATA_STAGE: ${{ vars.DATA_STAGE || '0' }}   # narrativ/databranch.py: 0 main only, 1-2 + data branch, 3+ data branch
+  APP_REF: ${{ vars.APP_REF || 'main' }}      # the branch the app reads (appsync and the Worker follow it)
 
 defaults:
   run:

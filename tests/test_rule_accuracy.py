@@ -186,11 +186,29 @@ def _val(qs):
     return FN.valuation(Mx, "Standard", "pe", 10.0, [{"pe": 20.0}] * 8, {"n": 6, "median": 20.0, "scope": "peers"}, False)
 
 
+def _qs(margins, gap_at=None):
+    """Consecutive quarter ends ending Sep 2026 (one skipped at index gap_at), each [date, revenue, profit, margin]."""
+    ends = ["03-31", "06-30", "09-30", "12-31"]
+    out, k = [], 0
+    n = len(margins) + (1 if gap_at is not None else 0)
+    for i in range(n):
+        y, j = 2026 - (n - 1 - i + 1) // 4, (2 - (n - 1 - i)) % 4
+        if gap_at is not None and i == gap_at:
+            continue
+        out.append([f"{y}-{ends[j]}", 100, 10, margins[k]])
+        k += 1
+    return out
+
+
 def test_r3_margin_peak_with_fewer_than_12_quarters():
-    q = lambda m: ["2025-01-01", 100, 10, m]  # noqa: E731
-    assert _val([q(5)] * 6 + [q(15)] * 4)["t"] == 3  # 10 quarters: last 4 vs the 6 before
-    assert any("in the 6 before" in (i.get("v") or "") for i in _val([q(5)] * 6 + [q(15)] * 4)["items"])
-    assert _val([q(5)] * 3 + [q(15)] * 4)["t"] == 2  # 7 quarters: not enough history
+    assert _val(_qs([5] * 6 + [15] * 4))["t"] == 3  # 10 quarters: last 4 vs the 6 before
+    assert any("in the 6 before" in (i.get("v") or "") for i in _val(_qs([5] * 6 + [15] * 4))["items"])
+    assert _val(_qs([5] * 3 + [15] * 4))["t"] == 2  # 7 quarters: not enough history
+
+
+def test_r3_uses_consecutive_quarters_only():
+    # a missing quarter inside the window: the run of consecutive quarters is only the last 4, so no cap
+    assert _val(_qs([5] * 6 + [15] * 4, gap_at=6))["t"] == 2
 
 
 # ---------------------------------------------------------------- 6 Top 10 without an industry

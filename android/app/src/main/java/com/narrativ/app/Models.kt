@@ -266,9 +266,9 @@ import kotlinx.serialization.json.JsonPrimitive
 
 @Serializable data class DataIssue(val symbol: String = "", val field: String = "", val app: String? = null, val found: String? = null,
                                    val cause: String? = null, val scope: String = "", val status: String = "open", val source: String? = null,
-                                   @SerialName("first_seen") val firstSeen: String = "", @SerialName("fixed_on") val fixedOn: String? = null)
+                                   @SerialName("first_seen") val firstSeen: String = "", @SerialName("corrected_on") val fixedOn: String? = null)
 @Serializable data class IssuesFile(val date: String? = null, val open: Int = 0, @SerialName("open_systemic") val openSystemic: Int = 0,
-                                    val fixed: Int = 0, val issues: Map<String, DataIssue> = emptyMap())
+                                    val corrected: Int = 0, val issues: Map<String, DataIssue> = emptyMap())
 
 /** docs/data/ipo_today.json: the 08:30 IST open-IPO check (IPO.md). */
 @Serializable data class IpoSub(@SerialName("as_of") val asOf: String? = null, val qib: Double? = null, val nii: Double? = null,

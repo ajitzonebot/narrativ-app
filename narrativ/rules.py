@@ -8,6 +8,11 @@ DOC = Path("RULES.md")
 LESSONS = Path("docs/data/lessons.jsonl")
 
 
+
+def _pct(x, f: str = "+.1f") -> str:
+    """A scorecard figure; "n/a" when a horizon has no Nifty figure yet (a None stopped the whole scorecard update)."""
+    return "n/a" if x is None else format(x, f) + "%"
+
 def _put(text: str, key: str, body: str) -> str:
     return re.sub(rf"(<!-- AUTO:{key} -->\n).*?(\n<!-- /AUTO:{key} -->)", lambda m: m.group(1) + body.strip() + m.group(2), text, flags=re.S)
 
@@ -40,7 +45,8 @@ def update(today, gates: dict, held: list, decisions: dict, calls: dict | None) 
             c = (calls.get("summary") or {}).get(k) or {}
             done = {h: v for h, v in c.items() if v.get("n")}
             rows.append(f"| {k.capitalize()} calls | " + (" · ".join(
-                f"{h}: avg {v['avg_pct']:+.1f}%, vs Nifty {v['avg_vs_nifty']:+.1f}%, hit {v['hit_pct']:.0f}% (n={v['n']})" for h, v in done.items())
+                f"{h}: avg {_pct(v.get('avg_pct'))}, vs Nifty {_pct(v.get('avg_vs_nifty'))}, hit {_pct(v.get('hit_pct'), '.0f')} (n={v['n']})"
+                for h, v in done.items())
                 or "no call old enough yet (first 1-month results mid-December)") + " |")
     ls = lessons()
     lrows = ["| Date | Stock | Rule | Lesson | Evidence |", "|---|---|---|---|---|"] + [

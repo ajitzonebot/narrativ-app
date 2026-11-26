@@ -1,0 +1,47 @@
+name: audit
+# Nightly publish audit (narrativ/audit_publish.py; owner, 26 Nov 2026): checks that the day's data reached git, R2 (app
+# copy and the dated archive) and D1, and that no daily run failed. Writes docs/data/audit.json; a failed check opens or
+# updates one `pipeline-audit` issue in the private repo, all checks passing closes it. 23:00 IST, after the 17:10 run and
+# its 20:10 / 22:10 retries.
+on:
+  schedule:
+    - cron: "30 17 * * *"
+  workflow_dispatch:
+permissions:
+  actions: read   # the public job's own token reads daily.yml's runs in this repo
+concurrency:
+  group: audit
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 50   # the last data commit's time (R2 freshness check)
+      - name: Data files from the data branch (stage 3+; does nothing before)
+        env:
+          GIT_PUSH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 -m narrativ.databranch checkout --force
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Audit
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          RUNS_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_REPO: ajitzonebot/Narrativ
+        run: |
+          pip install -q -r requirements.txt
+          RUN_REPO="$GITHUB_REPOSITORY" python -m narrativ.audit_publish
+      - name: Commit
+        env:
+          GIT_PUSH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}   # push_retry.sh: changed docs/data files to R2 after the push
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          git config user.name "github-actions[bot]"; git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          bash scripts/publish.sh -m "audit: $(TZ=Asia/Kolkata date +'%Y-%m-%d %H:%M') publish check" --mine all -- docs/data/audit.json

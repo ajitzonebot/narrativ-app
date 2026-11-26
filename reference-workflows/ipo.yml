@@ -32,6 +32,10 @@ jobs:
           if [ "${n:-0}" -gt 0 ]; then echo "skip=true" >> "$GITHUB_OUTPUT"; fi
       - uses: actions/checkout@v4
         if: steps.skip.outputs.skip != 'true'
+      - name: Data files from the data branch (stage 3+; does nothing before)
+        env:
+          GIT_PUSH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 -m narrativ.databranch checkout --force
       - uses: actions/setup-python@v5
         if: steps.skip.outputs.skip != 'true'
         with:
@@ -50,7 +54,4 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           git config user.name "github-actions[bot]"; git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/data/ipo_today.json docs/data/ipo_history.json
-          git diff --cached --quiet && exit 0
-          git commit -m "ipo: $(TZ=Asia/Kolkata date +'%Y-%m-%d %H:%M') check"
-          bash scripts/push_retry.sh -X theirs
+          bash scripts/publish.sh -m "ipo: $(TZ=Asia/Kolkata date +'%Y-%m-%d %H:%M') check" --mine all -- docs/data/ipo_today.json docs/data/ipo_history.json

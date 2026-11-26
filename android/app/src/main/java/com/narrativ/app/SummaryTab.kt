@@ -233,7 +233,8 @@ private val LENDERS = setOf("bank", "nbfc", "insurance")
 /** Lines of a decision's `why` that are management's own quoted statements (funnel.decide prefixes: driver kinds, "Guidance
  *  quoted: ...", "Guidance reaffirmed (date): ...", "Order book 1.2x revenue (quoted)"); everything else is ours (review 26 Nov 2026). */
 private val MGMT_PREFIXES = listOf("Guidance", "Demand", "Margin", "Order", "Capacity", "Capex", "Product", "Driver", "Promise:")
-internal fun isMgmtLine(w: String) = MGMT_PREFIXES.any { w.startsWith(it) } && !w.startsWith("Promises kept")
+internal fun isMgmtLine(w: String) = (MGMT_PREFIXES.any { w.startsWith(it) } || w.contains(" guidance raised (") || w.contains(" guidance cut (")) &&
+    !w.startsWith("Promises kept")
 private fun mgmtText(w: String) = if (w.contains(": ")) w.substringAfter(": ") else w
 /** The setup's trend-broken flag, from the rule note. */
 private fun Setup.trendBroken(): Boolean = note?.startsWith("No entry: trend broken") == true
@@ -313,6 +314,9 @@ private fun PaperPlan(s: Setup, an: Analyst?, now: Double?, exitHit: ExitHit? = 
             PaperLabel("The plan", size = 11.sp)
             hitLine?.let { T(it, 13.sp, TierC.red, lineHeight = 18.sp, modifier = Modifier.padding(top = 4.dp)) }
             T(s.note ?: "No buy zone today.", 13.sp, C.dim, lineHeight = 18.sp, modifier = Modifier.padding(top = 4.dp))
+            // the no-setup zone and the 50-day line, as on the chart (audit 26 Nov 2026)
+            if (s.watchLo != null && s.watchHi != null) T("${watchLabel(s)} ${rangeStr(s.watchLo, s.watchHi)}", 13.sp, lineHeight = 18.sp, modifier = Modifier.padding(top = 4.dp))
+            if (s.watchLo != null) s.sma50?.let { T("Weakens below ${skRs(it)} (50-day)", 13.sp, C.amber, lineHeight = 18.sp, modifier = Modifier.padding(top = 2.dp)) }
         }
         return
     }
@@ -557,7 +561,7 @@ private fun PriceCard(p: P?, det: Detail?, chart: Chart?, chartLoaded: Boolean =
         val bands = mutableListOf<HBand>(); val lines = mutableListOf<HLine>()
         // the dip zone and "buy rest above" take the Plan card's colour (white), never blue
         if (s?.lo != null && s.hi != null) bands += HBand(s.lo, s.hi, TierC.darkGreen, "Buy zone ${rangeStr(s.lo, s.hi)}")
-        else if (s?.watchLo != null && s.watchHi != null) bands += HBand(s.watchLo, s.watchHi, C.white, "Buy on a dip ${rangeStr(s.watchLo, s.watchHi)}", alpha = 0.12f)
+        else if (s?.watchLo != null && s.watchHi != null) bands += HBand(s.watchLo, s.watchHi, C.white, "${watchLabel(s)} ${rangeStr(s.watchLo, s.watchHi)}", alpha = 0.12f)
         s?.add?.let { lines += HLine(it, C.white, "Buy rest above ${skRs(it)}") }
         if (s?.add == null && s?.watchLo != null) s.sma50?.let { lines += HLine(it, C.amber, "50-day ${skRs(it)}") }
         s?.stop?.let { lines += HLine(it, TierC.lightRed, "Exit ${skRs(it)}", labelBelow = true) }
@@ -618,11 +622,15 @@ private fun Range52(lo: Double, hi: Double, now: Double?) {
 const val PLAN_BASED = "Based on: Donchian / Turtle 55-day breakout; Wilder's average true range for the exit; O'Neil's 5% chase and 8% loss limits. " +
     "Our replay: stocks with a live setup beat the Nifty more often (51–53% vs 31–43%)."
 
+/** The no-setup zone (10–21 day averages): "Buy on a dip to" only while the price is above it (audit 26 Nov 2026). */
+fun watchLabel(s: Setup): String = if (s.price != null && s.watchLo != null && s.price >= s.watchLo) "Buy on a dip to" else "Watch zone"
+
 /** feedback #92: the amber line while the stock cools off after its exit level broke; null when there is no exit_hit. */
 fun exitHitLine(e: ExitHit?): String? {
     val stop = e?.stop ?: return null
     val lvl = "₹" + skFx(stop, 2)
-    return "Exit level $lvl" + (e.date?.let { " hit on ${skDay(it)}" } ?: " hit") + ": wait for a close above $lvl or a new setup"
+    return "Exit level $lvl" + (e.date?.let { " hit on ${skDay(it)}" } ?: " hit") + ": no new call until a close back above $lvl" +
+        (e.reentryAfter?.let { " or after ${skDay(it)}" } ?: " or 10 trading days")
 }
 
 @Composable
@@ -632,7 +640,7 @@ private fun PlanCard(s: Setup, an: Analyst? = null, exitHit: ExitHit? = null) {
     val rows = buildList {
         if (s.lo != null && s.hi != null) add(Triple(if (s.type == "Breakout") "Buy on a close above" else "Buy between",
             if (s.type == "Breakout") skRs(s.lo) else rangeStr(s.lo, s.hi), C.white))
-        else if (s.watchLo != null && s.watchHi != null) add(Triple("Buy on a dip to", rangeStr(s.watchLo, s.watchHi), C.white))
+        else if (s.watchLo != null && s.watchHi != null) add(Triple(watchLabel(s), rangeStr(s.watchLo, s.watchHi), C.white))
         s.add?.let { add(Triple("Buy rest above", skRs(it), C.white)) }
         if (s.add == null && s.watchLo != null) s.sma50?.let { add(Triple("Weakens below (50-day)", skRs(it), C.amber)) }
         s.stop?.let { add(Triple("Exit if it closes below", skRs(it), TierC.lightRed)) }
@@ -664,7 +672,7 @@ private fun PlanCard(s: Setup, an: Analyst? = null, exitHit: ExitHit? = null) {
                 T(line, 12.5.sp, C.amber, lineHeight = 17.sp)
             }
         }
-        if (rows.isEmpty()) T(s.note ?: "No buy zone today.", 13.sp, C.dim)
+        if (rows.isEmpty() || s.type == "No setup") T(s.note ?: "No buy zone today.", 13.sp, C.dim, modifier = Modifier.padding(bottom = if (rows.isEmpty()) 0.dp else 4.dp))
         rows.forEachIndexed { i, (k, v, c) -> KvRow(k, v, valueColor = c, divider = i < rows.lastIndex) }
     }
     if (info) BottomSheet({ info = false }, "How these are set") {
@@ -713,7 +721,7 @@ private fun KeyTiles(det: Detail, open: (String?) -> Unit) {
     val lender = det.stock.kind in LENDERS
     val vl = det.levels["val"]
     val vkey = vl?.mkey ?: METRIC_KEY_OF[vl?.metric] ?: if (lender) "pb" else "pe"
-    val hist = det.hist.mapNotNull { it[vkey]?.content?.toDoubleOrNull() }
+    val hist = det.hist.mapNotNull { it[histKey(vkey)]?.content?.toDoubleOrNull() }
     val vnow = vl?.mval ?: det.v(vkey)
     val qual = det.levels["qual"]
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -854,12 +862,13 @@ fun DecisionDetailsSheet(st: AppState, sym: String, p: P?, det: Detail?, onDismi
         val levelNames = LEVEL_SHORT.toSet()
         val lvl = why.filter { it.substringBefore(":") in levelNames }
         val valn = why.filter { it !in lvl && (it.contains("valuation", ignoreCase = true) || it.contains("base case")) }
-        val rev = why.filter { it.startsWith("Verified") || it.contains("review", ignoreCase = true) }
+        val rev = why.filter { it.startsWith("Verified") }
         // feedback #175 / review 26 Nov 2026: only management's own quoted statements under the guidance heading; our signals
         // and the setup are proofs (conviction); other rule notes go to "Other notes"; R1 / R2 lender notes are not shown
         val fwd = why.filter { it !in lvl && it !in valn && it !in rev && isMgmtLine(it) }
         val other = why.filter { it !in lvl && it !in valn && it !in rev && it !in fwd && !it.startsWith("R1 and R2 not applied") &&
-            !it.startsWith("Signal") && !it.startsWith("No entry setup") && !it.startsWith("Entry setup") && !it.startsWith("Re-scored") }
+            !it.startsWith("Re-scored") &&
+            (cv?.proofs.isNullOrEmpty() || (!it.startsWith("Signal") && !it.startsWith("No entry setup") && !it.startsWith("Entry setup"))) }
         @Composable
         fun levelChips(keys: Set<String>) {
             val mine = lvl.filter { it.substringBefore(":") in keys }
@@ -969,7 +978,7 @@ fun DecisionDetailsSheet(st: AppState, sym: String, p: P?, det: Detail?, onDismi
                     T("Narrativ.ai's thesis" + (r.updated?.let { u -> " · ${skDay(u)}" } ?: ""), LABEL, C.dim, modifier = Modifier.padding(top = 10.dp))
                     T(it, 13.sp, lineHeight = 19.sp)
                 }
-                vl.takeIf { it.size > 1 }?.last()?.let { v -> T("Changed ${skDay(v.d)}: ${v.from} → ${v.v} (${v.cause})", 11.sp, C.amber, modifier = Modifier.padding(top = 8.dp)) }
+                vl.takeIf { it.size > 1 }?.last()?.let { v -> T("Changed ${skDay(v.d)}: " + (v.from?.let { "$it → " } ?: "") + "${v.v} (${v.cause})", 11.sp, C.amber, modifier = Modifier.padding(top = 8.dp)) }
                 det?.stock?.events?.firstOrNull { it.sev == "red" && (skDate(it.date)?.let { d -> !d.isBefore(skToday().minusDays(45)) } ?: false) }?.let { e ->
                     T("${e.type} filed ${skDay(e.date)}: ${e.text.take(120)}", 12.sp, TierC.red, modifier = Modifier.padding(top = 8.dp))
                 }

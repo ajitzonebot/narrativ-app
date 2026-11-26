@@ -47,7 +47,21 @@ resolve_mine() {
 # failed upload is safe: the Worker reads every file changed since R2's manifest commit from GitHub (narrativ/appsync.py).
 app_r2() {
   [ -n "${CLOUDFLARE_API_TOKEN:-}" ] && [ "${APP_R2:-1}" != "0" ] || return 0
-  timeout 900 python3 -m narrativ.appsync || echo "::warning::app files to R2 did not finish (the Worker reads changed files from GitHub)"
+  local out rc
+  out=$(timeout 900 python3 -m narrativ.appsync 2>&1); rc=$?
+  printf '%s\n' "$out"
+  # the step's own output goes to the private log only (quiet shell); the run summary shows the R2 result (counts, no data)
+  if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+    echo "App files to R2 (exit $rc): $(grep '^\[appsync\]' <<< "$out" | grep -v '^\[appsync\] put ' | tail -3 | tr '\n' ' ')" >> "$GITHUB_STEP_SUMMARY"
+  fi
+  [ "$rc" -eq 0 ] || echo "::warning::app files to R2 did not finish (the Worker reads changed files from GitHub)"
+  # daily job only (ARCHIVE_R2=1 in its commit step): one dated archive of the published docs/data, kept 30 days in R2
+  if [ "${ARCHIVE_R2:-0}" = "1" ]; then
+    out=$(timeout 600 python3 -m narrativ.archive 2>&1); rc=$?
+    printf '%s\n' "$out"
+    [ -n "${GITHUB_STEP_SUMMARY:-}" ] && echo "Archive to R2 (exit $rc): $(grep '^\[archive\]' <<< "$out" | tail -1)" >> "$GITHUB_STEP_SUMMARY"
+  fi
+  return 0
 }
 
 for i in $(seq 1 "$attempts"); do

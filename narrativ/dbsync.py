@@ -3,9 +3,11 @@ import gzip
 import hashlib
 import json
 import os
+import pickle
 import re
+import sys
 import time
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from . import events as EV
@@ -57,6 +59,36 @@ _DATED = re.compile(r"(\d{4}-\d{2}-\d{2})")
 
 def _cr(x):
     return None if x is None else round(x / CR, 2)
+
+
+DAILY_CAP = 95_000   # D1 Free allows 100,000 rows written per UTC day; every run the same UTC day shares this
+IN_LIST = 90         # values bound per statement (D1 allows 100 bound parameters)
+BACKFILL_SHARE = 0.5  # history backfills (industry breadth, older events) may use at most this share of what is left
+EVENT_CATCHUP_DAYS = 30  # events of days not yet synced (budget-cut or failed runs) are re-sent up to this far back
+
+
+def _utc_day() -> str:
+    """The UTC day of this run: D1's daily write limit resets at 00:00 UTC, whatever date the data carries."""
+    return datetime.now(timezone.utc).date().isoformat()
+
+
+def _mark_gone(st, man, table: str, keys: list, sql: str, h_old: dict) -> int:
+    """Flag rows that left the source (UPDATE/DELETE ... WHERE key IN (...)), IN_LIST keys a statement. Keys whose statement
+    failed go back into the manifest, so the next run finds them gone again and retries (audit 26 Nov 2026)."""
+    failed, done = [], 0
+    for k in range(0, len(keys), IN_LIST):
+        ch = keys[k:k + IN_LIST]
+        try:
+            st.q(sql.format(",".join("?" * len(ch))), ch)
+            done += len(ch)
+        except Exception as e:  # noqa: BLE001
+            print(f"[store] {table}: flagging {len(ch)} removed rows failed: {e}")
+            failed += ch
+    if failed:
+        t = man.data["tables"].setdefault(table, {"at": str(man.today), "h": {}})
+        t.setdefault("h", {}).update({k: h_old[k] for k in failed if k in h_old})
+        man.dirty = True
+    return done
 
 
 def _json(p: Path) -> dict:
@@ -184,21 +216,32 @@ def sync(today: date, s0i, btypes: dict, lender: dict, picks: list, details: dic
     man = Manifest(MANIFEST, today)
     try:
         # drift guard: the manifest is trusted only while D1 still holds at least the rows it says were written
+        def is_gone(tb) -> bool:
+            t = man.data["tables"][tb]
+            if tb in PROBE:  # big table: the sample rows the manifest recorded must still be there
+                p = t.get("p") or []
+                return bool(t.get("h")) and (not p or st.probe(tb, PROBE[tb], p) < len(p))
+            return st.count(tb) < len(t.get("h") or {})
+
         for tb in list(man.data["tables"]):
-            try:
-                t = man.data["tables"][tb]
-                if tb in PROBE:  # big table: the sample rows the manifest recorded must still be there
-                    p = t.get("p") or []
-                    gone = bool(t.get("h")) and (not p or st.probe(tb, PROBE[tb], p) < len(p))
-                else:
-                    gone = st.count(tb) < len(t.get("h") or {})
-                if gone:
-                    print(f"[store] {tb}: D1 holds fewer rows than the manifest; full resend")
-                    man.drop(tb)
-            except Exception as e:  # noqa: BLE001  (table missing: database was recreated)
-                print(f"[store] manifest distrusted ({tb}: {e}); full sync")
+            err = None
+            for _ in range(2):  # one retry: a transient D1 error must not throw away the whole manifest (audit 26 Nov 2026)
+                try:
+                    if is_gone(tb):
+                        print(f"[store] {tb}: D1 holds fewer rows than the manifest; full resend")
+                        man.drop(tb)
+                    err = None
+                    break
+                except Exception as e:  # noqa: BLE001
+                    err = e
+            if err is None:
+                continue
+            if "no such table" in str(err).lower():  # the database was recreated: nothing the manifest says is there
+                print(f"[store] manifest distrusted ({tb}: {err}); full sync")
                 man.drop()
-                break
+            else:
+                print(f"[store] drift check skipped this run ({tb}: {err})")
+            break
         fp = Store.schema_fingerprint(repr(SNAP_NEW))
         if man.data.get("schema") == fp:
             print("[store] schema unchanged since the last sync; skipping apply_schema")
@@ -213,14 +256,22 @@ def sync(today: date, s0i, btypes: dict, lender: dict, picks: list, details: dic
                 man.dirty = True
             except Exception as e:  # noqa: BLE001
                 print(f"[store] snapshot columns: {e}")
-        try:  # a second run on the same UTC day shares the 100k/day D1 limit with the first
-            prev = st.q("SELECT usage FROM run_log WHERE date = ?", [d])
-            u0 = json.loads(prev[0]["usage"]) if prev else {}
-            done = int(u0.get("d1_rows_written_today", u0.get("d1_rows_written", 0)))
+        utc = _utc_day()
+        try:  # every run the same UTC day shares the 100k/day D1 limit, whatever data date each carries (audit 26 Nov 2026)
+            prev = st.q("SELECT usage, date FROM run_log WHERE date >= ?", [str(today - timedelta(days=4))])
+            done = 0
+            for row in prev:
+                try:
+                    u0 = json.loads(row.get("usage") or "{}")
+                except (TypeError, ValueError):
+                    continue
+                same = u0.get("utc_day") == utc if u0.get("utc_day") else row.get("date") == d  # rows before utc_day: by data date
+                if same:
+                    done = max(done, int(u0.get("d1_rows_written_today", u0.get("d1_rows_written", 0)) or 0))
             st.prior = done
             if done:
-                st.budget = max(2_000, min(st.budget, 95_000 - done))
-                print(f"[store] {done} rows already written today; budget {st.budget}")
+                st.budget = max(0, min(st.budget, DAILY_CAP - done))
+                print(f"[store] {done} rows already written this UTC day; budget {st.budget}")
         except Exception as e:  # noqa: BLE001
             print(f"[store] could not read today's usage: {e}")
         isin = {s: (s0i.loc[s, "isin"] if "isin" in s0i.columns else None) for s in s0i.index}
@@ -251,19 +302,24 @@ def sync(today: date, s0i, btypes: dict, lender: dict, picks: list, details: dic
                                         keep=("first_seen",), ignore=("first_seen", "last_seen"))
             if trusted:
                 # unchanged rows were not rewritten, so their last_seen is older than today: flag departures by name instead
+                # (IN_LIST a statement; a failed statement puts its ISINs back in the manifest so the next run retries)
                 gone = sorted(set(trusted) - set(isin.values()))
-                for k in range(0, len(gone), 500):
-                    st.q("UPDATE company SET in_universe = 0 WHERE isin IN (" + ",".join("?" * len(gone[k:k + 500])) + ")", gone[k:k + 500])
-            else:
+                _mark_gone(st, man, "company", gone, "UPDATE company SET in_universe = 0 WHERE isin IN ({})", trusted)
+            elif n == len(rows):  # full set written today: every row not seen today has left
                 st.q("UPDATE company SET in_universe = 0 WHERE last_seen < ?", [d])
+            else:  # a budget cut left rows with an old last_seen that are still in the universe (audit 26 Nov 2026)
+                print(f"[store] company: {n} of {len(rows)} rows sent; departures flagged once the full set is written")
             return n
 
         def quarter():
             # new filings every day; companies with nothing stored yet are backfilled inside the remaining budget
             have = {r["isin"] for r in st.q("SELECT DISTINCT isin FROM quarter")}
-            # re-read since the last sync (daily run or a side job such as the filings catch-up / history re-read)
-            prev = st.q("SELECT MAX(date) AS m FROM run_log WHERE date < ?", [d])
-            since = (prev[0]["m"] if prev and prev[0]["m"] else d)
+            # re-read since the last quarter sync that sent everything (a budget-cut or failed run is not "synced": audit
+            # 26 Nov 2026, filings were lost after two starved runs); before the marker existed: the previous run_log date
+            since = (man.data.get("done") or {}).get("quarter_synced")
+            if not since:
+                prev = st.q("SELECT MAX(date) AS m FROM run_log WHERE date < ?", [d])
+                since = (prev[0]["m"] if prev and prev[0]["m"] else d)
             rows = []
             for s, rec in fins.items():
                 i = isin.get(s)
@@ -291,9 +347,13 @@ def sync(today: date, s0i, btypes: dict, lender: dict, picks: list, details: dic
                     rows.append([i, qe, "BSE summary", "bse", x.get("rev"), None, x.get("pat"), x.get("pat"), x.get("eps"), None, None, None,
                                  {"src": "BSE results summary", "fy": rec.get("fy")}, rec.get("checked"), 0, rec.get("url")])
             # a rerun the same day re-reads the same filings: only rows whose content changed are sent again
-            return upsert_changed(st, man, "quarter", ["isin", "period_end", "basis", "kind", "revenue_cr", "ebitda_cr", "pat_cr", "pat_owners_cr",
-                                                       "eps", "equity_cr", "borrowings_cr", "cash_cr", "extra", "filed_on", "audited", "source_url"],
-                                  rows, ["isin", "period_end", "basis"], short=True)[0]
+            n, same = upsert_changed(st, man, "quarter", ["isin", "period_end", "basis", "kind", "revenue_cr", "ebitda_cr", "pat_cr", "pat_owners_cr",
+                                                          "eps", "equity_cr", "borrowings_cr", "cash_cr", "extra", "filed_on", "audited", "source_url"],
+                                     rows, ["isin", "period_end", "basis"], short=True)
+            if n + same == len(rows):
+                man.data.setdefault("done", {})["quarter_synced"] = d
+                man.dirty = True
+            return n
 
         def snapshot():
             """One row per stock per trading date (history). A rerun the same day sends only the stocks whose row changed
@@ -325,21 +385,33 @@ def sync(today: date, s0i, btypes: dict, lender: dict, picks: list, details: dic
             return upsert_changed(st, man, "stock_detail", ["isin", "date", "pick", "detail"], rows, ["isin"], ignore=("date",),
                                   hash_of=lambda r: [r[0], {k: v for k, v in r[2].items() if k != "rk"}, r[3]])[0]
 
+        ev = {"old": [], "cost": 3.0, "oldest": "9999"}
+
         def event():
-            # daily: the last 3 days, only rows that are new or changed since the last sync (manifest); plus, on the first
-            # sync of the day only, a gradual backfill of older history (newest first) inside the write budget.
+            # daily: every day since the last sync that sent its whole window (at least the last 3 days, at most
+            # EVENT_CATCHUP_DAYS), only rows that are new or changed (manifest). A budget-cut or failed run leaves the marker,
+            # so its days are sent by a later run (audit 26 Nov 2026: days between the backfill edge and the last 3 days were
+            # never sent). Older history is backfilled by event_backfill() after the daily essentials.
             # D1 counts each index update as a written row, so one event costs ~3 rows (table, primary key, event_isin_date).
             backfill = not st.prior
             r = st.q("SELECT MIN(date) AS m FROM event WHERE exchange = 'NSE'") if backfill else []  # reads the whole table
-            oldest = (r[0]["m"] if r and r[0]["m"] else "9999")
+            oldest = ev["oldest"] = (r[0]["m"] if r and r[0]["m"] else "9999")
             recent = str(today - timedelta(days=3))
+            start = recent
+            synced = (man.data.get("done") or {}).get("event_synced")
+            if synced:
+                try:
+                    start = min(recent, str(date.fromisoformat(synced) - timedelta(days=3)))
+                except ValueError:
+                    pass
+            start = max(start, str(today - timedelta(days=EVENT_CATCHUP_DAYS)))
             rows, seen = [], set()
             for s, rs in (ann_st.get("rows") or {}).items():
                 i = isin.get(s)
                 if not i:
                     continue
                 for dt, cat, txt, url, g, rule in rs:
-                    if dt < recent and dt > oldest:  # the oldest stored day is re-sent: heals a day cut short by the budget
+                    if dt < start and dt > oldest:  # the oldest stored day is re-sent: heals a day cut short by the budget
                         continue
                     k = url or f"NSE|{i}|{dt}|{(txt or '')[:80]}"
                     if k in seen:
@@ -352,7 +424,7 @@ def sync(today: date, s0i, btypes: dict, lender: dict, picks: list, details: dic
                 if not i or s.endswith(".NS"):
                     continue
                 for e in rec.get("events") or []:
-                    if (e.get("date") or "") < recent:
+                    if (e.get("date") or "") < start:
                         continue
                     k = e.get("url") or f"BSE|{i}|{e.get('date')}|{(e.get('text') or '')[:80]}"
                     if k not in seen:
@@ -360,24 +432,36 @@ def sync(today: date, s0i, btypes: dict, lender: dict, picks: list, details: dic
                         rows.append([k, i, s, e.get("date"), "BSE", e.get("category"), e.get("text"), None, None, e.get("sev"), e.get("type"), e.get("url"), d])
             rows.sort(key=lambda r: r[3] or "", reverse=True)
             cols = ["id", "isin", "symbol", "date", "exchange", "category", "subject", "doc_group", "rule", "severity", "type", "url", "first_seen"]
-            new = [r for r in rows if (r[3] or "") >= recent]
-            old = [r for r in rows if (r[3] or "") < recent] if backfill else []
+            new = [r for r in rows if (r[3] or "") >= start]
+            ev["old"] = [r for r in rows if (r[3] or "") < start] if backfill else []
             w0 = st.rows_written
             sent, same = upsert_changed(st, man, "event", cols, new, ["id"], keep=("first_seen",), ignore=("first_seen",), short=True)
-            cost = (st.rows_written - w0) / sent if sent else 3.0  # D1 rows written per event, indexes included
-            # backfill whole days only (newest first), each day only if it fits, so MIN(date) is always a clean boundary
-            stop = min(st.budget, 95_000 - st.prior) - 2_000
+            if sent:
+                ev["cost"] = (st.rows_written - w0) / sent  # D1 rows written per event, indexes included
+            if sent + same == len(new):
+                man.data.setdefault("done", {})["event_synced"] = d
+                man.dirty = True
+            print(f"[store] events: {sent} since {start} ({same} unchanged; oldest stored {oldest}; {ev['cost']:.1f} D1 rows per event)")
+            return sent
+
+        def event_backfill():
+            # older history, first sync of the UTC day only: whole days (newest first), each only if it fits, so MIN(date) is
+            # always a clean boundary
+            old = ev["old"]
+            if not old:
+                return 0
+            stop = min(st.budget, DAILY_CAP - st.prior) - 2_000
             days: dict = {}
             for r in old:
                 days.setdefault(r[3], []).append(r)
             back = 0
+            cols = ["id", "isin", "symbol", "date", "exchange", "category", "subject", "doc_group", "rule", "severity", "type", "url", "first_seen"]
             for dt in sorted(days, reverse=True):
-                if st.rows_written + len(days[dt]) * cost * 1.2 > stop:
+                if st.rows_written + len(days[dt]) * ev["cost"] * 1.2 > stop:
                     break
                 back += st.upsert("event", cols, days[dt], ["id"], keep=("first_seen",))
-            print(f"[store] events: {sent} recent ({same} unchanged) + {back} backfill (of {len(old)} older; oldest stored {oldest}; "
-                  f"{cost:.1f} D1 rows per event)")
-            return sent + back
+            print(f"[store] events backfill: {back} of {len(old)} older (oldest stored {ev['oldest']})")
+            return back
 
         def checkpoint():
             rows = []
@@ -397,8 +481,11 @@ def sync(today: date, s0i, btypes: dict, lender: dict, picks: list, details: dic
             # full resend: a new table, or once to fill priority on rows written before it was recorded (25 Nov 2026)
             once = man.due("verdict_priority_backfill", 10 ** 5)
             full = once or st.count("verdict_log") < 100
+            # every change since the last run that sent all of its rows (audit 26 Nov 2026: only today's were sent, so a day
+            # whose sync failed or was cut was never sent)
+            since = (man.data.get("done") or {}).get("verdict_log_synced") or d
             pr_today = {p["s"]: p.get("pr") for p in picks}
-            rows = []
+            now, hist = [], []
             for s, rec in mem.items():
                 i = isin.get(s)
                 if not i:
@@ -407,17 +494,32 @@ def sync(today: date, s0i, btypes: dict, lender: dict, picks: list, details: dic
                 if pr_today.get(s) is not None:
                     pr.setdefault(d, pr_today[s])
                 for v in rec.get("verdicts") or []:
-                    if full or v.get("d") == d:
-                        rows.append([i, v.get("d"), v.get("from"), v.get("v"), pr.get(v.get("d")), rec.get("tiers")])
-            n = st.upsert("verdict_log", ["isin", "date", "verdict_from", "verdict_to", "priority", "tiers"], rows, ["isin", "date"])
-            if once and n == len(rows):
-                man.did("verdict_priority_backfill")
+                    vd = v.get("d") or ""
+                    if full or vd >= since:
+                        # memory holds only today's tiers: they belong to today's row; an older row keeps the tiers it was
+                        # written with (a resend wrote today's tiers onto every historic row)
+                        (now if vd == d else hist).append([i, v.get("d"), v.get("from"), v.get("v"), pr.get(v.get("d")),
+                                                           rec.get("tiers") if vd == d else None])
+            cols = ["isin", "date", "verdict_from", "verdict_to", "priority", "tiers"]
+            n = st.upsert("verdict_log", cols, now, ["isin", "date"])
+            n += st.upsert("verdict_log", cols, hist, ["isin", "date"], keep=("tiers",))
+            if n == len(now) + len(hist):
+                man.data.setdefault("done", {})["verdict_log_synced"] = d
+                man.dirty = True
+                if once:
+                    man.did("verdict_priority_backfill")
             return n
 
         def research():
             rows = [[isin[s], s, t.get("updated"), t.get("quarter"), t.get("source_type"), t.get("outlook_score"),
                      {k: v for k, v in t.items() if k != "scan_raw"}] for s, t in theses.items() if s in isin]
-            return upsert_changed(st, man, "research", ["isin", "symbol", "updated", "quarter", "source_type", "outlook_score", "thesis"], rows, ["isin"])[0]
+            old = man.rows("research")
+            n = upsert_changed(st, man, "research", ["isin", "symbol", "updated", "quarter", "source_type", "outlook_score", "thesis"], rows, ["isin"])[0]
+            # a thesis no longer held (company left, research withdrawn) leaves the table, which holds verified research only
+            gone = sorted(set(old) - {r[0] for r in rows})
+            if gone:
+                _mark_gone(st, man, "research", gone, "DELETE FROM research WHERE isin IN ({})", old)
+            return n
 
         def forward():
             """forward_item: every forward-looking statement we hold. Claude's drivers (status verified when the verifier
@@ -450,13 +552,24 @@ def sync(today: date, s0i, btypes: dict, lender: dict, picks: list, details: dic
                     uniq.append(r)
             cols = ["id", "isin", "kind", "metric", "value", "unit", "due", "direction", "status", "origin", "quote", "url", "doc_date",
                     "first_seen", "last_checked"]
-            return upsert_changed(st, man, "forward_item", cols, uniq, ["id"], keep=("first_seen",), ignore=("first_seen", "last_checked"))[0]
+            old = man.rows("forward_item")
+            n = upsert_changed(st, man, "forward_item", cols, uniq, ["id"], keep=("first_seen",), ignore=("first_seen", "last_checked"))[0]
+            # an item the verifier dropped, or whose text changed (new id), is no longer held: status 'removed' instead of
+            # staying open / verified in D1 (audit 26 Nov 2026). By id when the manifest knows the earlier rows; after a full
+            # write (every row's last_checked is today) every row not written today.
+            if old:
+                gone = sorted(set(old) - {r[0] for r in uniq})
+                _mark_gone(st, man, "forward_item", gone,
+                           "UPDATE forward_item SET status = 'removed' WHERE status IS NOT 'removed' AND id IN ({})", old)
+            elif n == len(uniq):
+                st.q("UPDATE forward_item SET status = 'removed' WHERE last_checked < ? AND status IS NOT 'removed'", [d])
+            return n
 
         def sheets():
             """narrativ_sheet: each stock's Narrativ sheet text, one row per write date (history of rewrites)."""
             sp = Path("data/story.json")
             stories = (json.loads(sp.read_text()) if sp.exists() else {}).get("stocks") or {}
-            rows = [[isin[s], x.get("date"), s, x.get("what"), x.get("money"), x.get("plans"), x.get("model")]
+            rows = [[isin[s], x.get("date"), s, x.get("what"), x.get("money"), [p["text"] if isinstance(p, dict) else p for p in x.get("plans") or []] or None, x.get("model")]
                     for s, x in stories.items() if s in isin and x.get("date")]
             return upsert_changed(st, man, "narrativ_sheet", ["isin", "date", "symbol", "what", "money", "plans", "model"], rows, ["isin", "date"])[0]
 
@@ -480,10 +593,24 @@ def sync(today: date, s0i, btypes: dict, lender: dict, picks: list, details: dic
             return upsert_changed(st, man, "document", ["url", "isin", "date", "kind", "pages", "has_text", "text_key", "status"],
                                   document_rows(isin), ["url"], short=True)[0]
 
-        # daily essentials first; the big one-off backfills (events, quarters, breadth history) use what is left of the budget
+        def capped(fn, share=BACKFILL_SHARE):
+            """Run a history backfill with at most `share` of the D1 rows left this run (counted as D1 rows written,
+            indexes included), so it cannot starve what runs after it (audit 26 Nov 2026: the breadth backfill used the
+            whole budget and events / quarters were not sent for days)."""
+            def run_():
+                b0 = st.budget
+                st.budget = min(b0, st.rows_written + max(0, int((b0 - st.rows_written) * share)))
+                try:
+                    return fn()
+                finally:
+                    st.budget = b0
+            return run_
+
+        # daily essentials first (new events and filings included); the history backfills use what is left, each capped
         for name, fn in (("snapshot", snapshot), ("stock_detail", detail), ("market_day", market), ("research", research),
                          ("checkpoint", checkpoint), ("forward_item", forward), ("narrativ_sheet", sheets), ("verdict_log", verdicts),
-                         ("company", company), ("document", document), ("industry_breadth", breadth), ("event", event), ("quarter", quarter)):
+                         ("company", company), ("document", document), ("event", event), ("quarter", quarter),
+                         ("industry_breadth", capped(breadth)), ("event_backfill", event_backfill)):
             step(name, fn)
 
         def r2():
@@ -536,8 +663,11 @@ def sync(today: date, s0i, btypes: dict, lender: dict, picks: list, details: dic
                 man.did("r2_prune")
             return out
         step("r2_prune", prune)
+        size = db_bytes(st)
         st.upsert("run_log", ["date", "stages", "counts", "usage"], [[d, stages, {**counts, **(extra_counts or {})},
-                                                                     {**st.usage(), "d1_rows_written_today": st.prior + st.rows_written}]], ["date"], force=True)
+                                                                     {**st.usage(), "utc_day": utc,
+                                                                      "d1_rows_written_today": st.prior + st.rows_written,
+                                                                      "db_bytes": size}]], ["date"], force=True)
     except Exception as e:  # noqa: BLE001
         print(f"[store] sync aborted: {e}")
     finally:
@@ -549,6 +679,26 @@ def sync(today: date, s0i, btypes: dict, lender: dict, picks: list, details: dic
             print(f"[store] manifest not saved: {e}")
     print(f"[store] {counts} usage {st.usage()} in {time.time() - t0:.0f}s")
     return {"ok": True, "counts": counts, "usage": st.usage()}
+
+
+DB_WARN_BYTES = 250_000_000  # D1 Free: 500 MB per database; warn at half
+
+
+def db_bytes(st) -> int | None:
+    """The D1 database's size in bytes (Cloudflare API `file_size`, one read-only call a run); None when unknown.
+    Logged in run_log.usage.db_bytes so the size is measured, not estimated (owner, 26 Nov 2026)."""
+    if not getattr(st, "db", None):
+        return None
+    try:
+        r = st.s.get(f"{st.base}/d1/database/{st.db}", timeout=30).json()
+        size = (r.get("result") or {}).get("file_size")
+        size = int(size) if size is not None else None
+    except Exception as e:  # noqa: BLE001
+        print(f"[store] D1 size not read: {e}")
+        return None
+    if size is not None and size > DB_WARN_BYTES:
+        print(f"[store] WARNING: D1 database is {size / 1e6:.0f} MB (free limit 500 MB per database)")
+    return size
 
 
 def _prices_parquet(pk) -> bytes:
@@ -706,3 +856,49 @@ def restore_caches(only: set | None = None) -> None:
         for name, text in files.items():
             (d_ / Path(name).name).write_text(text)
         print(f"[store] restored {len(files)} files into {folder} from R2")
+
+
+# ---------------------------------------------------------------- D1 after the publish (data-branch plan §2.6)
+# With DEFER_D1=1 the daily run does not write D1 itself: it saves the sync inputs (defer), and the workflow runs
+# `python -m narrativ.dbsync --deferred` after the publish gate passed and the data was pushed, so a build the gate refused
+# never reaches D1. The file is the run's own in-memory inputs, written and read in the same job on the runner's temp disk
+# (never committed, never downloaded). Without DEFER_D1 run.py calls sync() as before.
+def _defer_path() -> Path:
+    return Path(os.environ.get("D1_DEFER_FILE") or os.path.join(os.environ.get("RUNNER_TEMP") or "data/exchange_tmp",
+                                                                   "d1_deferred.pkl"))
+
+
+def deferred() -> bool:
+    return os.environ.get("DEFER_D1") == "1"
+
+
+def defer(args: tuple, kwargs: dict) -> Path:
+    p = _defer_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with p.open("wb") as f:
+        pickle.dump((args, kwargs), f, protocol=pickle.HIGHEST_PROTOCOL)
+    print(f"[store] D1 sync deferred to after the publish ({p}, {p.stat().st_size / 1e6:.0f} MB)")
+    return p
+
+
+def run_deferred() -> dict:
+    """The deferred sync; never raises (D1 is not the app's source). The inputs file is removed after the attempt."""
+    p = _defer_path()
+    if not p.exists():
+        print("[store] no deferred D1 sync (the run did not reach it)")
+        return {"ok": False}
+    try:
+        with p.open("rb") as f:
+            args, kwargs = pickle.load(f)  # noqa: S301 - written by this job's own run.py (defer) on the runner
+        return sync(*args, **kwargs)
+    except Exception as e:  # noqa: BLE001
+        print(f"[store] deferred sync failed: {type(e).__name__}: {str(e)[:200]}")
+        return {"ok": False}
+    finally:
+        p.unlink(missing_ok=True)
+
+
+if __name__ == "__main__":
+    if "--deferred" in sys.argv:
+        run_deferred()
+    sys.exit(0)

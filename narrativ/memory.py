@@ -8,7 +8,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from . import config
-from .util import write_if_changed
+from .util import iso_date, write_if_changed
 
 DIR = Path("docs/data/stocks")  # served by Pages so the app can read history
 
@@ -28,7 +28,11 @@ def save(rec: dict) -> None:
 
 
 def all_records() -> dict[str, dict]:
-    return {json.loads(p.read_text())["symbol"]: json.loads(p.read_text()) for p in DIR.glob("*.json")} if DIR.exists() else {}
+    """Every stock's record by symbol (each file parsed once; it was parsed twice)."""
+    if not DIR.exists():
+        return {}
+    recs = (json.loads(p.read_text()) for p in DIR.glob("*.json"))
+    return {r["symbol"]: r for r in recs}
 
 
 # ---------- quarter / SEBI calendar helpers ----------
@@ -79,6 +83,10 @@ def update_checkpoints(rec: dict, new_cps: list[dict], resolved: dict, today: da
     """Merge new checkpoints, apply Claude resolutions, set statuses. Returns newly-due checkpoints."""
     cps = {c["id"]: c for c in rec.get("checkpoints", [])}
     for c in new_cps:
+        d = iso_date(c.get("due"))
+        if d is None:  # a model-written due like "2027-03" is no checkpoint (it would stop the run below)
+            continue
+        c = {**c, "due": str(d)}
         if c["id"] not in cps:
             cps[c["id"]] = {**c, "status": "open", "created": str(today)}
         elif cps[c["id"]]["status"] in ("open", "due"):
@@ -90,10 +98,13 @@ def update_checkpoints(rec: dict, new_cps: list[dict], resolved: dict, today: da
             c.update({"status": r.get("status", "noted"), "outcome": r.get("outcome"),
                       "evidence": r.get("source"), "resolved": r.get("date", str(today))})
             continue
-        if c["status"] == "open" and date.fromisoformat(c["due"]) <= today:
+        due = iso_date(c.get("due"))
+        if due is None:
+            continue
+        if c["status"] == "open" and due <= today:
             c["status"] = "due"
             newly_due.append(c)
-        if c["status"] == "due" and date.fromisoformat(c["due"]) + timedelta(days=config.CHECKPOINT_EXPIRE_DAYS) < today:
+        if c["status"] == "due" and due + timedelta(days=config.CHECKPOINT_EXPIRE_DAYS) < today:
             c["status"] = "expired"
     rec["checkpoints"] = sorted(cps.values(), key=lambda c: c["due"])
     return newly_due

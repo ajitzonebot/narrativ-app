@@ -134,7 +134,7 @@ private fun headLine(k: String, lv: Level, det: Detail, st: AppState, sym: Strin
         }
         "mgmt" -> {
             val scored = lv.items.count { it.m != null }
-            lead(listOf("$scored scored", lv.item("C1")?.v?.let { "promoter $it" }, lv.item("C4")?.v, lv.item("C9")?.n?.lowercase()))
+            lead(listOf("$scored scored", lv.item("C1")?.v?.let { "promoter $it" }, lv.item("C4")?.v, lv.item("C9")?.v?.substringBefore(" (")?.let { "dividends $it" }))
         }
         "mom" -> lead(listOf(det.stock.stage, "${lv.items.count { it.m == 0 }} miss"))
         "disc" -> {
@@ -157,13 +157,13 @@ private fun orGeneric(rows: List<KeyCheck>, lv: Level): List<KeyCheck> = if (row
 private fun StabilityBody(det: Detail, lv: Level, open: (String?) -> Unit, onAll: () -> Unit) {
     val rows = listOfNotNull(
         lv.item("B2")?.let { it0 -> val v = det.v("net_debt_ebitda")
-            KeyCheck(lv.status("B2"), "Net debt / EBITDA", v?.let { mult(it) } ?: short(it0.v), "pass ≤ 5×", v?.let { Bullet(it, -1.0, 6.0, 5.0, higher = false, unit = "×") }) },
+            KeyCheck(lv.status("B2"), "Net debt / EBITDA", v?.let { mult(it) } ?: short(it0.v), "pass ≤ 3× · miss > 5×", v?.let { Bullet(it, -1.0, 6.0, 3.0, higher = false, partly = 5.0, unit = "×") }) },
         lv.item("B1")?.let { it0 -> val v = det.v("interest_cover")
-            KeyCheck(lv.status("B1"), "Interest cover", v?.let { mult(it, if (abs(it) >= 100) 0 else 1) } ?: short(it0.v), "pass ≥ 1.5×", v?.let { Bullet(it, 0.0, 6.0, 1.5, unit = "×") }) },
+            KeyCheck(lv.status("B1"), "Interest cover", v?.let { mult(it, if (abs(it) >= 100) 0 else 1) } ?: short(it0.v), "pass ≥ 3× · miss < 1.5×", v?.let { Bullet(it, 0.0, 6.0, 3.0, partly = 1.5, unit = "×") }) },
         lv.item("B4")?.let { it0 -> val v = det.v("current_ratio")
-            KeyCheck(lv.status("B4"), "Current ratio", v?.let { skFx(it, 2) } ?: short(it0.v), "pass ≥ 0.8", v?.let { Bullet(it, 0.0, 3.0, 0.8) }) },
+            KeyCheck(lv.status("B4"), "Current ratio", v?.let { skFx(it, 2) } ?: short(it0.v), "pass ≥ 1.0 · miss < 0.8 if short-term debt > cash", v?.let { Bullet(it, 0.0, 3.0, 1.0, partly = 0.8) }) },
         lv.item("B5")?.let { it0 -> val v = skNums(it0.v).firstOrNull()
-            KeyCheck(lv.status("B5"), "Promoter pledge", v?.let { "${skFx(it, 1)}%" } ?: short(it0.v), "pass ≤ 50%", v?.let { Bullet(it, 0.0, 100.0, 50.0, higher = false, unit = "%") }) },
+            KeyCheck(lv.status("B5"), "Promoter pledge", v?.let { "${skFx(it, 1)}%" } ?: short(it0.v), "pass ≤ 10% · miss > 50%", v?.let { Bullet(it, 0.0, 100.0, 10.0, higher = false, partly = 50.0, unit = "%") }) },
     )
     KeyChecksCard(orGeneric(rows, lv), lv.items.size, onAll)
     val ncm = det.m("net_cash_pct_mcap")
@@ -332,7 +332,7 @@ private fun ValuationBody(det: Detail, lv: Level, onAll: () -> Unit) {
         }
         if (lv.cheap != null || lv.exp != null) ValChip("${lv.cheap ?: 0} cheap · ${lv.exp ?: 0} expensive")
     }
-    val pts = det.hist.mapNotNull { h -> h[key]?.content?.toDoubleOrNull()?.let { (h["q"]?.content ?: "") to it } }
+    val pts = det.hist.mapNotNull { h -> h[histKey(key)]?.content?.toDoubleOrNull()?.let { (h["q"]?.content ?: "") to it } }
     val mval = lv.mval
     val qs = ChartMath.quartiles(pts.map { it.second })
     if (pts.size >= 4 && qs != null) {
@@ -588,8 +588,10 @@ private fun DiscoveryBody(p: P?, det: Detail, lv: Level, onAll: () -> Unit) {
         c1q?.let { KeyCheck(lv.status("D5"), "Institutions, 1 quarter", skSgn(it, 1, " pts"), "pass ≥ +0.5 pts", Bullet(it, -1.0, 1.0, 0.5, partly = -2.0, unit = " pts")) },
         lv.volRatio?.let { KeyCheck(lv.status("D3"), "Volume 50-day / 200-day", mult(it), "pass ≥ 1.3×", Bullet(it, 0.0, 2.0, 1.3, unit = "×")) },
         lv.item("D8")?.let { d -> KeyCheck(lv.status("D8"), "Index", short(d.v?.substringBefore(" (")?.removePrefix("Nifty ")), "pass: in no Nifty index") },
-        // NSE shareholding (D5), the one institutional figure on the page
-        inst?.let { KeyCheck(lv.status("D1"), "Institutional holding", "${skFx(it, 1)}%", "pass < 10%", Bullet(it, 0.0, 30.0, 10.0, higher = false, partly = 25.0, unit = "%")) },
+        // D1's own figure with D1's status, so figure and verdict agree (audit 26 Nov 2026); D1 reads NSE's shareholding
+        // pattern since 26 Nov 2026 (owner), Yahoo only when no filing is loaded, and then says so
+        skNums(lv.item("D1")?.v).firstOrNull()?.let { KeyCheck(lv.status("D1"),
+            "Institutional holding" + (if (lv.item("D1")?.note?.startsWith("Yahoo") == true) " (Yahoo)" else ""), "${skFx(it, 1)}%", "pass < 10%", Bullet(it, 0.0, 30.0, 10.0, higher = false, partly = 25.0, unit = "%")) },
     )
     KeyChecksCard(orGeneric(rows, lv), lv.items.size, onAll)
     val pro = s.promoter.maxByOrNull { it.date }

@@ -2,6 +2,14 @@
 
     python -m narrativ.appsync          # after a successful `git push` (scripts/push_retry.sh, reader.save); never fatal
     python -m narrativ.appsync --full   # re-upload every file (repair after objects were removed by hand)
+    python -m narrativ.appsync --ref data [--rev <commit>]   # upload from the `data` branch (default: origin/data)
+
+Source branch (data-branch plan, stage 0): `--ref` / env APP_REF picks the branch the app data comes from, "main" (default:
+HEAD, as before) or "data" (origin/data, never HEAD: the work tree of a job is a main checkout). The manifest records it
+as "ref", and the Worker compares against that branch. A skip because R2 is current or newer applies only when the
+manifest is on the same ref; when only the commit changed (a trimmed `data` branch: same trees, new shas) the manifest is
+rewritten with no upload. A run that would delete more than DELETE_MAX_SHARE of the manifest's files (and more than
+DELETE_FLOOR) is refused: an upload from the wrong tree (e.g. a main checkout after the data moved) must never empty R2.
 
 Order: run only AFTER the commit is on GitHub's main, so R2 never runs ahead of git. Content comes from the pushed commit
 (HEAD's tree via `git cat-file`), not the work tree, so uncommitted local edits never reach the app.
@@ -46,6 +54,9 @@ KEY_PREFIX = "app/"
 MANIFEST_KEY = "app/_manifest.json"
 PATH_OK = re.compile(r"^[\w\-./&]+\.json$")  # the Worker's /data path whitelist
 WORKERS = max(1, int(os.environ.get("R2_APP_WORKERS", "16")))
+REFS = ("main", "data")
+DELETE_MAX_SHARE = 0.10      # refuse a run deleting more than this share of the manifest's files ...
+DELETE_FLOOR = 50            # ... and more than this many (small trees, tests)
 CF_API = "https://api.cloudflare.com/client/v4"
 
 
@@ -181,9 +192,17 @@ def read_blobs(blobs: list[str]) -> dict[str, bytes]:
     return out
 
 
-def head_commit() -> tuple[str, int]:
-    sha, ct = _git("log", "-1", "--format=%H %ct", "HEAD").decode().split()
+def head_commit(rev: str = "HEAD") -> tuple[str, int]:
+    sha, ct = _git("log", "-1", "--format=%H %ct", rev).decode().split()
     return sha, int(ct)
+
+
+def source(rev: str | None = None, ref: str | None = None) -> tuple[str, str]:
+    """(rev, ref) to upload from: an explicit rev wins; ref "data" means origin/data (never HEAD); else HEAD on main."""
+    ref = ref or os.environ.get("APP_REF") or "main"
+    if ref not in REFS:
+        raise ValueError(f"unknown ref {ref!r} (main or data)")
+    return rev or ("origin/data" if ref == "data" else "HEAD"), ref
 
 
 # ---------------------------------------------------------------- sync
@@ -210,7 +229,10 @@ def merge_conflict(ours: dict, theirs: dict) -> dict:
     a, b = ours.get("blobs") or {}, theirs.get("blobs") or {}
     blobs = {p: (a.get(p) if a.get(p) == b.get(p) else "?") for p in set(a) | set(b)}
     failed = set(ours.get("failed") or []) | set(theirs.get("failed") or []) | {p for p, v in blobs.items() if v == "?"}
-    return {"v": 1, "sha": older.get("sha"), "ct": older.get("ct"), "at": ours.get("at"), "failed": sorted(failed), "blobs": blobs}
+    out = {"v": 1, "sha": older.get("sha"), "ct": older.get("ct"), "at": ours.get("at"), "failed": sorted(failed), "blobs": blobs}
+    if older.get("ref"):
+        out["ref"] = older["ref"]  # the sha and its branch stay a pair
+    return out
 
 
 def _write_manifest(r2: R2S3, man: dict, etag: str | None, res: dict) -> str | None:
@@ -238,11 +260,12 @@ def _now() -> str:
     return dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def sync(full: bool = False, r2: R2S3 | None = None) -> dict:
+def sync(full: bool = False, r2: R2S3 | None = None, rev: str | None = None, ref: str | None = None) -> dict:
     """Upload what changed since the manifest; never raises. `puts` in the result = Class A operations used."""
     t0 = time.time()
     res = {"ok": False, "puts": 0, "uploaded": 0, "deletes": 0, "failed": 0, "unchanged": 0}
     try:
+        rev, ref = source(rev, ref)
         r2 = r2 or R2S3.from_env()
         if r2 is None:
             print("[appsync] no Cloudflare credentials; skipped")
@@ -250,17 +273,22 @@ def sync(full: bool = False, r2: R2S3 | None = None) -> dict:
         old, etag = _load_manifest(r2)
         if old is None:
             return res
-        sha, ct = head_commit()
-        if not full and old.get("sha") and int(old.get("ct") or 0) > ct:  # a newer commit's upload already landed
+        sha, ct = head_commit(rev)
+        same_ref = (old.get("ref") or "main") == ref
+        if not full and same_ref and old.get("sha") and int(old.get("ct") or 0) > ct:  # a newer commit's upload landed
             print(f"[appsync] {sha[:8]}: R2 holds a newer commit ({str(old['sha'])[:8]}); skipped")
             res["ok"], res["sha"] = True, old.get("sha")
             return res
-        tree = head_tree()
+        tree = head_tree(rev)
         prev = dict(old.get("blobs") or {})
         todo = [p for p, b in tree.items() if full or prev.get(p) != b]
         gone = [p for p in prev if p not in tree]
         res["unchanged"] = len(tree) - len(todo)
-        if not todo and not gone and not old.get("failed") and old.get("sha") and int(old.get("ct") or 0) >= ct:
+        if len(gone) > max(DELETE_FLOOR, DELETE_MAX_SHARE * len(prev)) and os.environ.get("APPSYNC_ALLOW_DELETES") != "1":
+            print(f"[appsync] {sha[:8]} ({ref}): would delete {len(gone)} of {len(prev)} files; refused (wrong tree? "
+                  "APPSYNC_ALLOW_DELETES=1 to allow)")
+            return res
+        if not todo and not gone and not old.get("failed") and same_ref and old.get("sha") == sha:
             print(f"[appsync] {sha[:8]}: R2 already current ({len(tree)} files)")
             res["ok"], res["sha"] = True, old.get("sha")
             return res
@@ -308,7 +336,7 @@ def sync(full: bool = False, r2: R2S3 | None = None) -> dict:
         blobs.update({p: tree[p] if put_ok[p] else "?" for p in todo})  # a failed put may or may not have landed
         failed = sorted([p for p in todo if not put_ok[p]] + [p for p in gone if not del_ok[p]])
         res["failed"] = len(failed)
-        man = {"v": 1, "sha": sha, "ct": ct, "at": _now(), "failed": failed, "blobs": blobs}
+        man = {"v": 1, "sha": sha, "ct": ct, "ref": ref, "at": _now(), "failed": failed, "blobs": blobs}
         written = _write_manifest(r2, man, etag, res) is not None  # (3)
         res["ok"], res["sha"] = written, sha
         print(f"[appsync] {sha[:8]}: {res['uploaded']} uploaded, {res['deletes']} deleted, {res['unchanged']} unchanged, "
@@ -319,6 +347,11 @@ def sync(full: bool = False, r2: R2S3 | None = None) -> dict:
     return res
 
 
+def _arg(name: str) -> str | None:
+    a = sys.argv
+    return a[a.index(name) + 1] if name in a and a.index(name) + 1 < len(a) else None
+
+
 if __name__ == "__main__":
-    sync(full="--full" in sys.argv)
+    sync(full="--full" in sys.argv, rev=_arg("--rev"), ref=_arg("--ref"))
     sys.exit(0)  # never fails the calling step

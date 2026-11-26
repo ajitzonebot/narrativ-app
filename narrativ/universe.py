@@ -114,7 +114,7 @@ def build(today: date) -> tuple[list[dict], dict]:
             continue
         e = nse.setdefault(s, {"sme": True, "mcap": 0.0, "close": None, "name": r.get("Security Name")})
         e["sme"] = e["sme"] and se in SME_NSE
-        if m >= e["mcap"]:
+        if m / 1e7 >= e["mcap"]:  # several equity series: keep the largest (m is rupees, mcap crore)
             e["mcap"], e["close"] = m / 1e7, _f(r.get("Close Price/Paid up value(Rs.)"))
     nse_isins = {v["isin"] for v in master.values() if v.get("isin")}
     bl = bse_list()

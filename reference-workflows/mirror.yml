@@ -38,6 +38,19 @@ jobs:
           path: priv
           fetch-depth: 1
           persist-credentials: false
+      # stage 3+: the generated files (charts, financials, ...) live on the private repo's `data` branch, not on main.
+      # Without this overlay mirror.sh would delete them here (a path missing in priv is removed). No-op while main tracks
+      # them (stages 0-2: the overlay copies the same files) and when the branch does not exist.
+      - name: Data branch overlay
+        env:
+          GIT_PUSH_TOKEN: ${{ secrets.NARRATIV_RW_TOKEN }}
+        run: |
+          h="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GIT_PUSH_TOKEN" | base64 | tr -d '\n')"
+          if git -C priv ls-files --error-unmatch docs/data/picks.json >/dev/null 2>&1; then echo "main holds the data files: no overlay"; exit 0; fi
+          if ! git -C priv -c http.https://github.com/.extraheader="$h" fetch -q --depth=1 --no-tags origin data; then echo "no data branch: no overlay"; exit 0; fi
+          mkdir -p privdata && git -C priv archive FETCH_HEAD | tar -x -C privdata
+          rsync -a privdata/ priv/
+          echo "overlay: $(find privdata -type f | wc -l) files from the data branch"
       - name: Copy the public paths (and the workflows, when the token allows it)
         env:
           SYNC_WORKFLOWS: ${{ secrets.NARRATIV_MIRROR_TOKEN != '' }}

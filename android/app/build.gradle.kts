@@ -22,7 +22,7 @@ android {
         targetSdk = 35
         versionCode = vCode
         versionName = vName
-        // API base URL is written by the worker-deploy workflow; empty = read the public repo directly
+        // API base URL from android/api.properties (committed by hand; the worker deploy does not write it); empty = read the public repo directly
         buildConfigField("String", "API_URL", "\"${apiProps.getProperty("apiUrl", "")}\"")
     }
 

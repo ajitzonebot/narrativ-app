@@ -16,10 +16,42 @@ def _yoy(a, b):
     return (a / b - 1) * 100 if a is not None and b is not None and b > 0 else None
 
 
+_QEND = {3: 31, 6: 30, 9: 30, 12: 31}
+
+
+def _back(qe: str, n: int) -> str | None:
+    """The quarter end n quarters before qe ("2026-09-30", 4 -> "2025-09-30"); None when qe is not a quarter end."""
+    try:
+        y, m = int(qe[:4]), int(qe[5:7])
+    except (TypeError, ValueError):
+        return None
+    if m not in _QEND:
+        return None
+    m -= 3 * n
+    while m <= 0:
+        m += 12
+        y -= 1
+    return f"{y}-{m:02d}-{_QEND[m]}"
+
+
+def _run(q: list, n: int) -> list | None:
+    """The last n quarters as consecutive quarter ends (oldest first), or None when one is missing: `quarterly` holds only
+    the quarters filed, so positions are not periods (audit 26 Nov 2026: TAJGVK compared Sep-2026 with Jun-2025)."""
+    if not q:
+        return None
+    by = {r[0]: r for r in q if isinstance(r, list) and r}
+    last = q[-1][0]
+    keys = [_back(last, i) for i in range(n - 1, -1, -1)]
+    if None in keys or any(k not in by for k in keys):
+        return None
+    return [by[k] for k in keys]
+
+
 def profit_speeding(quarterly: list | None) -> tuple[bool | None, str | None]:
-    """U1. quarterly: [[quarter_end, revenue_cr, profit_cr, ebitda_margin_pct], ...] oldest first (metrics `quarterly`)."""
-    q = quarterly or []
-    if len(q) < 7:
+    """U1. quarterly: [[quarter_end, revenue_cr, profit_cr, ebitda_margin_pct], ...] oldest first (metrics `quarterly`).
+    Each quarter against the same quarter a year earlier, by date; None when one of the 7 quarters is not filed."""
+    q = _run(quarterly or [], 7)
+    if q is None:
         return None, None
     p = [_yoy(q[-1 - i][2], q[-5 - i][2]) for i in range(3)]
     r0 = _yoy(q[-1][1], q[-5][1])
@@ -30,9 +62,10 @@ def profit_speeding(quarterly: list | None) -> tuple[bool | None, str | None]:
 
 
 def operating_leverage(quarterly: list | None) -> tuple[bool | None, str | None]:
-    """U2. Last 4 quarters vs the 4 before: EBITDA growth >= revenue growth + 5 pts, revenue growth >= 10%, margin up."""
-    q = quarterly or []
-    if len(q) < 8:
+    """U2. Last 4 quarters vs the 4 before: EBITDA growth >= revenue growth + 5 pts, revenue growth >= 10%, margin up.
+    The 8 quarters must be consecutive (by date)."""
+    q = _run(quarterly or [], 8)
+    if q is None:
         return None, None
     now, then = q[-4:], q[-8:-4]
     if any(x[3] is None or x[1] is None for x in now + then):

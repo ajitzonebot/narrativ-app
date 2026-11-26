@@ -195,13 +195,18 @@ class AppState(private val ctx: Context, startStack: List<Screen> = listOf(Scree
         }
         // once per data update: the stock pages most likely opened next, in the background (feedback #107: slow first open)
         val pf = picks
-        if (fresh && got?.net == true && pf != null && "${pf.updated}|${pf.date}" != preloadedFor) {
-            preloadedFor = "${pf.updated}|${pf.date}"
+        // the stamp of the data the pages were preloaded for, kept across cold starts: unchanged data costs no 50 requests
+        // (cost report 26 Nov 2026). Only the daily run (updated / date) and republish (research_updated) write fin and
+        // charts files, and both rewrite picks.json, so a change in either stamp preloads again.
+        val stamp = pf?.let { "${it.updated}|${it.date}|${it.researchUpdated}" }
+        if (fresh && got?.net == true && pf != null && stamp != preloadedFor) {
+            preloadedFor = stamp
+            prefs.edit().putString("preloadedFor", stamp).apply()
             repo.preload(preloadPaths())
         }
     }
 
-    private var preloadedFor: String? = null
+    private var preloadedFor: String? = prefs.getString("preloadedFor", null)
 
     /** Files a stock page reads first (fin = Summary and level tabs, charts) for today's Top 10, then the other verified Buys. */
     fun preloadPaths(): List<String> {
@@ -252,7 +257,7 @@ fun decodeStack(text: String): List<Screen> = text.lines().filter { it.isNotBlan
         "Home" -> Screen.Home; "Money" -> Screen.Money; "Settings" -> Screen.Settings; "Calendar" -> Screen.Calendar
         "Queue" -> Screen.Queue; "Notes" -> Screen.Notes; "Feedback" -> Screen.Feedback; "Sources" -> Screen.Sources
         "Pipeline" -> Screen.Pipeline; "Refresh" -> Screen.Refresh; "Alerts" -> Screen.Alerts; "Tracking" -> Screen.Tracking
-        "Portfolio" -> Screen.Portfolio; "Search" -> Screen.Search; "Market" -> Screen.Market; "Advanced" -> Screen.Advanced; "TrackRecord" -> Screen.TrackRecord
+        "Portfolio" -> Screen.Portfolio; "Search" -> Screen.Search; "Market" -> Screen.Market; "Advanced" -> Screen.Advanced; "TrackRecord" -> Screen.TrackRecord; "Dates" -> Screen.Dates
         "Screener" -> Screen.Screener(f.getOrNull(1)?.ifBlank { null })
         "Stock" -> f.getOrNull(1)?.takeIf { it.isNotBlank() }?.let { Screen.Stock(it) }
         "Quadrant" -> Screen.Quadrant(f.getOrNull(1) ?: "Leading", f.getOrNull(2) == "true")

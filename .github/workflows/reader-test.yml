@@ -35,6 +35,10 @@ jobs:
           repository: ajitzonebot/Narrativ
           token: ${{ secrets.NARRATIV_RW_TOKEN }}
           persist-credentials: false
+      - name: Data files from the data branch (stage 3+; does nothing before)
+        env:
+          GIT_PUSH_TOKEN: ${{ secrets.NARRATIV_RW_TOKEN }}
+        run: python3 -m narrativ.databranch checkout --force
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -51,24 +55,27 @@ jobs:
         env:
           PYTHONUNBUFFERED: "1"
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ENGINE: ${{ inputs.engine }}
+          MODEL: ${{ inputs.model }}
+          LIMIT: ${{ inputs.limit }}
         run: |
-          if [ "${{ inputs.engine }}" = "langextract" ]; then
+          case "$LIMIT" in ''|*[!0-9]*) echo "limit must be a number"; exit 1 ;; esac
+          case "$MODEL" in *[!a-zA-Z0-9._-]*) echo "bad model name"; exit 1 ;; esac
+          if [ "$ENGINE" = "langextract" ]; then
             pip install "langextract>=1.0"
-            python -m narrativ.lxtrial "${{ inputs.limit }}"
+            python -m narrativ.lxtrial "$LIMIT"
           else
-            python -m narrativ.reader --test "${{ inputs.model }}" "${{ inputs.limit }}"
+            python -m narrativ.reader --test "$MODEL" "$LIMIT"
           fi
       - name: Commit results
         if: always()
         env:
           GIT_PUSH_TOKEN: ${{ secrets.NARRATIV_RW_TOKEN }}
+          MODEL: ${{ inputs.model }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/reader_test
-          git diff --cached --quiet && exit 0
-          git commit -m "data: free reader test ${{ inputs.model }}"
-          bash scripts/push_retry.sh
+          bash scripts/publish.sh -m "data: free reader test $MODEL" -- data/reader_test
       - name: Save the log in the private repo
         if: failure()
         shell: bash
@@ -100,6 +107,8 @@ jobs:
 
 env:
   NARRATIV_REPO: ajitzonebot/Narrativ
+  DATA_STAGE: ${{ vars.DATA_STAGE || '0' }}   # narrativ/databranch.py: 0 main only, 1-2 + data branch, 3+ data branch
+  APP_REF: ${{ vars.APP_REF || 'main' }}      # the branch the app reads (appsync and the Worker follow it)
 
 defaults:
   run:

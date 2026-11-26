@@ -306,7 +306,7 @@ fun QuadrantListScreen(st: AppState, q: String, sectors: Boolean) {
                         Column(Modifier.weight(1f)) {
                             T(name, 15.sp, weight = FontWeight.Medium, maxLines = 1)
                             Row {
-                                T("${r.n ?: members.size} stocks", 12.sp, C.dim, maxLines = 1)
+                                T("${if (sectors) r.n ?: members.size else st.picks?.picks?.count { Filt(industry = name, industryExact = true).match(it) } ?: r.n} stocks", 12.sp, C.dim, maxLines = 1)
                                 if (nb > 0) T(" · $nb Buy", 12.sp, TierC.lightGreen, maxLines = 1)
                             }
                             if (tops.isNotEmpty()) T(tops.joinToString(" · ") { it.c } + " ›", 12.sp, C.blue, maxLines = 1, modifier = Modifier.padding(top = 3.dp))

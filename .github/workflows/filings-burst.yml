@@ -34,6 +34,10 @@ jobs:
           repository: ajitzonebot/Narrativ
           token: ${{ secrets.NARRATIV_RW_TOKEN }}
           persist-credentials: false
+      - name: Data files from the data branch (stage 3+; does nothing before)
+        env:
+          GIT_PUSH_TOKEN: ${{ secrets.NARRATIV_RW_TOKEN }}
+        run: python3 -m narrativ.databranch checkout --force
       - uses: actions/setup-python@v5
         with: { python-version: "3.12", cache: pip }
       - run: pip install -r requirements.txt
@@ -42,8 +46,11 @@ jobs:
           PYTHONUNBUFFERED: "1"
           FILINGS_SHARD: "${{ matrix.i }}/5"
           FILINGS_MAX_MINUTES: "50"
+          MODE: ${{ inputs.mode }}
+          PER_SHARD: ${{ inputs.per_shard }}
         run: |
-          if [ "${{ inputs.mode }}" = "leases" ]; then python -m narrativ.filings --leases; elif [ "${{ inputs.mode }}" = "history" ]; then python -m narrativ.filings --history; elif [ "${{ inputs.mode }}" = "audit" ]; then python -m narrativ.filings --audit; elif [ "${{ inputs.mode }}" = "banks" ]; then python -m narrativ.filings --banks; else python -m narrativ.filings --backfill "${{ inputs.per_shard }}"; fi
+          case "$PER_SHARD" in ''|*[!0-9]*) [ -z "$PER_SHARD" ] || { echo "per_shard must be a number"; exit 1; } ;; esac
+          if [ "$MODE" = "leases" ]; then python -m narrativ.filings --leases; elif [ "$MODE" = "history" ]; then python -m narrativ.filings --history; elif [ "$MODE" = "audit" ]; then python -m narrativ.filings --audit; elif [ "$MODE" = "banks" ]; then python -m narrativ.filings --banks; else python -m narrativ.filings --backfill "$PER_SHARD"; fi
       - name: Pack changed files
         run: |
           git status --porcelain -uall data/financials | awk '{print $2}' > changed.txt
@@ -99,6 +106,10 @@ jobs:
           repository: ajitzonebot/Narrativ
           token: ${{ secrets.NARRATIV_RW_TOKEN }}
           persist-credentials: false
+      - name: Data files from the data branch (stage 3+; does nothing before)
+        env:
+          GIT_PUSH_TOKEN: ${{ secrets.NARRATIV_RW_TOKEN }}
+        run: python3 -m narrativ.databranch checkout --force
       - uses: actions/download-artifact@v4
         with: { pattern: "shard-*", path: shards }
       - name: Commit
@@ -108,10 +119,7 @@ jobs:
           for f in shards/*/shard.tgz; do tar xzf "$f"; done
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A data/financials
-          git diff --cached --quiet && exit 0
-          git commit -m "data: filings burst $(date -u +%FT%H%M) ($(git diff --cached --name-only | wc -l) files)"
-          bash scripts/push_retry.sh
+          bash scripts/publish.sh -m "data: filings burst $(date -u +%FT%H%M)" -- data/financials
       - name: Save the log in the private repo
         if: failure()
         shell: bash
@@ -143,6 +151,8 @@ jobs:
 
 env:
   NARRATIV_REPO: ajitzonebot/Narrativ
+  DATA_STAGE: ${{ vars.DATA_STAGE || '0' }}   # narrativ/databranch.py: 0 main only, 1-2 + data branch, 3+ data branch
+  APP_REF: ${{ vars.APP_REF || 'main' }}      # the branch the app reads (appsync and the Worker follow it)
 
 defaults:
   run:

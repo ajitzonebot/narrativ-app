@@ -22,6 +22,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: main
+      - name: Data files from the data branch (stage 3+; does nothing before)
+        env:
+          GIT_PUSH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 -m narrativ.databranch checkout --force
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -48,17 +52,12 @@ jobs:
           key: study10y-prices-v1
       - name: Commit
         env:
+          QUICK: ${{ inputs.quick }}
           GIT_PUSH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}   # push_retry.sh: changed docs/data files to R2 after the push
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if [ "${{ inputs.quick }}" = "true" ]; then
-            git add data/study_10y
-          else
-            git add data/study_10y/probe.json docs/data/study_10y.json docs/research/study_10y.md
-          fi
-          git diff --cached --quiet && exit 0
-          git commit -m "data: study-10y $(TZ=Asia/Kolkata date +%F)"
-          bash scripts/push_retry.sh
+          if [ "$QUICK" = "true" ]; then set -- data/study_10y; else set -- data/study_10y/probe.json docs/data/study_10y.json docs/research/study_10y.md; fi
+          bash scripts/publish.sh -m "data: study-10y $(TZ=Asia/Kolkata date +%F)" -- "$@"

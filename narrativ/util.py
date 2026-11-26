@@ -5,7 +5,17 @@ Unchanged files now keep their bytes (and mtime), and a file that dropped out of
 """
 import hashlib
 import json
+from datetime import date
 from pathlib import Path
+
+
+def iso_date(x) -> date | None:
+    """The date in an ISO date or date-time string ("2026-11-26", "2026-11-26T18:20+05:30"); None for anything else
+    ("2027-03", "", None). Research files are model-written, so a bad date must not stop the daily run (audit 26 Nov 2026)."""
+    try:
+        return date.fromisoformat(str(x)[:10]) if x else None
+    except ValueError:
+        return None
 
 
 def write_if_changed(path: Path, data: str | bytes) -> bool:
