@@ -1,11 +1,29 @@
 {
- "versionCode": 90,
- "versionName": "2.31.4",
+ "versionCode": 91,
+ "versionName": "2.32.0",
  "date": "2026-11-26",
- "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.31.4-b90/narrativ-v2.31.4-b90.apk",
+ "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.32.0-b91/narrativ-v2.32.0-b91.apk",
  "sizeMb": 12.2,
- "sha256": "cb65892de2d98e41ca2a33553fb2bd75cdcf5b998ad5a71ec1a2100f9de6bdb3",
+ "sha256": "0327df478cec268bb2ae53dd15a97abc98241c2c6f48199e0f61fb408b8a5418",
  "changelog": [
+  {
+   "version": "2.32.0",
+   "date": "2026-11-26",
+   "changes": [
+    {
+     "type": "improved",
+     "text": "Conviction is a score out of 100 built from proofs: management targets with dates, signals, Narrativ.ai's checks, entry setup, institutions; High 70+, Medium 45-69, Low below 45"
+    },
+    {
+     "type": "new",
+     "text": "Position size by conviction: High full, Medium half, Low a quarter; Buy tracking is weighted the same way"
+    },
+    {
+     "type": "improved",
+     "text": "Why Buy: each proof on one line with its points, what is missing as one statement each; management guidance shows only what management said"
+    }
+   ]
+  },
   {
    "version": "2.31.4",
    "date": "2026-11-26",

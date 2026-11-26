@@ -520,6 +520,7 @@ def main(limit: int | None) -> None:
         H.source("data issues", open=reg["open"], systemic_open=reg["open_systemic"], fixed=reg["fixed"])
     except Exception as e:  # noqa: BLE001
         print(f"[issues] failed: {e}")
+    H.mark("levels and decisions")  # sub-stages of the old "funnel, research view, app files" (owner, 26 Nov 2026: 25+ min runs)
     # ---------- Latest earnings call (narrativ/latest_call.py; owner, 24 Nov 2026) ----------
     # a review must have seen the call for the latest results quarter: exchange / company transcript, else AlphaStreet's
     from narrativ import alphastreet as AS, latest_call as LC
@@ -559,6 +560,7 @@ def main(limit: int | None) -> None:
     for s, a in corr_applied.items():
         if s in dec:
             dec[s].setdefault("why", []).append("Re-scored with corrected filing values: " + ", ".join(f"{x['field']} ₹{x['now']:,.0f} cr" for x in a))
+    H.mark("latest earnings call check")
     aflags = {s: FN.audit_flags(mx.get(s) or {}, ev[s]["lender"]) for s in syms}
     # v1 kept for one week of side-by-side comparison (PLAN.md section 16)
     dec_v1 = {s: FN.decision_v1(ev[s]["L"], ev[s]["out"], theses.get(s), (theses.get(s) or {}).get("scan"), ev[s]["setup"], price_of(s), annc.get(s))["d"]
@@ -885,6 +887,7 @@ def main(limit: int | None) -> None:
     breadth = float(sum(1 for t in tech.values() if (t.get("dist200_pct") or 0) > 0) / len(tech)) if tech else 0.0  # own prices
     regime = "RISK ON" if nifty_ok and breadth >= 0.5 else "CAUTION" if nifty_ok or breadth >= 0.4 else "RISK OFF"
 
+    H.mark("research queue and packs")
     # ---------- Outputs ----------
     OUT.mkdir(parents=True, exist_ok=True)
     now = datetime.now(timezone.utc).isoformat()
@@ -1108,6 +1111,7 @@ def main(limit: int | None) -> None:
     (OUT / "source_audit.json").write_text(json.dumps({"date": str(today), "note": "Our computed value vs Yahoo's ratio; Yahoo is never shown",
                                                        "items": audit}, separators=(",", ":"), ensure_ascii=False))
 
+    H.mark("app files: lists and stock pages")
     charts = OUT / "charts"
     charts.mkdir(exist_ok=True)
     chart_files = set()
@@ -1129,7 +1133,7 @@ def main(limit: int | None) -> None:
             holidays.update(today)
         except Exception as e:  # noqa: BLE001
             print(f"[holidays] failed: {e}")
-    H.mark("funnel, research view, app files")
+    H.mark("charts")
     alerts.send([p for p in picks if not p.get("out")][:60], newly_due_all, changes, new_events)
     if not limit:  # D1 tables + R2 files (git JSON above stays the fallback during the switch-over)
         try:
