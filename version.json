@@ -1,11 +1,41 @@
 {
- "versionCode": 85,
- "versionName": "2.30.0",
+ "versionCode": 86,
+ "versionName": "2.31.0",
  "date": "2026-11-26",
- "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.30.0-b85/narrativ-v2.30.0-b85.apk",
+ "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.31.0-b86/narrativ-v2.31.0-b86.apk",
  "sizeMb": 12.2,
- "sha256": "6d27cf8d1ceb95af00c556f2ddcd9217b289cf32a10a96494e0d26df2ed18586",
+ "sha256": "f6ff646b5ddc1df4f15365ec457c99c9e0ad20510360d06691750b39733d8cfe",
  "changelog": [
+  {
+   "version": "2.31.0",
+   "date": "2026-11-26",
+   "changes": [
+    {
+     "type": "new",
+     "text": "Home: Nifty 50, Sensex, Gift Nifty and gold 22K (per 10 g) beside the logo, updating every 30 s in market hours; each column turns every 4 s"
+    },
+    {
+     "type": "improved",
+     "text": "Home and Market: the mood needle swings into place and the score counts up with it; the funnel says '162 stories studied'; no 'Delayed quotes' line"
+    },
+    {
+     "type": "improved",
+     "text": "Key checks on every tab as a 2 x 2 grid: each rule split into miss, partly and pass zones with the value marked"
+    },
+    {
+     "type": "improved",
+     "text": "Stock page: the plan before the seven checks, sector and industry under them, dates to watch at the end; the analyst target shows its upside from today's price"
+    },
+    {
+     "type": "improved",
+     "text": "Quality chart: profit values on top of the green part. Market: industries and sectors right under the dial, the month chart and inputs folded"
+    },
+    {
+     "type": "fixed",
+     "text": "A research note on two stocks no longer opens a broken stock page; new research reaches the app within about 30 minutes"
+    }
+   ]
+  },
   {
    "version": "2.30.0",
    "date": "2026-11-26",
