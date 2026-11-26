@@ -60,7 +60,9 @@ val METRIC_NAMES = mapOf(
 )
 
 @Composable
-fun SectionHeader2(t: String, sub: String) = Column(Modifier.padding(top = 20.dp, bottom = 8.dp)) { T(t, SECTION_TITLE, weight = FontWeight.SemiBold); T(sub, LABEL, C.dim) }
+fun SectionHeader2(t: String, sub: String) = Column(Modifier.padding(top = 20.dp, bottom = 8.dp)) {
+    if (Look.paper) PaperLabel(t, size = 12.sp) else T(t, SECTION_TITLE, weight = FontWeight.SemiBold); T(sub, LABEL, C.dim)
+}
 
 @Composable
 fun MarkBox(m: Mark, onClick: () -> Unit) {
@@ -68,7 +70,7 @@ fun MarkBox(m: Mark, onClick: () -> Unit) {
         "y" -> statusColor("Pass").let { Triple("✓", it, it.copy(alpha = 0.18f)) }; "p" -> statusColor("Partly").let { Triple("~", it, it.copy(alpha = 0.15f)) }
         "n" -> statusColor("Miss").let { Triple("✗", it, it.copy(alpha = 0.15f)) }; else -> Triple("–", C.dim, C.chip)
     }
-    Box(Modifier.size(19.dp).clip(RoundedCornerShape(5.dp)).background(bg).clickable(onClick = onClick), contentAlignment = Alignment.Center) { T(sym, 11.sp, fg, FontWeight.Bold) }
+    Box(Modifier.size(19.dp).clip(rr(5.dp)).background(bg).clickable(onClick = onClick), contentAlignment = Alignment.Center) { T(sym, 11.sp, fg, FontWeight.Bold) }
 }
 
 @Composable
@@ -200,7 +202,7 @@ fun ResearchLists(scan: Scan, nested: Boolean = false) {
                 }
             }
             mark?.let { m ->
-                Column(Modifier.padding(top = 8.dp).fillMaxWidth().clip(RoundedCornerShape(S.inner)).background(C.card2).padding(10.dp)) {
+                Column(Modifier.padding(top = 8.dp).fillMaxWidth().clip(rr(S.inner)).background(C.card2).padding(10.dp)) {
                     T("${m.id} ${m.name}", 13.sp, weight = FontWeight.SemiBold); if (m.note.isNotBlank()) T(m.note, 12.sp, C.grey)
                     if (m.quote.isNotBlank()) Quote(ctx, m.quote, m.source)
                 }
@@ -234,9 +236,20 @@ fun SummaryTab(st: AppState, sym: String, p: P?, det: Detail?, chart: Chart?, lo
     val open: (String?) -> Unit = { k -> k?.let { key -> det?.m(key)?.let { formula = Triple(METRIC_NAMES[key] ?: key, key, it) } } }
     var sheet by rememberSaveable { mutableStateOf("") }  // "decision", "research", "ratios"
     val loading = det == null && !loaded  // the stock file is still loading: placeholders, not "missing"
-    DecisionCard(st, sym, p, det) { sheet = "decision" }
-    RotationCard(st, p, det)
-    PriceCard(p, det, chart, chartLoaded)
+    if (Look.paper) {
+        // Paper (mock-up order): tags and headline, the 1-year chart, the seven checks, the plan line, dates; the rest below
+        PaperStockFront(p, det)
+        PriceCard(p, det, chart, chartLoaded)
+        p?.let { PaperChecks(st, it, openTab) }
+        det?.let { PaperPlan(it.setup, it.analyst, p?.p) }
+        p?.let { PaperDates(it) }
+        DecisionCard(st, sym, p, det) { sheet = "decision" }
+        RotationCard(st, p, det)
+    } else {
+        DecisionCard(st, sym, p, det) { sheet = "decision" }
+        RotationCard(st, p, det)
+        PriceCard(p, det, chart, chartLoaded)
+    }
     if (loading) {
         Card(Modifier.fillMaxWidth()) { Skel(90.dp, 15.dp); Spacer(Modifier.height(12.dp)); Skel(null, 12.dp); Spacer(Modifier.height(8.dp)); Skel(null, 12.dp) }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -262,6 +275,91 @@ fun SummaryTab(st: AppState, sym: String, p: P?, det: Detail?, chart: Chart?, lo
     formula?.let { (n, k, m) -> FormulaSheet(n, m, k, det) { formula = null } }
 }
 
+// ---------------------------------------------------------------- Paper look: the stock page's front (mock-up)
+@Composable
+private fun PaperStockFront(p: P?, det: Detail?) {
+    if (p == null) return
+    val dc = det?.decision?.d ?: p.dc
+    androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        dc?.let { PaperTag(it, decisionColor(it)) }
+        p.cv?.let { PaperTag("$it conviction", if (it == "High") TierC.darkGreen else TierC.yellow) }
+        if (p.vd.isNotBlank()) PaperTag(p.vd, verdictColor(p.vd))
+        p.su?.let { PaperTag(setupName(it, p.tb == 1), C.white) }
+    }
+    Column(Modifier.padding(top = 2.dp)) {
+        Text(p.n.ifBlank { p.c }, fontSize = 24.sp, lineHeight = 27.sp, color = C.white, fontFamily = PaperFonts.headline, fontWeight = FontWeight.Black)
+        val lead = p.why ?: det?.decision?.why?.firstOrNull()  // the trigger sentence first (what moved it), else the first reason
+        lead?.let { Text(it, fontSize = 14.sp, lineHeight = 19.sp, color = C.muted, fontFamily = PaperFonts.serif,
+            fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, modifier = Modifier.padding(top = 4.dp)) }
+        Text("${p.i ?: ""}${p.bt?.let { " · $it" } ?: ""}${p.mc?.let { " · ₹${fmt(it, 0)} cr" } ?: ""}", fontSize = 11.sp, color = C.dim,
+            fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, modifier = Modifier.padding(top = 4.dp))
+    }
+}
+
+/** The seven checks as five-step scales (tap a row for its tab). */
+@Composable
+private fun PaperChecks(st: AppState, p: P, openTab: (Int) -> Unit) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        PaperLabel("The seven checks", size = 11.sp)
+        LEVEL_SHORT.forEachIndexed { i, name ->
+            val t = p.tier(i)
+            Row(Modifier.fillMaxWidth().clickable { openTab(i + 1) }, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                T(name, 12.sp, C.grey, modifier = Modifier.width(88.dp), maxLines = 1)
+                FiveStep(t, Modifier.width(110.dp))
+                T(p.levelTierName(st, i), 12.sp, if (t == 0) C.dim else tierColor(t), FontWeight.SemiBold, maxLines = 1)
+            }
+        }
+    }
+}
+
+/** The plan on one number line: stop, now, buy zone, analyst target. */
+@Composable
+private fun PaperPlan(s: Setup, an: Analyst?, now: Double?) {
+    val lo = s.lo; val hi = s.hi
+    if (s.stop == null && lo == null) return
+    val brk = s.type == "Breakout"
+    val marks = listOfNotNull(
+        s.stop?.let { PlanMark("Stop", it, TierC.red) },
+        (now ?: s.price)?.let { PlanMark("Now", it, C.white) },
+        lo?.let { PlanMark(if (brk) "Buy above" else "Buy from", it, TierC.darkGreen) },
+        hi?.takeIf { it != lo }?.let { PlanMark(if (brk) "+5%" else "to", it, TierC.darkGreen) },
+        an?.mean?.takeIf { it > 0 }?.let { PlanMark("Analyst" + (an.n?.let { n -> " ($n)" } ?: ""), it, TierC.lime) },
+    ).sortedBy { it.value }
+    Column(Modifier.fillMaxWidth()) {
+        PaperLabel("The plan", size = 11.sp)
+        PlanLine(marks, if (lo != null && hi != null) lo to hi else null, Modifier.fillMaxWidth().height(52.dp))
+    }
+}
+
+/** The stock's open dated checkpoints on one line: results, shareholding, kill switch, promises. */
+@Composable
+private fun PaperDates(p: P) {
+    val today = skToday()
+    // one mark per date (the most serious event on it), at most three
+    val rank = listOf("kill_switch", "promise", "must_go_right", "results", "shareholding")
+    val cps = p.cp.filter { it.status != "closed" }.mapNotNull { c -> skDate(c.due)?.takeIf { !it.isBefore(today) }?.let { it to c } }
+        .groupBy { it.first }.map { (d, l) -> Triple(d, l.minByOrNull { rank.indexOf(it.second.type).let { i -> if (i < 0) 9 else i } }!!.second, l.size) }
+        .sortedBy { it.first }.take(3).map { (d, c, n) -> d to c.copy(what = if (n > 1) "+${n - 1}" else null) }
+    if (cps.isEmpty()) return
+    Column(Modifier.fillMaxWidth()) {
+        PaperLabel("Dates to watch", size = 11.sp)
+        Box(Modifier.fillMaxWidth().padding(top = 6.dp)) {
+            Box(Modifier.padding(start = 6.dp, end = 6.dp, top = 6.dp).fillMaxWidth().height(1.dp).background(C.white))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                cps.forEachIndexed { i, (d, c) ->
+                    val ink = when (c.type) { "kill_switch" -> TierC.red; "promise" -> TierC.darkGreen; "must_go_right" -> TierC.yellow; else -> C.white }
+                    Column(horizontalAlignment = when (i) { 0 -> Alignment.Start; cps.lastIndex -> Alignment.End; else -> Alignment.CenterHorizontally }) {
+                        Box(Modifier.size(13.dp).clip(androidx.compose.foundation.shape.CircleShape)
+                            .then(if (c.type == "shareholding") Modifier.background(C.bg).border(2.dp, C.white, androidx.compose.foundation.shape.CircleShape) else Modifier.background(ink)))
+                        T("${d.dayOfMonth} ${d.month.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.ENGLISH)}", 10.sp, C.white, FontWeight.Bold, maxLines = 1)
+                        T(cpWord(c.type) + (c.what?.let { " $it" } ?: ""), 10.sp, if (ink == C.white) C.grey else ink, maxLines = 1)
+                    }
+                }
+            }
+        }
+    }
+}
+
 // ---------------------------------------------------------------- decision card
 @Composable
 private fun DecisionCard(st: AppState, sym: String, p: P?, det: Detail?, onOpen: () -> Unit) {
@@ -269,7 +367,7 @@ private fun DecisionCard(st: AppState, sym: String, p: P?, det: Detail?, onOpen:
     val d = dd?.d ?: "Not rated"
     val dcol = decisionColor(d)
     val rv = reviewState(st, sym)
-    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(S.card)).background(C.card)
+    Column(Modifier.fillMaxWidth().clip(rr(S.card)).background(C.card)
         .background(Brush.linearGradient(listOf(dcol.copy(alpha = 0.16f), Color.Transparent))).clickable(onClick = onOpen).padding(S.cardPad)) {
         Row(verticalAlignment = Alignment.Top) {
             T(d.uppercase(), if (d.length <= 6) 40.sp else 26.sp, dcol, FontWeight.ExtraBold, maxLines = 1, lineHeight = 44.sp)
@@ -424,7 +522,7 @@ private fun Range52(lo: Double, hi: Double, now: Double?) {
         T("L ${skRs(lo)}", 12.sp, C.dim, maxLines = 1)
         Canvas(Modifier.size(42.dp, 12.dp)) {
             val x0 = 4.dp.toPx(); val x1 = size.width - 4.dp.toPx(); val cy = size.height / 2
-            drawLine(Color.White.copy(alpha = 0.25f), Offset(x0, cy), Offset(x1, cy), 1.5.dp.toPx(), cap = StrokeCap.Round)
+            drawLine(C.hi.copy(alpha = 0.25f), Offset(x0, cy), Offset(x1, cy), 1.5.dp.toPx(), cap = StrokeCap.Round)
             f?.let { drawCircle(C.white, 4.dp.toPx(), Offset(x0 + it * (x1 - x0), cy)) }
         }
         T("H ${skRs(hi)}", 12.sp, C.dim, maxLines = 1)
@@ -470,13 +568,13 @@ private fun PlanCard(s: Setup, an: Analyst? = null, exitHit: ExitHit? = null) {
             T("Plan", SECTION_TITLE, weight = FontWeight.SemiBold); Spacer(Modifier.width(8.dp))
             StatusChip(planName(s), color = setupColor(s.type, s.trendBroken()), minWidth = 0.dp)
             Spacer(Modifier.weight(1f))
-            if (how.isNotEmpty()) Box(Modifier.size(32.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.07f)).clickable { info = true },
+            if (how.isNotEmpty()) Box(Modifier.size(32.dp).clip(CircleShape).background(C.hi.copy(alpha = 0.07f)).clickable { info = true },
                 contentAlignment = Alignment.Center) {
                 Icon(Icons.Outlined.Info, "How these are set", tint = C.dim, modifier = Modifier.size(20.dp))
             }
         }
         exitHitLine(exitHit)?.let { line ->
-            Row(Modifier.fillMaxWidth().padding(top = 2.dp, bottom = 6.dp).clip(RoundedCornerShape(10.dp)).background(C.amber.copy(alpha = 0.08f))
+            Row(Modifier.fillMaxWidth().padding(top = 2.dp, bottom = 6.dp).clip(rr(10.dp)).background(C.amber.copy(alpha = 0.08f))
                 .padding(horizontal = 10.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Box(Modifier.padding(top = 5.dp).size(7.dp).clip(CircleShape).background(C.amber))
                 T(line, 12.5.sp, C.amber, lineHeight = 17.sp)
@@ -629,7 +727,7 @@ fun DecisionDetailsSheet(st: AppState, sym: String, p: P?, det: Detail?, onDismi
                     // the same tier words as the level tab (a quality turnaround reads "Turnaround watch")
                     val nm = if (li == 1 && (lvd?.turn ?: p?.turn ?: false) && (lvd?.t ?: p?.tier(1) ?: 0) != 0) "Turnaround watch" else w.substringAfter(": ")
                     val c = tierColor(lvd?.t ?: 0)
-                    Row(Modifier.clip(RoundedCornerShape(S.inner)).background(C.chip).padding(horizontal = 10.dp, vertical = 5.dp),
+                    Row(Modifier.clip(rr(S.inner)).background(C.chip).padding(horizontal = 10.dp, vertical = 5.dp),
                         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Box(Modifier.size(7.dp).clip(CircleShape).background(c)); T(k, 12.sp, C.muted, maxLines = 1); T(nm, 12.sp, c, FontWeight.Bold, maxLines = 1)
                     }
@@ -702,7 +800,7 @@ fun DecisionDetailsSheet(st: AppState, sym: String, p: P?, det: Detail?, onDismi
                 val ok = c.ok == true
                 Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.Top) {
                     Box(Modifier.size(20.dp).clip(CircleShape).background(if (ok) TierC.lightGreen else C.line), contentAlignment = Alignment.Center) {
-                        T(if (ok) "✓" else "–", 12.sp, if (ok) Color.Black else C.dim, FontWeight.Bold, maxLines = 1)
+                        T(if (ok) "✓" else "–", 12.sp, if (ok) C.lo else C.dim, FontWeight.Bold, maxLines = 1)
                     }
                     Spacer(Modifier.width(10.dp))
                     Text(buildAnnotatedString {

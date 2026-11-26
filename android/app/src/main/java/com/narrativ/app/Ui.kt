@@ -26,6 +26,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -43,7 +44,7 @@ import androidx.compose.ui.unit.sp
  */
 
 // ---------------------------------------------------------------- status, severity
-val STATUS_COLORS = mapOf("Pass" to TierC.lightGreen, "Partly" to TierC.yellow, "Miss" to TierC.lightRed, "n/a" to C.dim,
+val STATUS_COLORS get() = mapOf("Pass" to TierC.lightGreen, "Partly" to TierC.yellow, "Miss" to TierC.lightRed, "n/a" to C.dim,
     "Pending" to C.grey, "Met" to TierC.lightGreen, "Verified" to TierC.lightGreen)
 /** Check mark (Item.m: 2 full, 1 partial, 0 miss, null not scored) as a status word. */
 fun statusOf(m: Int?): String = when (m) { 2 -> "Pass"; 1 -> "Partly"; 0 -> "Miss"; else -> "n/a" }
@@ -54,7 +55,7 @@ fun sevColor(sev: String?): Color = when (sev) { "red" -> TierC.red; "watch" -> 
 /** Status word in a tinted pill (Pass / Partly / Miss / n/a, or any word with a colour). */
 @Composable
 fun StatusChip(status: String, modifier: Modifier = Modifier, color: Color = statusColor(status), minWidth: Dp = 52.dp) {
-    Box(modifier.defaultMinSize(minWidth = minWidth).clip(RoundedCornerShape(S.inner)).background(color.copy(alpha = 0.13f))
+    Box(modifier.defaultMinSize(minWidth = minWidth).clip(rr(S.inner)).background(color.copy(alpha = 0.13f))
         .padding(horizontal = 8.dp, vertical = 3.dp), contentAlignment = Alignment.Center) {
         T(status, 11.sp, color, FontWeight.Bold, maxLines = 1)
     }
@@ -67,14 +68,14 @@ fun VerifiedTick(verified: Boolean, modifier: Modifier = Modifier, size: Dp = 15
         .then(if (verified) Modifier.background(TierC.lightGreen) else Modifier.border(1.dp, TierC.grey, CircleShape)),
         contentAlignment = Alignment.Center) {
         Icon(Icons.Rounded.Check, if (verified) "Verified by Narrativ.ai" else "Researched by Narrativ.ai, not verified",
-            tint = if (verified) Color(0xFF0B0C0E) else C.dim, modifier = Modifier.size(size * 0.73f))
+            tint = if (verified) C.lo else C.dim, modifier = Modifier.size(size * 0.73f))
     }
 }
 
 /** Small chip with a colour dot (legends, rotation, quadrant tags). */
 @Composable
 fun DotChip(text: String, color: Color, modifier: Modifier = Modifier, textColor: Color = C.muted) {
-    Row(modifier.clip(RoundedCornerShape(S.inner)).background(Color.White.copy(alpha = 0.063f)).padding(horizontal = 8.dp, vertical = 3.dp),
+    Row(modifier.clip(rr(S.inner)).background(C.hi.copy(alpha = 0.063f)).padding(horizontal = 8.dp, vertical = 3.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
         Box(Modifier.size(7.dp).clip(CircleShape).background(color))
         T(text, 11.sp, textColor, maxLines = 1)
@@ -87,7 +88,7 @@ fun Legend(items: List<Pair<String, Color>>, modifier: Modifier = Modifier) {
     Row(modifier, horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
         items.forEach { (n, c) ->
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(8.dp).clip(RoundedCornerShape(2.dp)).background(c)); Spacer(Modifier.width(5.dp)); T(n, 11.sp, C.dim, maxLines = 1)
+                Box(Modifier.size(8.dp).clip(rr(2.dp)).background(c)); Spacer(Modifier.width(5.dp)); T(n, 11.sp, C.dim, maxLines = 1)
             }
         }
     }
@@ -142,7 +143,13 @@ fun CheckRow(status: String, name: String, figure: String, passLine: String? = n
 }
 
 @Composable
-fun HLineDivider(modifier: Modifier = Modifier) = Box(modifier.fillMaxWidth().height(1.dp).background(C.line))
+fun HLineDivider(modifier: Modifier = Modifier) = if (Look.paper) {
+    val c = C.dim
+    Box(modifier.fillMaxWidth().height(1.dp).drawBehind {
+        drawLine(c, androidx.compose.ui.geometry.Offset(0f, 0.5f), androidx.compose.ui.geometry.Offset(size.width, 0.5f), 1.dp.toPx(),
+            pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(2.dp.toPx(), 3.dp.toPx())))
+    })
+} else Box(modifier.fillMaxWidth().height(1.dp).background(C.line))
 
 // ---------------------------------------------------------------- cards and rows
 /** Card with an optional header (title left, small grey text right) and an optional blue "more" link at the bottom. */
@@ -164,7 +171,7 @@ fun SectionCard(title: String? = null, right: String? = null, modifier: Modifier
 /** Blue link with a chevron ("All 7 checks with formulas ›"). */
 @Composable
 fun MoreLink(text: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    Row(modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onClick).padding(top = 8.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(modifier.clip(rr(8.dp)).clickable(onClick = onClick).padding(top = 8.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
         T(text, 13.sp, C.blue, maxLines = 1)
         Icon(Icons.Rounded.ChevronRight, null, tint = C.blue, modifier = Modifier.size(16.dp))
     }
@@ -211,7 +218,7 @@ fun StatTile(label: String, value: String, modifier: Modifier = Modifier, valueC
 /** Section inside a bottom sheet (darker tile) with a sentence-case header (13 sp semibold) and optional right text. */
 @Composable
 fun SheetSection(title: String? = null, right: String? = null, modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
-    Column(modifier.fillMaxWidth().padding(bottom = 10.dp).clip(RoundedCornerShape(16.dp)).background(C.sheet).padding(12.dp)) {
+    Column(modifier.fillMaxWidth().padding(bottom = 10.dp).clip(rr(16.dp)).background(C.sheet).padding(12.dp)) {
         if (title != null) Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             T(title, 13.sp, C.muted, FontWeight.SemiBold, Modifier.weight(1f), maxLines = 1)
             right?.let { T(it, LABEL, C.dim, maxLines = 1) }
@@ -238,12 +245,16 @@ fun TabStrip(tabs: List<TabSpec>, selected: Int, onSelect: (Int) -> Unit, modifi
         horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         tabs.forEachIndexed { i, t ->
             val on = i == selected
+            val ink = C.white
             Row(Modifier.onGloballyPositioned { pos[i] = it.positionInParent().x.toInt() to it.size.width }
-                .clip(RoundedCornerShape(16.dp)).background(if (on) Color.White else Color.White.copy(alpha = 0.063f))
+                .clip(rr(16.dp)).then(if (Look.paper) Modifier.drawBehind {
+                    if (on) drawRect(ink, androidx.compose.ui.geometry.Offset(0f, size.height - 2.dp.toPx()), androidx.compose.ui.geometry.Size(size.width, 2.dp.toPx()))
+                } else Modifier.background(if (on) C.hi else C.hi.copy(alpha = 0.063f)))
                 .clickable { onSelect(i) }.padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 t.dot?.let { Box(Modifier.size(8.dp).clip(CircleShape).background(it)) }
-                T(t.label, 13.sp, if (on) Color.Black else C.dim, if (on) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1)
+                if (Look.paper) PaperLabel(t.label, if (on) C.white else C.dim, 12.sp, bold = on)
+                else T(t.label, 13.sp, if (on) C.lo else C.dim, if (on) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1)
             }
         }
     }
@@ -258,16 +269,16 @@ fun SegmentedControl(options: List<String>, selected: Int, onSelect: (Int) -> Un
     if (compact) {
         Row(modifier, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             options.forEachIndexed { i, o ->
-                Box(Modifier.clip(RoundedCornerShape(10.dp)).background(if (i == selected) Color.White.copy(alpha = 0.08f) else Color.Transparent)
+                Box(Modifier.clip(rr(10.dp)).background(if (i == selected) C.hi.copy(alpha = 0.08f) else Color.Transparent)
                     .clickable { onSelect(i) }.padding(horizontal = 10.dp, vertical = 4.dp)) { T(o, 12.sp, if (i == selected) C.white else C.dim, maxLines = 1) }
             }
         }
     } else {
-        Row(modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Color.White.copy(alpha = 0.063f)).padding(3.dp)) {
+        Row(modifier.fillMaxWidth().clip(rr(14.dp)).background(C.hi.copy(alpha = 0.063f)).padding(3.dp)) {
             options.forEachIndexed { i, o ->
-                Box(Modifier.weight(1f).clip(RoundedCornerShape(11.dp)).background(if (i == selected) Color.White else Color.Transparent)
+                Box(Modifier.weight(1f).clip(rr(11.dp)).background(if (i == selected) C.hi else Color.Transparent)
                     .clickable { onSelect(i) }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
-                    T(o, 13.sp, if (i == selected) Color.Black else C.dim, if (i == selected) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1)
+                    T(o, 13.sp, if (i == selected) C.lo else C.dim, if (i == selected) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1)
                 }
             }
         }
@@ -282,14 +293,17 @@ fun SegmentedControl(options: List<String>, selected: Int, onSelect: (Int) -> Un
 fun ToggleChip(label: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier, count: Int? = null,
                dot: Color? = null, accent: Color? = null, icon: ImageVector? = null) {
     val bg = when { !selected -> C.chip; accent != null -> accent.copy(alpha = 0.15f); else -> C.teal }
-    Row(modifier.clip(RoundedCornerShape(16.dp)).background(bg)
-        .then(if (selected && accent != null) Modifier.border(1.dp, accent, RoundedCornerShape(16.dp)) else Modifier)
+    val p = Look.paper
+    Row(modifier.clip(rr(16.dp)).then(if (p) Modifier.border(1.dp, if (selected) (accent ?: C.teal) else C.line) else Modifier.background(bg))
+        .then(if (selected && accent != null && !p) Modifier.border(1.dp, accent, rr(16.dp)) else Modifier)
         .clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        icon?.let { Icon(it, null, tint = accent ?: C.white, modifier = Modifier.size(14.dp)) }
+        val onFill = selected && accent == null && !Look.paper  // solid blue fill (Classic): white text
+        icon?.let { Icon(it, null, tint = accent ?: if (onFill) C.onAccent else C.white, modifier = Modifier.size(14.dp)) }
         dot?.let { Box(Modifier.size(8.dp).clip(CircleShape).background(it)) }
-        T(label, 13.sp, if (selected) C.white else C.muted, maxLines = 1)
-        count?.let { T("$it", 12.sp, if (selected) Color.White.copy(alpha = 0.8f) else C.dim, maxLines = 1) }
+        if (Look.paper) PaperLabel(label, if (selected) (accent ?: C.teal) else C.white, 11.sp, bold = selected)
+        else T(label, 13.sp, if (onFill) C.onAccent else if (selected) C.white else C.muted, maxLines = 1)
+        count?.let { T("$it", 12.sp, if (onFill) C.onAccent.copy(alpha = 0.8f) else if (selected) C.hi.copy(alpha = 0.8f) else C.dim, maxLines = 1) }
     }
 }
 
@@ -302,7 +316,7 @@ fun ToggleChip(label: String, selected: Boolean, onClick: () -> Unit, modifier: 
 fun BottomSheet(onDismiss: () -> Unit, title: String? = null, aside: String? = null, titleExtra: (@Composable () -> Unit)? = null,
                 content: @Composable ColumnScope.() -> Unit) {
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), containerColor = C.card,
-        dragHandle = { Box(Modifier.padding(top = 10.dp, bottom = 12.dp).size(36.dp, 4.dp).clip(RoundedCornerShape(2.dp)).background(Color.White.copy(alpha = 0.25f))) }) {
+        dragHandle = { Box(Modifier.padding(top = 10.dp, bottom = 12.dp).size(36.dp, 4.dp).clip(rr(2.dp)).background(C.hi.copy(alpha = 0.25f))) }) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, bottom = 24.dp).navigationBarsPadding()) {
             if (title != null) Row(Modifier.fillMaxWidth().padding(bottom = 12.dp), verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -319,7 +333,8 @@ fun BottomSheet(onDismiss: () -> Unit, title: String? = null, aside: String? = n
 /** Round 40 dp icon button on the screen gradient (back, watch, search). */
 @Composable
 fun IconBtn(icon: ImageVector, description: String?, modifier: Modifier = Modifier, tint: Color = C.white, onClick: () -> Unit) {
-    Box(modifier.size(40.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.08f)).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+    Box(modifier.size(40.dp).clip(CircleShape).then(if (Look.paper) Modifier else Modifier.background(C.hi.copy(alpha = 0.08f)))
+        .clickable(onClick = onClick), contentAlignment = Alignment.Center) {
         Icon(icon, description, tint = tint, modifier = Modifier.size(20.dp))
     }
 }
@@ -346,12 +361,17 @@ fun TopBar(st: AppState, title: String, context: String = title, subtitle: Strin
         actions()
         FeedbackButton(st, context)
     }
+    if (Look.paper) DoubleRule(Modifier.padding(horizontal = 16.dp).padding(bottom = 8.dp))
 }
 
 /** One-line market strip on Home (mini mood gauge, score · zone, a figure on the right); opens Market. */
 @Composable
 fun MarketStrip(score: Int?, zone: String?, right: String?, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Row(modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Color.White.copy(alpha = 0.07f)).clickable(onClick = onClick)
+    val ink = C.white
+    Row(modifier.fillMaxWidth().clip(rr(14.dp)).then(if (Look.paper) Modifier.drawBehind {
+            drawLine(ink, androidx.compose.ui.geometry.Offset(0f, 0f), androidx.compose.ui.geometry.Offset(size.width, 0f), 1.dp.toPx())
+            drawLine(ink, androidx.compose.ui.geometry.Offset(0f, size.height), androidx.compose.ui.geometry.Offset(size.width, size.height), 1.dp.toPx())
+        } else Modifier.background(C.hi.copy(alpha = 0.07f))).clickable(onClick = onClick)
         .padding(horizontal = 12.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         if (score != null) Gauge(score, Modifier.size(36.dp, 22.dp), mini = true)
         T("Market", 13.sp, C.dim, maxLines = 1)

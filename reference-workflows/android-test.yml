@@ -6,6 +6,19 @@ name: android-screenshots
 # - the script's output (it runs with set -x) goes to the run's private log file, not the public log.
 on:
   workflow_dispatch:
+    inputs:
+      ref:
+        description: "Private branch to build from (with build = true)"
+        type: string
+        default: main
+      build:
+        description: "Build a debug APK from that branch instead of downloading the latest release"
+        type: boolean
+        default: false
+      looks:
+        description: "Looks to shoot, e.g. 'paper classic' (empty = as the app opens)"
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -13,15 +26,37 @@ permissions:
 jobs:
   shots:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.build && inputs.ref || '' }}
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
+      - uses: actions/setup-java@v4
+        if: inputs.build
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        if: inputs.build
+        with:
+          gradle-version: "8.11.1"
+      - name: Build a debug APK from the branch (nothing published)
+        if: inputs.build
+        working-directory: android
+        env:
+          KEY: ${{ secrets.NARRATIV_APP_KEY }}
+        run: |
+          # the real app key, so the screens load data; this APK is only installed on the runner's emulator
+          [ -n "$KEY" ] && echo "::add-mask::$KEY"
+          gradle assembleDebug ${KEY:+-PciAppKey="$KEY"}
+          cp app/build/outputs/apk/debug/app-debug.apk ../app.apk
       - name: Download latest APK
+        if: ${{ !inputs.build }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -36,7 +71,7 @@ jobs:
           profile: pixel_6
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: bash android/ci/shots.sh >> "$RUNNER_TEMP/narrativ.log" 2>&1
+          script: LOOKS="${{ inputs.looks }}" bash android/ci/shots.sh >> "$RUNNER_TEMP/narrativ.log" 2>&1
       - name: Save the screenshots in the private repo (branch ci-shots)
         if: always()
         env:

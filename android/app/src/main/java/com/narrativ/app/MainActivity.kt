@@ -53,6 +53,7 @@ sealed class Screen {
     data class Screener(val preset: String? = null) : Screen()
     data object Settings : Screen()
     data object Calendar : Screen()
+    data object Dates : Screen()  // Top 10 dates to watch (Paper mock-up)
     data class Stock(val symbol: String) : Screen()
     data object Queue : Screen()
     data class Quadrant(val q: String, val sectors: Boolean) : Screen()
@@ -265,9 +266,19 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         KeyGate.init(this)
+        Look.load(this)
         val start = intent?.getStringExtra("route")
         val ci = intent?.getBooleanExtra("ci", false) ?: false
-        setContent { NarrativTheme { App(start, ci) } }
+        if (ci) intent?.getStringExtra("look")?.let { Look.set(this, it == "paper") }  // CI screenshots of each look
+        setContent {
+            // status-bar icons: dark on the Paper look, light on Classic (follows the switch at once)
+            androidx.compose.runtime.LaunchedEffect(Look.paper) {
+                val t = android.graphics.Color.TRANSPARENT
+                val bar = if (Look.paper) androidx.activity.SystemBarStyle.light(t, t) else androidx.activity.SystemBarStyle.dark(t)
+                enableEdgeToEdge(statusBarStyle = bar, navigationBarStyle = bar)
+            }
+            NarrativTheme { App(start, ci) }
+        }
     }
 }
 
@@ -318,6 +329,7 @@ fun App(startRoute: String? = null, ci: Boolean = false) {
             "data" -> { st.tab(Screen.Settings); st.go(Screen.Advanced); st.go(Screen.Pipeline) }
             "release" -> { st.tab(Screen.Settings); st.go(Screen.Advanced); st.go(Screen.Notes) }
             "calendar" -> { st.tab(Screen.Settings); st.go(Screen.Advanced); st.go(Screen.Calendar) }
+            "dates" -> st.go(Screen.Dates)
             "queue" -> { st.tab(Screen.Settings); st.go(Screen.Advanced); st.go(Screen.Queue) }
             "quadrant" -> { st.tab(Screen.Home); st.go(Screen.Market); st.go(Screen.Quadrant("Leading", false)) }
         }
@@ -354,6 +366,7 @@ fun App(startRoute: String? = null, ci: Boolean = false) {
                 is Screen.Screener -> ScreenerScreen(st, s.preset)
                 Screen.Settings -> SettingsScreen(st)
                 Screen.Calendar -> UpcomingScreen(st)
+                Screen.Dates -> DatesScreen(st)
                 is Screen.Stock -> StockScreen(st, s.symbol, startTab(startRoute, s.symbol))
                 Screen.Queue -> ResearchQueueScreen(st)
                 is Screen.Quadrant -> QuadrantListScreen(st, s.q, s.sectors)
@@ -369,13 +382,18 @@ fun App(startRoute: String? = null, ci: Boolean = false) {
                 Screen.Search -> SearchScreen(st)
             }
         }
-        if (st.picks != null) BottomBar(st, Modifier.align(Alignment.BottomCenter))
+        if (st.picks != null) {
+            if (Look.paper) Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
+                DoubleRule(Modifier.background(C.bg).padding(top = 1.dp), thickFirst = false)
+                BottomBar(st, Modifier)
+            } else BottomBar(st, Modifier.align(Alignment.BottomCenter))
+        }
         if (st.showUpdate) UpdateDialog(st)
         if (st.showFeedback) FeedbackSheet(st)
         st.toast?.let { msg ->
             LaunchedEffect(msg) { delay(3500); st.toast = null }
             Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 96.dp, start = 24.dp, end = 24.dp).navigationBarsPadding()
-                .clip(RoundedCornerShape(16.dp)).background(C.chip).border(1.dp, C.line, RoundedCornerShape(16.dp))
+                .clip(rr(16.dp)).background(C.chip).border(1.dp, C.line, rr(16.dp))
                 .padding(horizontal = 16.dp, vertical = 12.dp)) { T(msg, 14.sp) }
         }
     }
@@ -392,19 +410,23 @@ fun BottomBar(st: AppState, modifier: Modifier) {
         Triple(Icons.Rounded.Settings, "Settings", Screen.Settings),
     )
     fun active(s: Screen) = when (s) { is Screen.Screener -> root is Screen.Screener; else -> root == s }
+    val paper = Look.paper
     Row(
-        modifier.navigationBarsPadding().padding(start = 12.dp, end = 12.dp, bottom = 14.dp).fillMaxWidth().height(64.dp)
-            .clip(RoundedCornerShape(22.dp)).background(C.dock).border(1.dp, C.line, RoundedCornerShape(22.dp)),
+        if (paper) modifier.fillMaxWidth().background(C.bg).padding(top = 0.dp).navigationBarsPadding().height(60.dp)  // Paper: flat bar under a double rule
+        else modifier.navigationBarsPadding().padding(start = 12.dp, end = 12.dp, bottom = 14.dp).fillMaxWidth().height(64.dp)
+            .clip(rr(22.dp)).background(C.dock).border(1.dp, C.line, rr(22.dp)),
         horizontalArrangement = Arrangement.SpaceAround, verticalAlignment = Alignment.CenterVertically,
     ) {
         items.forEach { (icon, label, screen) ->
             val on = active(screen)
             Column(
-                Modifier.width(72.dp).clip(RoundedCornerShape(16.dp)).clickable { st.tab(screen) }.padding(vertical = 6.dp),
+                Modifier.width(72.dp).clip(rr(16.dp)).clickable { st.tab(screen) }.padding(vertical = 6.dp),
                 horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 Icon(icon, label, tint = if (on) C.blue else C.dim, modifier = Modifier.size(22.dp))
-                T(label, 11.sp, if (on) C.blue else C.dim, maxLines = 1)
+                if (Look.paper) androidx.compose.material3.Text(label.uppercase(), fontSize = 10.sp, color = if (on) C.blue else C.dim,
+                    fontFamily = PaperFonts.label, fontWeight = if (on) FontWeight.Bold else FontWeight.Medium, letterSpacing = 0.8.sp, maxLines = 1)
+                else T(label, 11.sp, if (on) C.blue else C.dim, maxLines = 1)
             }
         }
     }

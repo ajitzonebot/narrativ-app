@@ -1,5 +1,27 @@
 [
  {
+  "version": "2.29.0",
+  "date": "2026-11-26",
+  "changes": [
+   {
+    "type": "new",
+    "text": "Paper look: the app now looks like a newspaper (cream paper, ink colours, newspaper type, ruled sections). Settings › Paper look switches back to the Classic dark look at once"
+   },
+   {
+    "type": "new",
+    "text": "Home front page: masthead, today's headline, mood dial beside the day's funnel, and the Top 10 with level dots and 30-day lines"
+   },
+   {
+    "type": "new",
+    "text": "Stock page: the seven checks as five-step scales, the plan on one number line (stop, now, buy zone, analyst target) and the dates to watch"
+   },
+   {
+    "type": "new",
+    "text": "Dates to watch: every dated event of the Top 10 (results, shareholding, kill switches, promises) on one calendar, from Home"
+   }
+  ]
+ },
+ {
   "version": "2.28.1",
   "date": "2026-11-25",
   "changes": [

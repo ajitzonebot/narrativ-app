@@ -21,6 +21,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.geometry.Offset
@@ -79,34 +80,37 @@ fun HomeScreen(st: AppState) {
     val cf by produceState(st.repo.peek<CallsFile>("data/calls.json")) { st.repo.cacheFirst<CallsFile>("data/calls.json") { if (it != null) value = it } }
 
     androidx.compose.material3.pulltorefresh.PullToRefreshBox(refreshing, { scope.launch { refreshing = true; st.load(); refreshing = false } },
-        Modifier.fillMaxSize().background(C.screen)) {
+        Modifier.fillMaxSize().pageBackground()) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 110.dp)) {
             item {
                 Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     AppLogo(40.dp)
-                    T("Narrativ", 26.sp, weight = FontWeight.Bold, modifier = Modifier.weight(1f), maxLines = 1)
+                    if (Look.paper) Spacer(Modifier.weight(1f))
+                    else T("Narrativ", 26.sp, weight = FontWeight.Bold, modifier = Modifier.weight(1f), maxLines = 1)
                     IconBtn(Icons.Rounded.Search, "Search") { st.go(Screen.Search) }
                     FeedbackButton(st, "Home")
                 }
+                if (Look.paper) PaperMasthead(pf)
             }
             item {
                 val md = pf.mood
                 val n200 = md?.inputs?.firstOrNull { it.k == "nifty_200" }?.value
-                MarketStrip(md?.score, md?.zone, n200?.let { "Nifty ${sg1(it)} vs 200-day" }, { st.go(Screen.Market) },
+                if (Look.paper) PaperFrontBox(pf, n200) { st.go(Screen.Market) }
+                else MarketStrip(md?.score, md?.zone, n200?.let { "Nifty ${sg1(it)} vs 200-day" }, { st.go(Screen.Market) },
                     Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 18.dp))
             }
             item {
                 Row(Modifier.fillMaxWidth().padding(start = 18.dp, end = 16.dp, bottom = 10.dp), verticalAlignment = Alignment.Bottom) {
                     Column(Modifier.weight(1f)) {
-                        T("Today's Top 10", 21.sp, weight = FontWeight.Bold)
+                        if (Look.paper) PaperLabel("Today's Top 10", size = 13.sp) else T("Today's Top 10", 21.sp, weight = FontWeight.Bold)
                         // counts what the card shows: the verified Buys listed plus any IPO rated into the Top 10
                         val ns = stockTop.size; val ni = ipoTop.size
                         T("$ns verified Buy${if (ns == 1) "" else "s"}" + (if (ni > 0) " + $ni IPO${if (ni == 1) "" else "s"}" else "") + " · max 2 per industry" +
                             (if (pending > 0) " · $pending awaiting review" else ""), 13.sp, C.dim, maxLines = 2)
                     }
                     // Stocks lists stocks only, so "All N" opens exactly the stocks on the card (IPOs open from their own rows)
-                    if (stockTop.isNotEmpty()) Row(Modifier.clip(RoundedCornerShape(8.dp)).clickable {
+                    if (stockTop.isNotEmpty()) Row(Modifier.clip(rr(8.dp)).clickable {
                         st.go(Screen.Screener("syms:Today's Top 10|" + stockTop.joinToString(",") { it.s }))
                     }.padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
                         T("All ${stockTop.size}", 13.sp, C.blue); Icon(Icons.Rounded.ChevronRight, null, tint = C.blue, modifier = Modifier.size(16.dp))
@@ -117,6 +121,7 @@ fun HomeScreen(st: AppState) {
                 if (stockTop.isEmpty() && ipoTop.isEmpty()) Empty(if (pending > 0) "$pending Buy-rated stocks are queued for Narrativ.ai's review; verified ones appear here." else "No verified Buy today.")
                 else Top10Card(st, stockTop, ipoTop)
             }
+            if (Look.paper && stockTop.any { it.cp.isNotEmpty() }) item { DatesEntry(st, stockTop) }
             rp?.let { r ->
                 val cur = r.variants["current rules"]; val any = r.baselines["every stock scored"]
                 if (cur != null && cur.m6.n > 0 && cur.m6.winPct != null) item { TrackBars(cur, any) { showEvidence = true } }
@@ -125,7 +130,8 @@ fun HomeScreen(st: AppState) {
             item {
                 // Explore: counts open Stocks with the matching preset (chips, computed once per picks.json above)
                 Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-                    T("Explore", 21.sp, weight = FontWeight.Bold, modifier = Modifier.padding(start = 2.dp, top = 18.dp, bottom = 10.dp))
+                    if (Look.paper) PaperLabel("Explore", size = 13.sp, modifier = Modifier.padding(start = 2.dp, top = 18.dp, bottom = 10.dp))
+                    else T("Explore", 21.sp, weight = FontWeight.Bold, modifier = Modifier.padding(start = 2.dp, top = 18.dp, bottom = 10.dp))
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         chips.filter { it.second > 0 }.forEach { (name, n, preset) -> ToggleChip(name, false, { st.go(Screen.Screener(preset)) }, count = n) }
                     }
@@ -176,6 +182,7 @@ fun Top10Card(st: AppState, list: List<P>, ipos: List<IpoOpen> = emptyList()) {
         list.forEachIndexed { k, p ->
             val q = live[p.s.substringBeforeLast(".")]
             Row(Modifier.fillMaxWidth().clickable { st.go(Screen.Stock(p.s)) }.padding(horizontal = S.cardPad, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (Look.paper) { PaperTopRow(p, q?.p ?: p.p, q?.d1 ?: p.d1, ipos.size + k + 1); return@Row }
                 T("${ipos.size + k + 1}", 14.sp, C.dim, modifier = Modifier.width(26.dp))
                 Column(Modifier.weight(1f)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -301,7 +308,7 @@ fun HowWeKnowSheet(st: AppState, rp: ReplayFile, cf: CallsFile?, onDismiss: () -
             FlowRow(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 mix.forEach { (k, v, c) ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.size(8.dp).clip(RoundedCornerShape(2.dp)).background(c)); T(" $k ", 12.sp, C.dim); T("$v", 12.sp, weight = FontWeight.Bold)
+                        Box(Modifier.size(8.dp).clip(rr(2.dp)).background(c)); T(" $k ", 12.sp, C.dim); T("$v", 12.sp, weight = FontWeight.Bold)
                     }
                 }
             }
@@ -350,7 +357,124 @@ fun shortDate(iso: String?): String = runCatching {
 @Composable
 fun LevelBars(p: P) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        LEVELS.indices.forEach { i -> Box(Modifier.weight(1f).height(5.dp).clip(RoundedCornerShape(3.dp)).background(p.levelColor(i))) }
+        LEVELS.indices.forEach { i -> Box(Modifier.weight(1f).height(5.dp).clip(rr(3.dp)).background(p.levelColor(i))) }
+    }
+}
+
+/** Paper look, Home: mood dial on the left; the day's funnel and breadth on the right (mock-up "Narrativ on paper"). */
+@Composable
+fun PaperFrontBox(pf: PicksFile, n200: Double?, onMood: () -> Unit) {
+    val md = pf.mood; val fn = pf.funnel
+    Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth().height(androidx.compose.foundation.layout.IntrinsicSize.Min)) {
+        Column(Modifier.width(168.dp).clickable(onClick = onMood).padding(end = 10.dp)) {
+            PaperLabel("Market mood", size = 10.sp)
+            if (md?.score != null) {
+                PaperGauge(md.score, Modifier.fillMaxWidth().height(88.dp))
+                Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    androidx.compose.material3.Text("${md.score}", fontSize = 28.sp, fontFamily = PaperFonts.headline, fontWeight = FontWeight.Black, color = zoneTextInk(md.score.toDouble()))
+                    androidx.compose.material3.Text(md.zone ?: "", fontSize = 15.sp, fontFamily = PaperFonts.serif, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                        color = zoneTextInk(md.score.toDouble()), modifier = Modifier.padding(bottom = 4.dp))
+                }
+                md.chg1m?.let { T((if (it >= 0) "▲ " else "▼ ") + kotlin.math.abs(it) + " in a month", 11.sp, if (it >= 0) TierC.darkGreen else TierC.red) }
+                n200?.let { T("Nifty ${sg1(it)} vs 200-day", 11.sp, C.dim) }
+            } else T("Mood after the next run", 12.sp, C.dim)
+        }
+        Box(Modifier.width(1.dp).fillMaxHeight().background(C.line))
+        Column(Modifier.weight(1f).padding(start = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            PaperLabel("Today's funnel", size = 10.sp)
+            fn.companies?.let { FunnelBar("${fmt(it.toDouble(), 0)} companies", 1f, C.white) }
+            fn.researched?.let { FunnelBar("$it read", 0.62f, C.grey) }
+            fn.decisions["Buy"]?.let { FunnelBar("$it Buy", 0.32f, TierC.darkGreen) }
+            pf.regime.breadthPct?.let { b ->
+                PaperLabel("Above 200-day avg", size = 10.sp, modifier = Modifier.padding(top = 4.dp))
+                InkMeter(b, dotInk(3))
+                T("${fmt(b, 1)}% of stocks" + (pf.regime.label?.let { " · ${sentence(it)}" } ?: ""), 11.sp, TierC.yellow)
+            }
+        }
+    }
+    Box(Modifier.padding(horizontal = 16.dp).fillMaxWidth().height(1.dp).background(C.white))
+    Spacer(Modifier.height(6.dp))
+}
+
+/** Paper look, one Top 10 row: rank, code over its seven level dots, a 30-day line, price over the day's move. */
+@Composable
+fun androidx.compose.foundation.layout.RowScope.PaperTopRow(p: P, price: Double?, d1: Double?, rank: Int) {
+    androidx.compose.material3.Text("$rank", fontSize = 13.sp, fontFamily = PaperFonts.headline, fontWeight = FontWeight.Bold, color = C.dim, modifier = Modifier.width(22.dp))
+    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            androidx.compose.material3.Text(p.c, fontSize = 15.sp, fontFamily = PaperFonts.headline, fontWeight = FontWeight.Bold, color = C.white, maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f, false))
+            if (p.mb) MbTag()
+            p.cv?.let { T(it, 11.sp, if (it == "High") TierC.darkGreen else TierC.yellow, FontWeight.SemiBold) }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            InkDots(p.t)
+            T(setupName(p.su, p.tb == 1) + " · " + (p.i ?: "–"), 11.sp, C.dim, maxLines = 1)
+        }
+    }
+    val col = if ((d1 ?: 0.0) >= 0) TierC.darkGreen else TierC.red
+    InkSpark(p.sp, col, Modifier.padding(horizontal = 6.dp).size(56.dp, 24.dp))
+    Column(Modifier.widthIn(min = 70.dp), horizontalAlignment = Alignment.End) {
+        T(priceStr(price), 13.sp, weight = FontWeight.SemiBold, maxLines = 1)
+        T(arrowPct(d1), 11.sp, col, maxLines = 1)
+    }
+}
+
+/** Paper look, Home: the next dated event among the Top 10, opening the Dates to watch page. */
+@Composable
+fun DatesEntry(st: AppState, top: List<P>) {
+    val today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kolkata"))
+    val next = top.flatMap { p -> p.cp.filter { it.status != "closed" }.mapNotNull { c -> runCatching { java.time.LocalDate.parse(c.due) }.getOrNull()?.let { d -> Triple(d, p.c, c) } } }
+        .filter { !it.first.isBefore(today) }.minByOrNull { it.first }
+    Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp).fillMaxWidth().clickable { st.go(Screen.Dates) }) {
+        Box(Modifier.fillMaxWidth().height(1.dp).background(C.white))
+        Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                PaperLabel("Dates to watch", size = 11.sp)
+                next?.let { (d, c, cp) -> T("Next: ${skDay(d.toString())} · $c · ${cpWord(cp.type)}", 12.sp, C.grey, maxLines = 1) }
+            }
+            T("Calendar ›", 12.sp, C.blue)
+        }
+    }
+}
+
+/** Plain word for a checkpoint type. */
+fun cpWord(t: String?): String = when (t) {
+    "results" -> "results"; "shareholding" -> "shareholding"; "kill_switch" -> "kill switch"; "must_go_right" -> "must go right"
+    "promise" -> "promise due"; else -> t?.replace('_', ' ') ?: "event"
+}
+
+/** Paper look: the front page's masthead, date line and a headline built from today's numbers (mood zone, Buy count). */
+@Composable
+fun PaperMasthead(pf: PicksFile) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        DoubleRule()
+        androidx.compose.material3.Text("THE NARRATIV", fontSize = 54.sp, lineHeight = 58.sp, color = C.white, fontFamily = PaperFonts.masthead,
+            maxLines = 1, modifier = Modifier.padding(vertical = 2.dp))
+        DoubleRule(thickFirst = false)
+        val d = runCatching { java.time.LocalDate.parse(pf.date) }.getOrNull()
+        Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+            PaperLabel(d?.dayOfWeek?.getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.ENGLISH) ?: "", size = 11.sp)
+            PaperLabel("✱", size = 11.sp); PaperLabel("NARRATIV.AI", size = 11.sp); PaperLabel("✱", size = 11.sp)
+            PaperLabel(d?.let { "${it.dayOfMonth} ${it.month.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.ENGLISH)} ${it.year}" } ?: "", size = 11.sp)
+        }
+        Box(Modifier.fillMaxWidth().height(1.dp).background(C.white))
+        val zone = pf.mood?.zone; val score = pf.mood?.score; val buys = pf.funnel.decisions["Buy"]
+        if (zone != null || buys != null) {
+            val ann = androidx.compose.ui.text.buildAnnotatedString {
+                if (zone != null && score != null) {
+                    append("Market in ")
+                    withStyle(androidx.compose.ui.text.SpanStyle(color = zoneColor(score.toDouble()))) { append(zone.lowercase()) }
+                    if (buys != null) append("; ")
+                }
+                if (buys != null) {
+                    append("$buys stock${if (buys == 1) "" else "s"} ${if (zone != null) "still " else ""}earn${if (buys == 1) "s" else ""} a ")
+                    withStyle(androidx.compose.ui.text.SpanStyle(color = decisionColor("Buy"))) { append("Buy") }
+                }
+            }
+            androidx.compose.material3.Text(ann, fontSize = 24.sp, lineHeight = 28.sp, color = C.white, fontFamily = PaperFonts.headline,
+                fontWeight = FontWeight.Black, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.padding(top = 8.dp, bottom = 4.dp))
+        }
     }
 }
 
@@ -358,14 +482,17 @@ fun LevelBars(p: P) {
 fun SectionHeader(title: String, sub: String, right: String? = null, onClick: (() -> Unit)? = null) {
     Row(Modifier.fillMaxWidth().then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
         .padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f)) { T(title, 18.sp, weight = FontWeight.SemiBold); T(sub, 12.sp, C.grey, maxLines = 2) }
+        Column(Modifier.weight(1f)) {
+            if (Look.paper) PaperLabel(title, size = 12.sp) else T(title, 18.sp, weight = FontWeight.SemiBold)
+            T(sub, 12.sp, C.grey, maxLines = 2)
+        }
         if (right != null) T("$right ›", 13.sp, C.grey)
     }
 }
 
 @Composable
 fun Empty(text: String) {
-    Box(Modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(RoundedCornerShape(S.card)).background(C.card2).padding(16.dp)) { T(text, 13.sp, C.grey) }
+    Box(Modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(rr(S.card)).background(C.card2).padding(16.dp)) { T(text, 13.sp, C.grey) }
 }
 
 @Composable
@@ -419,7 +546,7 @@ fun RotationMap(pts: Map<String, Rot>, modifier: Modifier, labels: Boolean = tru
             val px = X(r.ratio); val py = Y(r.mom); val c = quadC(r.q)
             drawCircle(c, 9f, Offset(px, py))
             if (!labels) return@forEach
-            val label = tm.measure("$name ${r.r1m?.let { pctStr(it).replace(".0%", "%") } ?: ""}", TextStyle(color = Color.White, fontSize = 10.sp))
+            val label = tm.measure("$name ${r.r1m?.let { pctStr(it).replace(".0%", "%") } ?: ""}", TextStyle(color = C.hi, fontSize = 10.sp))
             val w = label.size.width.toFloat(); val h = label.size.height.toFloat()
             val cands = listOf(Offset(px + 12, py - h / 2), Offset(px - 12 - w, py - h / 2), Offset(px - w / 2, py - h - 10), Offset(px - w / 2, py + 10))
             val pos = cands.firstOrNull { o -> val rr = Rect(o, Size(w, h)); rr.left >= 0 && rr.right <= size.width && rr.top >= 0 && rr.bottom <= size.height && placed.none { it.overlaps(rr) } }
@@ -436,7 +563,7 @@ fun TargetBar(price: Double, a: Analyst, modifier: Modifier) {
         val cy = size.height / 2
         drawRoundRect(C.chip, Offset(0f, cy - 3), Size(size.width, 6f), androidx.compose.ui.geometry.CornerRadius(3f))
         if (a.low != null && a.high != null) drawRect(C.blue.copy(alpha = 0.45f), Offset(x(a.low), cy - 3), Size(x(a.high) - x(a.low), 6f))
-        drawLine(Color.White, Offset(x(price), cy - 8), Offset(x(price), cy + 8), 3f)
+        drawLine(C.hi, Offset(x(price), cy - 8), Offset(x(price), cy + 8), 3f)
         val m = x(a.mean)
         val path = Path().apply { moveTo(m, cy - 7); lineTo(m + 7, cy); lineTo(m, cy + 7); lineTo(m - 7, cy); close() }
         drawPath(path, C.teal)
@@ -503,16 +630,16 @@ fun Skel(w: androidx.compose.ui.unit.Dp?, h: androidx.compose.ui.unit.Dp, modifi
     val t = androidx.compose.animation.core.rememberInfiniteTransition(label = "sk")
     val a by t.animateFloat(0.35f, 0.7f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(800),
         androidx.compose.animation.core.RepeatMode.Reverse), label = "ska")
-    Box(modifier.then(if (w != null) Modifier.width(w) else Modifier.fillMaxWidth()).height(h).clip(RoundedCornerShape(6.dp)).background(C.chip.copy(alpha = a)))
+    Box(modifier.then(if (w != null) Modifier.width(w) else Modifier.fillMaxWidth()).height(h).clip(rr(6.dp)).background(C.chip.copy(alpha = a)))
 }
 
 @Composable
 fun HomeSkeleton() {
-    Column(Modifier.fillMaxSize().background(C.screen).statusBarsPadding().padding(16.dp)) {
+    Column(Modifier.fillMaxSize().pageBackground().statusBarsPadding().padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) { Skel(46.dp, 46.dp); Spacer(Modifier.width(12.dp)); Column { Skel(110.dp, 16.dp); Spacer(Modifier.height(6.dp)); Skel(170.dp, 12.dp) } }
         Spacer(Modifier.height(16.dp)); Skel(null, 46.dp)
         Spacer(Modifier.height(24.dp)); Skel(160.dp, 20.dp); Spacer(Modifier.height(10.dp))
-        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(S.card)).background(C.card).padding(S.cardPad)) {
+        Column(Modifier.fillMaxWidth().clip(rr(S.card)).background(C.card).padding(S.cardPad)) {
             repeat(6) {
                 Row(Modifier.padding(vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
                     Skel(14.dp, 14.dp); Spacer(Modifier.width(12.dp))

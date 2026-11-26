@@ -41,7 +41,7 @@ val QUEUE_TASKS = linkedMapOf(
 // ---------------------------------------------------------------- Settings sub-screens (feedback #40, #41)
 @Composable
 fun SubScreen(st: AppState, title: String, subtitle: String?, content: androidx.compose.foundation.lazy.LazyListScope.() -> Unit) {
-    LazyColumn(Modifier.fillMaxSize().background(C.screen), contentPadding = PaddingValues(bottom = 110.dp)) {
+    LazyColumn(Modifier.fillMaxSize().pageBackground(), contentPadding = PaddingValues(bottom = 110.dp)) {
         item { Header(st, title, subtitle, title, back = true) }
         content()
     }

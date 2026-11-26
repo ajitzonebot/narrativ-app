@@ -30,7 +30,7 @@ data class Cp(val symbol: String, val name: String, val c: Checkpoint)
 
 private val CAL_TABS = listOf("Due", "Next 45 days", "Changes", "Removed")
 // type tags are not tappable, so greys (blue is only for taps); amber / red keep their warning meaning
-private val CP_TYPE = mapOf("results" to ("Results" to C.muted), "shareholding" to ("Shareholding" to TierC.grey), "must_go_right" to ("Must go right" to C.amber),
+private val CP_TYPE get() = mapOf("results" to ("Results" to C.muted), "shareholding" to ("Shareholding" to TierC.grey), "must_go_right" to ("Must go right" to C.amber),
     "kill_switch" to ("Kill switch" to TierC.lightRed), "promise" to ("Promise" to C.dim))
 
 /** "Claude reviews 5 times a day: 04:05, 09:05, 14:05, 18:05, 23:05 IST", from the research schedule. */
@@ -184,7 +184,7 @@ private fun DueTimeline(dates: List<String>, today: LocalDate, modifier: Modifie
         val labelH = 18.dp.toPx(); val base = size.height - labelH; val bw = size.width / days
         for (i in 0 until days) {
             val x = i * bw + 1.5.dp.toPx(); val w = (bw - 3.dp.toPx()).coerceAtLeast(2.dp.toPx())
-            drawRoundRect(Color.White.copy(alpha = 0.12f), Offset(x, base - 4.dp.toPx()), Size(w, 4.dp.toPx()), CornerRadius(2.dp.toPx()))
+            drawRoundRect(C.hi.copy(alpha = 0.12f), Offset(x, base - 4.dp.toPx()), Size(w, 4.dp.toPx()), CornerRadius(2.dp.toPx()))
             val n = counts[i]
             if (n > 0) {
                 val bh = n.toFloat() / mx * (base - 22.dp.toPx())
@@ -204,7 +204,7 @@ fun Text28(s: String) = T(s, 28.sp, C.white, FontWeight.Bold)
 
 @Composable
 fun CpRow(st: AppState, x: Cp, hot: Boolean) {
-    Row(Modifier.padding(horizontal = 16.dp, vertical = 5.dp).fillMaxWidth().clip(RoundedCornerShape(S.card)).background(C.card2)
+    Row(Modifier.padding(horizontal = 16.dp, vertical = 5.dp).fillMaxWidth().clip(rr(S.card)).background(C.card2)
         .clickable { st.go(Screen.Stock(x.symbol)) }.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
         Tile(kindIcon(when (x.c.type) { "results" -> "results"; "shareholding" -> "holding"; "promise" -> "approval"; else -> "other" }),
             if (hot) C.tile else Brush.linearGradient(listOf(C.chip, C.card)), 40.dp, 22.dp)

@@ -58,7 +58,7 @@ fun StatusDot(color: Color, modifier: Modifier = Modifier, size: Dp = 8.dp) = Bo
 @Composable
 fun AccScreen(st: AppState, title: String, subtitle: String? = null, context: String = title, back: Boolean = true, big: Boolean = false,
               actions: @Composable RowScope.() -> Unit = {}, content: LazyListScope.() -> Unit) {
-    LazyColumn(Modifier.fillMaxSize().background(C.screen), contentPadding = PaddingValues(bottom = 110.dp)) {
+    LazyColumn(Modifier.fillMaxSize().pageBackground(), contentPadding = PaddingValues(bottom = 110.dp)) {
         item { TopBar(st, title, context, subtitle, back, big, actions) }
         content()
     }
@@ -67,7 +67,7 @@ fun AccScreen(st: AppState, title: String, subtitle: String? = null, context: St
 /** Darker cell inside a card: small grey label, bold figure. */
 @Composable
 fun Cell(label: String, value: String, modifier: Modifier = Modifier, valueColor: Color = C.white, note: String? = null) {
-    Column(modifier.clip(RoundedCornerShape(12.dp)).background(C.sheet).padding(horizontal = 12.dp, vertical = 10.dp)) {
+    Column(modifier.clip(rr(12.dp)).background(C.sheet).padding(horizontal = 12.dp, vertical = 10.dp)) {
         T(label, 11.sp, C.dim, maxLines = 1)
         T(value, 17.sp, valueColor, FontWeight.Bold, maxLines = 1)
         note?.let { T(it, 10.sp, C.dim, maxLines = 2) }
@@ -76,9 +76,9 @@ fun Cell(label: String, value: String, modifier: Modifier = Modifier, valueColor
 
 /** Rounded progress bar on a track. */
 @Composable
-fun ProgBar(fraction: Float, color: Color, modifier: Modifier = Modifier, height: Dp = 8.dp, track: Color = Color.White.copy(alpha = 0.10f)) {
-    Box(modifier.height(height).clip(RoundedCornerShape(height / 2)).background(track)) {
-        Box(Modifier.fillMaxWidth(fraction.coerceIn(0f, 1f)).fillMaxHeight().clip(RoundedCornerShape(height / 2)).background(color))
+fun ProgBar(fraction: Float, color: Color, modifier: Modifier = Modifier, height: Dp = 8.dp, track: Color = C.hi.copy(alpha = 0.10f)) {
+    Box(modifier.height(height).clip(rr(height / 2)).background(track)) {
+        Box(Modifier.fillMaxWidth(fraction.coerceIn(0f, 1f)).fillMaxHeight().clip(rr(height / 2)).background(color))
     }
 }
 
@@ -139,7 +139,7 @@ inline fun <reified T : Any> Repo.peekF(path: String): Fetched<T>? = peek<T>(pat
 
 // ---------------------------------------------------------------- a03 Track record
 /** Outcome buckets, better = darker green (Home's How-we-know bar uses the same names and colours). */
-private val MIX_GOAL = listOf(Triple("Multibagger", 2, TierC.darkGreen), Triple("Beat Nifty", 3, TierC.lightGreen),
+private val MIX_GOAL get() = listOf(Triple("Multibagger", 2, TierC.darkGreen), Triple("Beat Nifty", 3, TierC.lightGreen),
     Triple("Near Nifty", 3, C.grey), Triple("Behind Nifty", 2, TierC.lightRed))
 
 @Composable
@@ -163,7 +163,7 @@ fun TrackRecordScreen(st: AppState) {
                     Cell("Beat Nifty", sm?.beatPct?.let { "$it%" } ?: "–", Modifier.weight(1f))
                 }
                 sm?.beatPct?.let { b ->
-                    SegmentedBar(listOf(Segment(b.toDouble(), TierC.lightGreen), Segment((100 - b).toDouble(), Color.White.copy(alpha = 0.18f))),
+                    SegmentedBar(listOf(Segment(b.toDouble(), TierC.lightGreen), Segment((100 - b).toDouble(), C.hi.copy(alpha = 0.18f))),
                         Modifier.padding(top = 12.dp).fillMaxWidth(), height = 6.dp, legend = SegLegend.None)
                 }
                 val ms = mat?.summary?.verified.orEmpty()
@@ -171,7 +171,7 @@ fun TrackRecordScreen(st: AppState) {
                     T("Matured:", 12.sp, C.dim)
                     listOf("1m", "3m", "6m", "12m").forEach { k ->
                         val s = ms[k]
-                        Row(Modifier.clip(RoundedCornerShape(8.dp)).background(C.sheet).padding(horizontal = 8.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                        Row(Modifier.clip(rr(8.dp)).background(C.sheet).padding(horizontal = 8.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                             T(k.uppercase(), 12.sp, C.dim)
                             T(if (s != null && s.n > 0) vsNifty(s.avgVsNifty) else "–", 12.sp, if (s != null && s.n > 0) plColor(s.avgVsNifty) else C.white, FontWeight.Medium)
                         }
@@ -329,7 +329,7 @@ private fun BuyBarRow(c: CallRec, mx: Double) {
         Box(Modifier.weight(1f).height(20.dp)) {
             Canvas(Modifier.fillMaxSize()) {
                 val cx = size.width / 2
-                drawLine(Color.White.copy(alpha = 0.2f), Offset(cx, 0f), Offset(cx, size.height), 1.dp.toPx())
+                drawLine(C.hi.copy(alpha = 0.2f), Offset(cx, 0f), Offset(cx, size.height), 1.dp.toPx())
                 if (v != null) {
                     val k = (cx - 4.dp.toPx()) / mx.toFloat(); val bh = 12.dp.toPx(); val top = (size.height - bh) / 2
                     val w = max(abs(v.toFloat()) * k, 3.dp.toPx()); val x = if (v >= 0) cx else cx - w
@@ -388,7 +388,7 @@ fun DataPipelineScreen(st: AppState) {
                 }
                 Row(Modifier.padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Cell("Duration", h?.minutes?.let { "${fmt(it, 1)} min" } ?: "–", Modifier.weight(1f))
-                    Column(Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).background(C.sheet).padding(horizontal = 12.dp, vertical = 10.dp)) {
+                    Column(Modifier.weight(1f).clip(rr(12.dp)).background(C.sheet).padding(horizontal = 12.dp, vertical = 10.dp)) {
                         T("Problems", 11.sp, C.dim)
                         val n = h?.problems?.size ?: 0
                         Box(Modifier.padding(top = 2.dp).defaultMinSize(minWidth = 24.dp, minHeight = 24.dp).clip(CircleShape).background((if (n > 0) C.amber else TierC.darkGreen).copy(alpha = 0.22f)),
@@ -566,7 +566,7 @@ private fun sourceRows(h: Health, u: HealthU): List<SrcRow> {
 
 // ---------------------------------------------------------------- a07 Research queue
 /** Queue task -> colour (task names and meanings are in QUEUE_TASKS). */
-private val TASK_COLOR = mapOf("review" to TierC.lightGreen, "review_flag" to C.amber, "recheck" to C.grey, "enrich" to C.muted)
+private val TASK_COLOR get() = mapOf("review" to TierC.lightGreen, "review_flag" to C.amber, "recheck" to C.grey, "enrich" to C.muted)
 fun queueTaskColor(task: String?): Color = TASK_COLOR[task] ?: C.dim
 fun queueTaskName(task: String?): String = (QUEUE_TASKS[task] ?: QUEUE_TASKS.getValue("scan")).first
 
@@ -581,8 +581,8 @@ fun ResearchQueueScreen(st: AppState) {
         item {
             Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf("waiting" to "Waiting ${q?.items?.size ?: 0}", "completed" to "Completed $nDone").forEach { (k, lab) ->
-                    Box(Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(if (tab == k) C.teal else C.card).clickable { tab = k }.padding(vertical = 9.dp),
-                        contentAlignment = Alignment.Center) { T(lab, 13.sp, if (tab == k) C.white else C.dim, if (tab == k) FontWeight.SemiBold else FontWeight.Normal) }
+                    Box(Modifier.weight(1f).clip(rr(10.dp)).background(if (tab == k) C.teal else C.card).clickable { tab = k }.padding(vertical = 9.dp),
+                        contentAlignment = Alignment.Center) { T(lab, 13.sp, if (tab == k) C.onAccent else C.dim, if (tab == k) FontWeight.SemiBold else FontWeight.Normal) }
                 }
             }
         }
@@ -605,7 +605,7 @@ fun ResearchQueueScreen(st: AppState) {
                     val label = (if (it.task == "review") queueLabel(st, it.symbol) else null) ?: queueTaskName(it.task)
                     Row(Modifier.fillMaxWidth().clickable { st.go(Screen.Stock(it.symbol)) }.defaultMinSize(minHeight = 52.dp).padding(horizontal = 14.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.padding(end = 12.dp).size(3.dp, 30.dp).clip(RoundedCornerShape(2.dp)).background(col))
+                        Box(Modifier.padding(end = 12.dp).size(3.dp, 30.dp).clip(rr(2.dp)).background(col))
                         Column(Modifier.weight(1f)) {
                             T(it.symbol.substringBeforeLast("."), 15.sp, weight = FontWeight.SemiBold, maxLines = 1)
                             T((it.reason ?: p?.n ?: "").substringBefore(":"), 12.sp, C.dim, maxLines = 1)
@@ -641,7 +641,7 @@ fun changeTag(type: String): String = when (type) {
 @Composable
 fun ChangeLine(c: Change) {
     Row(Modifier.padding(vertical = 7.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        Box(Modifier.width(70.dp).clip(RoundedCornerShape(S.inner)).background(C.chip).padding(vertical = 3.dp), contentAlignment = Alignment.Center) {
+        Box(Modifier.width(70.dp).clip(rr(S.inner)).background(C.chip).padding(vertical = 3.dp), contentAlignment = Alignment.Center) {
             T(changeTag(c.type), 11.sp, C.muted, FontWeight.SemiBold, maxLines = 1)
         }
         T(c.text, 14.sp, lineHeight = 19.sp, modifier = Modifier.weight(1f))
@@ -683,7 +683,7 @@ fun ReleaseNotesScreen(st: AppState) {
                         T("installed" + (v?.changelog?.firstOrNull { it.version == BuildConfig.VERSION_NAME }?.let { " · released ${skDay(it.date)}" } ?: ""), 12.sp, C.dim)
                     }
                     val col = if (newer) C.amber else TierC.lightGreen
-                    Row(Modifier.clip(RoundedCornerShape(12.dp)).background(col.copy(alpha = 0.13f)).padding(horizontal = 10.dp, vertical = 5.dp),
+                    Row(Modifier.clip(rr(12.dp)).background(col.copy(alpha = 0.13f)).padding(horizontal = 10.dp, vertical = 5.dp),
                         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         StatusDot(col); T(if (newer) "Update available" else "Up to date", 12.sp, col, FontWeight.SemiBold, maxLines = 1)
                     }
@@ -744,14 +744,14 @@ fun FeedbackScreen(st: AppState) {
                 Row {
                     listOf("open" to open, "closed" to closed).forEach { (k, n) ->
                         val on = state == k
-                        Row(Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).clickable { state = k }.padding(vertical = 2.dp), verticalAlignment = Alignment.Bottom,
+                        Row(Modifier.weight(1f).clip(rr(8.dp)).clickable { state = k }.padding(vertical = 2.dp), verticalAlignment = Alignment.Bottom,
                             horizontalArrangement = if (k == "open") Arrangement.Start else Arrangement.End) {
                             T(k.replaceFirstChar { it.uppercase() }, 13.sp, if (on) C.white else C.dim)
                             T("  $n", 20.sp, if (on) C.white else C.dim, FontWeight.Bold)
                         }
                     }
                 }
-                SegmentedBar(listOf(Segment(open.toDouble(), C.muted), Segment(closed.toDouble(), Color.White.copy(alpha = 0.2f))),
+                SegmentedBar(listOf(Segment(open.toDouble(), C.muted), Segment(closed.toDouble(), C.hi.copy(alpha = 0.2f))),
                     Modifier.padding(top = 10.dp).fillMaxWidth(), height = 10.dp, gap = 3.dp, legend = SegLegend.None)
             }
         }
@@ -810,7 +810,7 @@ fun LazyListScope.completedList(st: AppState, d: DoneFile?) {
                     val sym = it.s
                     Row(Modifier.fillMaxWidth().then(if (sym != null) Modifier.clickable { st.go(Screen.Stock(sym)) } else Modifier)
                         .defaultMinSize(minHeight = 48.dp).padding(horizontal = 14.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.padding(end = 12.dp).size(3.dp, 28.dp).clip(RoundedCornerShape(2.dp)).background(col))
+                        Box(Modifier.padding(end = 12.dp).size(3.dp, 28.dp).clip(rr(2.dp)).background(col))
                         Column(Modifier.weight(1f)) {
                             T(sym?.substringBeforeLast(".") ?: "Industry reasons", 15.sp, weight = FontWeight.SemiBold, maxLines = 1)
                             T(if (it.industries != null) it.industries else if (res in setOf("pass", "caution", "fail")) "Full review" else QUEUE_TASKS[res]?.first ?: "Research", 12.sp, C.dim, maxLines = 1)

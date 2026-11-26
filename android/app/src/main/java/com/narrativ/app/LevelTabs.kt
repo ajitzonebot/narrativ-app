@@ -59,7 +59,7 @@ val TYPE_WHY = mapOf(
     "Standard" to "P/E, the default for steady profitable companies.",
 )
 
-private val MUTED_BAR = TierC.grey  // comparison bars (sector, industry, a year ago)
+private val MUTED_BAR get() = TierC.grey  // comparison bars (sector, industry, a year ago)
 
 // ---------------------------------------------------------------- one level tab
 @Composable
@@ -88,7 +88,7 @@ fun LevelTab(st: AppState, sym: String, p: P?, det: Detail?, chart: Chart?, i: I
         }
     } }
     if (lv?.out == true || p?.out?.l == i + 1) {
-        Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(S.tile)).background(TierC.red.copy(alpha = 0.12f)).padding(S.cardPad)) {
+        Box(Modifier.fillMaxWidth().clip(rr(S.tile)).background(TierC.red.copy(alpha = 0.12f)).padding(S.cardPad)) {
             T("Removed at this level: ${lv?.rm ?: p?.out?.w ?: ""}", 13.sp, TierC.lightRed)
         }
     }
@@ -212,8 +212,8 @@ private fun StabilityBody(det: Detail, lv: Level, open: (String?) -> Unit, onAll
     }
 }
 
-private val OWN_PROMOTER = Color(0xFFE8E9EA)
-private val OWN_PUBLIC = Color(0xFF4A4E53)
+private val OWN_PROMOTER get() = if (Look.paper) Color(0xFF2E2622) else Color(0xFFE8E9EA)
+private val OWN_PUBLIC get() = if (Look.paper) Color(0xFFB9AC93) else Color(0xFF4A4E53)
 
 /** Shareholding ring (~130dp): one arc per holder group, promoter % in the centre. */
 @Composable
@@ -460,13 +460,13 @@ fun PromisesSheet(st: AppState, sym: String, onDismiss: () -> Unit) {
                         }
                         T(pr.promise, 14.sp, weight = FontWeight.Medium, lineHeight = 19.sp, modifier = Modifier.padding(top = 3.dp))
                         var q by remember { mutableStateOf(false) }
-                        Row(Modifier.padding(top = 4.dp).clip(RoundedCornerShape(6.dp)).clickable { q = !q }, verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.padding(top = 4.dp).clip(rr(6.dp)).clickable { q = !q }, verticalAlignment = Alignment.CenterVertically) {
                             T("Quote and source", 12.sp, C.blue)
                             Icon(if (q) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, null, tint = C.blue, modifier = Modifier.size(14.dp))
                         }
                         if (q) Quote(ctx, pr.quote, pr.source)
                         pr.updates.forEach { u ->
-                            Column(Modifier.padding(top = 8.dp).fillMaxWidth().clip(RoundedCornerShape(S.inner)).background(C.card).padding(10.dp)) {
+                            Column(Modifier.padding(top = 8.dp).fillMaxWidth().clip(rr(S.inner)).background(C.card).padding(10.dp)) {
                                 T("${UPDATE_LABEL[u.type] ?: u.type} · ${u.call}", LABEL, C.dim, FontWeight.Medium)
                                 T(u.text, 13.sp, weight = FontWeight.Medium)
                                 Quote(ctx, u.quote, u.source)
@@ -665,7 +665,7 @@ private fun CallCardView(cc: CallCard) {
             cc.metrics.forEach { m ->
                 val dir = m.getOrNull(2).orEmpty()
                 val col = when (dir) { "up" -> TierC.lightGreen; "down" -> TierC.lightRed; else -> C.white }
-                Column(Modifier.weight(1f).clip(RoundedCornerShape(S.inner)).background(C.chip).padding(horizontal = 8.dp, vertical = 7.dp)) {
+                Column(Modifier.weight(1f).clip(rr(S.inner)).background(C.chip).padding(horizontal = 8.dp, vertical = 7.dp)) {
                     T(m[0], 11.sp, C.dim, maxLines = 1)
                     T(m[1].replace("INR", "₹").replace(" crore", " cr") + when (dir) { "up" -> " ↑"; "down" -> " ↓"; else -> "" }, 13.sp, col, FontWeight.Medium, maxLines = 1)
                 }

@@ -70,7 +70,7 @@ fun StockScreen(st: AppState, sym: String, startTab: Int = 0) {
     val tabs = STOCK_TABS.mapIndexed { i, t ->
         TabSpec(t, if (i in 1..LEVEL_SHORT.size && (p != null || det != null)) tierColor(det?.levels?.get(LEVELS[i - 1])?.t ?: p?.tier(i - 1) ?: 0) else null)
     }
-    Column(Modifier.fillMaxSize().background(C.bg).background(C.screen)) {
+    Column(Modifier.fillMaxSize().background(C.bg).pageBackground()) {
         TopBar(st, code, "Stock · $code · ${STOCK_TABS[pager.currentPage]}", subtitle = name.ifBlank { null }) {
             val on = sym in st.watch
             IconBtn(if (on) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, if (on) "Remove from watchlist" else "Add to watchlist",

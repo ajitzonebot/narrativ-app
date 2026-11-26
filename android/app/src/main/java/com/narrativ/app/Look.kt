@@ -27,7 +27,7 @@ import androidx.compose.ui.unit.sp
 fun quadC(q: String?): Color = when (q) {
     "Leading" -> TierC.lightGreen; "Improving" -> TierC.yellow; "Weakening" -> C.amber; "Lagging" -> TierC.lightRed; else -> C.grey
 }
-val QUAD_COLORS = mapOf("Leading" to quadC("Leading"), "Improving" to quadC("Improving"), "Weakening" to quadC("Weakening"), "Lagging" to quadC("Lagging"))
+val QUAD_COLORS get() = mapOf("Leading" to quadC("Leading"), "Improving" to quadC("Improving"), "Weakening" to quadC("Weakening"), "Lagging" to quadC("Lagging"))
 
 /** A multiple: "1.2×". */
 fun mult(v: Double?, d: Int = 1): String = if (v == null) "–" else skFx(v, d) + "×"
@@ -97,9 +97,9 @@ fun queueLabel(st: AppState, sym: String): String? = reviewState(st, sym).takeIf
 /** The one primary button: blue, white text. */
 @Composable
 fun PrimaryButton(text: String, modifier: Modifier = Modifier, enabled: Boolean = true, onClick: () -> Unit) {
-    Box(modifier.height(48.dp).clip(RoundedCornerShape(24.dp)).background(if (enabled) C.teal else C.chip)
+    Box(modifier.height(48.dp).clip(rr(24.dp)).background(if (enabled) C.teal else C.chip)
         .clickable(enabled = enabled, onClick = onClick).padding(horizontal = 22.dp), contentAlignment = Alignment.Center) {
-        T(text, 15.sp, if (enabled) Color.White else C.dim, FontWeight.SemiBold, maxLines = 1)
+        T(text, 15.sp, if (enabled) C.onAccent else C.dim, FontWeight.SemiBold, maxLines = 1)
     }
 }
 

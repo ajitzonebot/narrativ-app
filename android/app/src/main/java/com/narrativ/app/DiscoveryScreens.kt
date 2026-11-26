@@ -102,7 +102,7 @@ fun StockTick(st: AppState, p: P, size: Dp = 15.dp) {
 /** "Multibagger" tag (multibagger potential), yellow outline. */
 @Composable
 fun MbTag() {
-    Box(Modifier.padding(start = 6.dp).clip(RoundedCornerShape(6.dp)).border(1.dp, TierC.yellow.copy(alpha = 0.4f), RoundedCornerShape(6.dp))
+    Box(Modifier.padding(start = 6.dp).clip(rr(6.dp)).border(1.dp, TierC.yellow.copy(alpha = 0.4f), rr(6.dp))
         .padding(horizontal = 4.dp)) { T("Multibagger", 10.sp, TierC.yellow, maxLines = 1) }
 }
 
@@ -118,12 +118,12 @@ fun ConvictionMeter(cv: String?, modifier: Modifier = Modifier) {
 fun HBar(frac: Double, color: Color, modifier: Modifier = Modifier, height: Dp = 6.dp, mark: Double? = null) {
     Canvas(modifier.height(height + 6.dp)) {
         val h = height.toPx(); val top = (size.height - h) / 2
-        drawRoundRect(Color.White.copy(alpha = 0.07f), Offset(0f, top), Size(size.width, h), CornerRadius(h / 2))
+        drawRoundRect(C.hi.copy(alpha = 0.07f), Offset(0f, top), Size(size.width, h), CornerRadius(h / 2))
         val w = (frac.coerceIn(0.0, 1.0) * size.width).toFloat()
         if (w > 0) drawRoundRect(color, Offset(0f, top), Size(max(w, h), h), CornerRadius(h / 2))
         mark?.let { m ->
             val x = (m.coerceIn(0.0, 1.0) * size.width).toFloat()
-            drawRect(Color.White.copy(alpha = 0.55f), Offset(x - 0.75.dp.toPx(), 0f), Size(1.5.dp.toPx(), size.height))
+            drawRect(C.hi.copy(alpha = 0.55f), Offset(x - 0.75.dp.toPx(), 0f), Size(1.5.dp.toPx(), size.height))
         }
     }
 }
@@ -133,7 +133,7 @@ fun HBar(frac: Double, color: Color, modifier: Modifier = Modifier, height: Dp =
 fun CentreBar(v: Double?, span: Double, color: Color, modifier: Modifier = Modifier) {
     Canvas(modifier.height(10.dp)) {
         val cx = size.width / 2; val h = 6.dp.toPx(); val top = (size.height - h) / 2
-        drawRect(Color.White.copy(alpha = 0.25f), Offset(cx - 0.5.dp.toPx(), 0f), Size(1.dp.toPx(), size.height))
+        drawRect(C.hi.copy(alpha = 0.25f), Offset(cx - 0.5.dp.toPx(), 0f), Size(1.dp.toPx(), size.height))
         if (v == null) return@Canvas
         val w = max((abs(v) / span).toFloat() * cx, 2.dp.toPx())
         drawRoundRect(color, Offset(if (v >= 0) cx else cx - w, top), Size(w, h), CornerRadius(h / 2))
@@ -152,7 +152,7 @@ fun GroupedBars(groups: List<Pair<String, String?>>, series: List<Pair<Color, Li
         val hi = all.max() * 1.12; val lo = min(all.min(), 0.0)
         fun y(v: Double) = ChartMath.lerp(v, lo, if (hi > lo) hi else lo + 1, size.height - bot, top)
         val y0 = y(0.0)
-        drawLine(Color.White.copy(alpha = 0.12f), Offset(gut, y0), Offset(size.width, y0), 1.dp.toPx())
+        drawLine(C.hi.copy(alpha = 0.12f), Offset(gut, y0), Offset(size.width, y0), 1.dp.toPx())
         if (ref != null) {
             drawLine(C.dim.copy(alpha = 0.7f), Offset(gut, y(ref)), Offset(size.width, y(ref)), 1.dp.toPx(),
                 pathEffect = PathEffect.dashPathEffect(floatArrayOf(3.dp.toPx(), 4.dp.toPx())))
@@ -179,7 +179,7 @@ fun GroupedBars(groups: List<Pair<String, String?>>, series: List<Pair<Color, Li
 /** Mini stock card (Market: Buys in leading industries). */
 @Composable
 fun MiniStockCard(st: AppState, p: P) {
-    Column(Modifier.width(150.dp).clip(RoundedCornerShape(12.dp)).background(C.chip).clickable { st.go(Screen.Stock(p.s)) }
+    Column(Modifier.width(150.dp).clip(rr(12.dp)).background(C.chip).clickable { st.go(Screen.Stock(p.s)) }
         .padding(horizontal = 10.dp, vertical = 9.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) { T(p.c, 13.sp, weight = FontWeight.Bold, maxLines = 1, modifier = Modifier.weight(1f, false)); StockTick(st, p, 14.dp) }
         T(p.i ?: "–", 11.sp, C.dim, maxLines = 1)
@@ -204,11 +204,11 @@ fun SearchScreen(st: AppState) {
     }
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
-    LazyColumn(Modifier.fillMaxSize().background(C.screen), contentPadding = PaddingValues(bottom = 110.dp)) {
+    LazyColumn(Modifier.fillMaxSize().pageBackground(), contentPadding = PaddingValues(bottom = 110.dp)) {
         item { TopBar(st, "Search", context = "Search") }
         item {
-            Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp).fillMaxWidth().clip(RoundedCornerShape(14.dp))
-                .background(Color.White.copy(alpha = 0.08f)).border(1.5.dp, C.teal, RoundedCornerShape(14.dp)).padding(horizontal = 12.dp, vertical = 11.dp),
+            Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp).fillMaxWidth().clip(rr(14.dp))
+                .background(C.hi.copy(alpha = 0.08f)).border(1.5.dp, C.teal, rr(14.dp)).padding(horizontal = 12.dp, vertical = 11.dp),
                 verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Rounded.Search, null, tint = C.dim, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(8.dp))
@@ -291,7 +291,7 @@ fun QuadrantListScreen(st: AppState, q: String, sectors: Boolean) {
     val why = if (sectors) null else rememberIndustryWhy(st)
     var whyOf by remember(q, sectors) { mutableStateOf<String?>(null) }
     whyOf?.let { n -> if (why != null) IndustryWhySheet(st, n, src[n], why) { whyOf = null } }
-    LazyColumn(Modifier.fillMaxSize().background(C.screen), contentPadding = PaddingValues(bottom = 110.dp)) {
+    LazyColumn(Modifier.fillMaxSize().pageBackground(), contentPadding = PaddingValues(bottom = 110.dp)) {
         item { TopBar(st, "$q $kind", context = "Quadrant $q", subtitle = "${list.size} $kind · ${QUAD_WHAT[q] ?: ""} · by momentum") }
         if (list.isEmpty()) { item { Spacer(Modifier.height(8.dp)); Empty("Nothing in this quadrant today.") }; return@LazyColumn }
         item {
@@ -346,13 +346,13 @@ fun IpoDetailScreen(st: AppState, name: String) {
         ?: u?.let { IpoOpen(name = it.name, board = it.board, priceLow = it.priceLow, priceHigh = it.priceHigh, openDate = it.openDate ?: "", lastDate = it.lastDate ?: "",
             upcoming = true, sources = listOfNotNull(it.source)) }
     val uri = LocalUriHandler.current
-    LazyColumn(Modifier.fillMaxSize().background(C.screen), contentPadding = PaddingValues(bottom = 110.dp)) {
+    LazyColumn(Modifier.fillMaxSize().pageBackground(), contentPadding = PaddingValues(bottom = 110.dp)) {
         item { TopBar(st, name, context = "IPO $name", subtitle = listOfNotNull(i?.board?.ifBlank { null }, i?.symbol).joinToString(" · ")) }
         if (i == null) { item { Spacer(Modifier.height(8.dp)); Empty("Not in today's IPO list") }; return@LazyColumn }
         val acol = if (i.upcoming) C.dim else ipoActionColor(i.action)
         val gp = i.gmpPct ?: i.gmpPctHigh
         item {
-            Column(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth().clip(RoundedCornerShape(S.card))
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth().clip(rr(S.card))
                 .background(Brush.verticalGradient(listOf(acol.copy(alpha = 0.16f), C.card), endY = 600f)).padding(S.cardPad)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     T(if (i.upcoming) "Opens ${shortDate(i.openDate)}" else sentence(i.action.ifBlank { "–" }), 26.sp, acol, FontWeight.ExtraBold,
@@ -424,7 +424,7 @@ fun IpoDetailScreen(st: AppState, name: String) {
                 tiles.chunked(2).forEach { row ->
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         row.forEach { (k, v) ->
-                            Column(Modifier.weight(1f).clip(RoundedCornerShape(S.tile)).background(C.card).padding(12.dp)) {
+                            Column(Modifier.weight(1f).clip(rr(S.tile)).background(C.card).padding(12.dp)) {
                                 T(k, 12.sp, C.dim); T(v, 15.sp, if (k == "Profit / lot" && (i.profitLot ?: 0.0) > 0) TierC.lightGreen else C.white, FontWeight.SemiBold, maxLines = 1)
                             }
                         }
@@ -457,14 +457,14 @@ private fun IpoDays(i: IpoOpen, modifier: Modifier) {
         days.takeLast(5).forEach { d ->
             val isToday = d == today; val last = d == i.lastDate
             val edge = when { isToday && last -> C.red; isToday -> C.amber; else -> Color.Transparent }  // today marker, not a tap: amber as on the calendar
-            Column(Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(if (isToday && last) C.red.copy(alpha = 0.12f) else C.chip)
-                .border(1.5.dp, edge, RoundedCornerShape(10.dp)).padding(vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Column(Modifier.weight(1f).clip(rr(10.dp)).background(if (isToday && last) C.red.copy(alpha = 0.12f) else C.chip)
+                .border(1.5.dp, edge, rr(10.dp)).padding(vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 T(lab(d), 12.sp, if (isToday) C.white else if (d < today) C.dim else C.grey, if (isToday) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1)
                 if (last) T(i.closeTime ?: "5:00 PM", 11.sp, if (isToday) TierC.lightRed else C.dim, maxLines = 1)
             }
         }
         i.listingDate?.let { ld ->
-            Column(Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).border(1.dp, C.line, RoundedCornerShape(10.dp)).padding(vertical = 6.dp),
+            Column(Modifier.weight(1f).clip(rr(10.dp)).border(1.dp, C.line, rr(10.dp)).padding(vertical = 6.dp),
                 horizontalAlignment = Alignment.CenterHorizontally) {
                 T(lab(ld), 12.sp, C.grey, maxLines = 1); T("Lists", 11.sp, C.dim, maxLines = 1)
             }
@@ -483,7 +483,7 @@ private fun SubDays(days: List<Pair<String, Double>>, modifier: Modifier) {
         days.forEachIndexed { k, (d, v) ->
             val h = ((v / hi) * (base - top)).toFloat().coerceAtLeast(2.dp.toPx())
             val x = k * (w + gap)
-            drawRoundRect(if (k == n - 1) C.teal else Color.White.copy(alpha = 0.14f), Offset(x, base - h), Size(w, h), CornerRadius(4.dp.toPx()))
+            drawRoundRect(if (k == n - 1) C.teal else C.hi.copy(alpha = 0.14f), Offset(x, base - h), Size(w, h), CornerRadius(4.dp.toPx()))
             chartText(tm, String.format(Locale.US, "%.1f×", v), x + w / 2, base - h - 4.dp.toPx(), if (k == n - 1) C.white else C.dim, 11.sp, anchor = Anchor.Middle)
             chartText(tm, shortDate(d), x + w / 2, size.height - 1.dp.toPx(), C.dim, 10.sp, anchor = Anchor.Middle)
         }
@@ -522,7 +522,7 @@ private fun GmpLine(pts: List<Pair<java.time.LocalDate, Double>>, modifier: Modi
         val o = pts.map { (d, v) -> Offset(l + java.time.temporal.ChronoUnit.DAYS.between(d0, d) / span * (r - l), ChartMath.lerp(v, 0.0, hi, b, t)) }
         threshold?.let { th ->
             val y = ChartMath.lerp(th, 0.0, hi, b, t)
-            drawLine(Color.White.copy(alpha = 0.3f), Offset(l, y), Offset(r, y), 1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f)))
+            drawLine(C.hi.copy(alpha = 0.3f), Offset(l, y), Offset(r, y), 1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f)))
             chartText(tm, "20%", r, y - 3.dp.toPx(), C.dim, 10.sp, anchor = Anchor.End)
         }
         val pk = pts.indexOfFirst { it.second == (peak ?: pts.maxOf { p -> p.second }) }
@@ -532,7 +532,7 @@ private fun GmpLine(pts: List<Pair<java.time.LocalDate, Double>>, modifier: Modi
         drawPath(line, TierC.yellow, style = Stroke(2.dp.toPx(), cap = StrokeCap.Round))
         var lastX = -1e9f
         o.forEachIndexed { k, p ->
-            if (k == pk && k != o.lastIndex) drawCircle(Color.White, 5.dp.toPx(), p, style = Stroke(1.5.dp.toPx()))
+            if (k == pk && k != o.lastIndex) drawCircle(C.hi, 5.dp.toPx(), p, style = Stroke(1.5.dp.toPx()))
             drawCircle(TierC.yellow, 3.dp.toPx(), p)
             chartText(tm, "₹${fmt(pts[k].second, 0)}", p.x, p.y - 8.dp.toPx(), C.white, 11.sp, FontWeight.SemiBold, Anchor.Middle)
             if (p.x - lastX > 36.dp.toPx() || k == o.lastIndex) {
@@ -551,7 +551,7 @@ private fun BandChart(lo: Double, hi: Double, implied: Double?, pct: Double?, mo
         val a0 = min(lo, implied ?: lo); val b0 = max(hi, implied ?: hi); val pad = (b0 - a0).takeIf { it > 0 }?.times(0.08) ?: 1.0
         fun X(v: Double) = ChartMath.lerp(v, a0 - pad, b0 + pad, 0f, size.width)
         val cy = 26.dp.toPx(); val h = 8.dp.toPx()
-        drawRoundRect(Color.White.copy(alpha = 0.07f), Offset(0f, cy - h / 2), Size(size.width, h), CornerRadius(h / 2))
+        drawRoundRect(C.hi.copy(alpha = 0.07f), Offset(0f, cy - h / 2), Size(size.width, h), CornerRadius(h / 2))
         drawRoundRect(C.teal, Offset(X(lo), cy - h / 2), Size(max(X(hi) - X(lo), h), h), CornerRadius(h / 2))
         chartText(tm, "Band ₹${fmt(lo, 0)}–${fmt(hi, 0)}", X(lo), cy - 12.dp.toPx(), C.muted, 11.sp)
         if (implied != null) {

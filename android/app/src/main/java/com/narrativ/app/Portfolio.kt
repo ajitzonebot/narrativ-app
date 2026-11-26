@@ -278,12 +278,12 @@ internal fun decisionOf(p: P?): Dg? = when {
     p.dc == "Hold" -> Dg("Hold", "Hold", decisionColor("Hold"))
     else -> Dg("Not rated", p.dc ?: "Not rated", decisionColor(null))
 }
-private val DEC_BAR = listOf("Buy", "Hold", "Sell", "Not rated").associateWith { decisionColor(it) }
+private val DEC_BAR get() = listOf("Buy", "Hold", "Sell", "Not rated").associateWith { decisionColor(it) }
 
 /** Pill in a header ("Import"). */
 @Composable
 fun HeaderPill(icon: androidx.compose.ui.graphics.vector.ImageVector, text: String, onClick: () -> Unit) {
-    Row(Modifier.height(36.dp).clip(RoundedCornerShape(18.dp)).background(Color.White.copy(alpha = 0.08f)).clickable(onClick = onClick).padding(horizontal = 14.dp),
+    Row(Modifier.height(36.dp).clip(rr(18.dp)).background(C.hi.copy(alpha = 0.08f)).clickable(onClick = onClick).padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         androidx.compose.material3.Icon(icon, null, tint = C.white, modifier = Modifier.size(16.dp))
         T(text, 13.sp, weight = FontWeight.Medium, maxLines = 1)
@@ -351,7 +351,7 @@ fun PortfolioScreen(st: AppState) {
             14.sp, C.muted, lineHeight = 20.sp, modifier = Modifier.padding(top = 10.dp))
     }
     val has = store.holdings.isNotEmpty()
-    LazyColumn(Modifier.fillMaxSize().background(C.screen), contentPadding = PaddingValues(bottom = 110.dp)) {
+    LazyColumn(Modifier.fillMaxSize().pageBackground(), contentPadding = PaddingValues(bottom = 110.dp)) {
         item {
             TopBar(st, "Portfolio", subtitle = if (has) "${store.holdings.size} holdings · imported ${shortDate(store.imported)} · stays on this phone" else null,
                 back = false, big = true) { if (has) HeaderPill(Icons.Rounded.Upload, "Import") { launchImport() } }
@@ -359,7 +359,7 @@ fun PortfolioScreen(st: AppState) {
         if (!has) {
             item {
                 Column(Modifier.fillMaxWidth().padding(horizontal = 28.dp).padding(top = 72.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Box(Modifier.size(84.dp).clip(RoundedCornerShape(26.dp)).background(C.teal.copy(alpha = 0.18f)), contentAlignment = Alignment.Center) {
+                    Box(Modifier.size(84.dp).clip(rr(26.dp)).background(C.teal.copy(alpha = 0.18f)), contentAlignment = Alignment.Center) {
                         androidx.compose.material3.Icon(Icons.Rounded.Upload, null, tint = C.blue, modifier = Modifier.size(38.dp))
                     }
                     T("Track your holdings", 24.sp, weight = FontWeight.Bold, modifier = Modifier.padding(top = 24.dp))
@@ -382,13 +382,14 @@ fun PortfolioScreen(st: AppState) {
         val pl = value - inv
         val plPct = if (inv > 0) pl / inv * 100 else null
         val todayPct = if (value - today > 0) today / (value - today) * 100 else null
+        if (Look.paper) item { PaperLedgerFront(rows, picks, value, inv, today, todayPct, pl, plPct) }
         item {
             Card(Modifier.padding(horizontal = 16.dp, vertical = 4.dp).fillMaxWidth(), pad = 16.dp) {
-                Row(verticalAlignment = Alignment.Top) {
+                if (!Look.paper) Row(verticalAlignment = Alignment.Top) {
                     Column(Modifier.weight(1f)) { T("Current value", LABEL, C.dim); T(rupees(value), 28.sp, weight = FontWeight.Bold, maxLines = 1) }
                     Column(horizontalAlignment = Alignment.End) { T("Invested", LABEL, C.dim); T(rupees(inv), 16.sp, C.muted, FontWeight.SemiBold, modifier = Modifier.padding(top = 6.dp)) }
                 }
-                Row(Modifier.padding(top = 14.dp)) {
+                if (!Look.paper) Row(Modifier.padding(top = 14.dp)) {
                     Column(Modifier.weight(1f)) {
                         T("Total P&L", LABEL, C.dim)
                         T("${rupees(pl)} · ${sg(plPct, 1)}", 15.sp, plColor(pl), FontWeight.Bold, maxLines = 1)
@@ -398,7 +399,7 @@ fun PortfolioScreen(st: AppState) {
                         T("${rupees(today)} · ${sg(todayPct, 1)}", 15.sp, plColor(today), FontWeight.Bold, maxLines = 1)
                     }
                 }
-                T("Since import vs Nifty", 13.sp, weight = FontWeight.SemiBold, modifier = Modifier.padding(top = 16.dp))
+                if (Look.paper) PaperLabel("Since import vs Nifty", size = 11.sp) else T("Since import vs Nifty", 13.sp, weight = FontWeight.SemiBold, modifier = Modifier.padding(top = 16.dp))
                 val sn = store.snaps
                 if (sn.size >= 2 && sn.first().nifty != null && sn.last().nifty != null) {
                     val ix = Portfolio.series(sn)
@@ -427,16 +428,16 @@ fun PortfolioScreen(st: AppState) {
         val rest = rows.filter { it !in attention && it !in etfs }.sortedBy { (h, p, _) -> if (h.avg > 0 && p != null) p / h.avg else 9.0 }
         if (attention.isNotEmpty()) {
             item { SecHead("Needs attention", "${attention.size}") }
-            item { HoldingList(st, attention, picks) }
+            item { HoldingList(st, attention, picks, value) }
         }
         if (rest.isNotEmpty()) {
             item { SecHead("All stocks", "${rest.size} · biggest loss first") }
-            item { HoldingList(st, rest, picks) }
+            item { HoldingList(st, rest, picks, value) }
         }
         if (etfs.isNotEmpty()) item {
             Card(Modifier.padding(horizontal = 16.dp, vertical = 12.dp).fillMaxWidth(), pad = 0.dp) {
                 Column(Modifier.padding(horizontal = 14.dp)) { ToggleRow("ETFs and others", "${etfs.size}", etfOpen, { etfOpen = !etfOpen }, divider = false) }
-                if (etfOpen) { HLineDivider(); HoldingRows(st, etfs, picks) }
+                if (etfOpen) { HLineDivider(); HoldingRows(st, etfs, picks, value) }
             }
         }
         item { MoreLink("What is sent for prices", Modifier.padding(horizontal = 16.dp)) { sent = true } }
@@ -455,17 +456,22 @@ fun holdingLabel(p: P?, sym: String = ""): Pair<String, Color> = when {
 }
 
 @Composable
-fun HoldingList(st: AppState, rows: List<Triple<Holding, Double?, Double?>>, picks: Map<String, P>) {
-    Card(Modifier.padding(horizontal = 16.dp, vertical = 4.dp).fillMaxWidth(), pad = 0.dp) { HoldingRows(st, rows, picks) }
+fun HoldingList(st: AppState, rows: List<Triple<Holding, Double?, Double?>>, picks: Map<String, P>, total: Double? = null) {
+    Card(Modifier.padding(horizontal = 16.dp, vertical = 4.dp).fillMaxWidth(), pad = 0.dp) { HoldingRows(st, rows, picks, total) }
 }
 
 /** Rows of a holdings card: code and decision chip, qty × avg · now, P&L since cost with today's move as a mini bar under it. */
 @Composable
-fun ColumnScope.HoldingRows(st: AppState, rows: List<Triple<Holding, Double?, Double?>>, picks: Map<String, P>) {
+fun ColumnScope.HoldingRows(st: AppState, rows: List<Triple<Holding, Double?, Double?>>, picks: Map<String, P>, total: Double? = null) {
     rows.forEachIndexed { i, (h, p, d) ->
         val pk = Portfolio.pickFor(h.s, picks)
         val dg = decisionOf(pk)
         val pl = if (h.avg > 0 && p != null) (p / h.avg - 1) * 100 else null
+        if (Look.paper) {
+            PaperHoldingRow(st, h, p, d, pk, pl, total)
+            if (i < rows.lastIndex) HLineDivider(Modifier.padding(horizontal = 4.dp))
+            return@forEachIndexed
+        }
         Row(Modifier.fillMaxWidth().defaultMinSize(minHeight = 56.dp).then(if (pk != null) Modifier.clickable { st.go(Screen.Stock(pk.s)) } else Modifier)
             .padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -485,5 +491,66 @@ fun ColumnScope.HoldingRows(st: AppState, rows: List<Triple<Holding, Double?, Do
             }
         }
         if (i < rows.lastIndex) HLineDivider(Modifier.padding(horizontal = 14.dp))
+    }
+}
+
+
+/** Paper look, Portfolio (mock-up): value · today · overall in ruled columns, the headline, and the calls weighted by value held. */
+@Composable
+fun PaperLedgerFront(rows: List<Triple<Holding, Double?, Double?>>, picks: Map<String, P>, value: Double, inv: Double, today: Double,
+                     todayPct: Double?, pl: Double, plPct: Double?) {
+    Column(Modifier.padding(horizontal = 16.dp).fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth().height(androidx.compose.foundation.layout.IntrinsicSize.Min)) {
+            @Composable fun cell(label: String, v: String, sub: String?, c: Color, m: Modifier) = Column(m.padding(vertical = 6.dp, horizontal = 6.dp)) {
+                PaperLabel(label, size = 10.sp)
+                androidx.compose.material3.Text(v, fontSize = 18.sp, color = c, fontFamily = PaperFonts.headline, fontWeight = FontWeight.Black, maxLines = 1)
+                sub?.let { T(it, 10.sp, C.dim, maxLines = 1) }
+            }
+            cell("Value", rupees(value), "invested ${rupees(inv)}", C.white, Modifier.weight(1f))
+            Box(Modifier.width(1.dp).fillMaxHeight().background(C.line))
+            cell("Today", (if (today >= 0) "▲ " else "▼ ") + rupees(kotlin.math.abs(today)), sg(todayPct, 1), plColor(today), Modifier.weight(1f))
+            Box(Modifier.width(1.dp).fillMaxHeight().background(C.line))
+            cell("Overall", (if (pl >= 0) "▲ " else "▼ ") + rupees(kotlin.math.abs(pl)), sg(plPct, 1), plColor(pl), Modifier.weight(1f))
+        }
+        Box(Modifier.fillMaxWidth().height(1.dp).background(C.white))
+        androidx.compose.material3.Text("What today's calls say about what you own", fontSize = 22.sp, lineHeight = 26.sp, color = C.white,
+            fontFamily = PaperFonts.headline, fontWeight = FontWeight.Black, modifier = Modifier.padding(vertical = 8.dp))
+        val byCall = rows.groupBy { (h, _, _) -> decisionOf(Portfolio.pickFor(h.s, picks))?.group ?: "Not rated" }
+            .mapValues { (_, r) -> r.sumOf { (h, p, _) -> h.qty * (p ?: 0.0) } }
+        val tot = byCall.values.sum().takeIf { it > 0 }
+        if (tot != null) {
+            PaperLabel("Calls by value held", size = 10.sp)
+            val order = listOf("Buy", "Hold", "Sell", "Not rated")
+            Row(Modifier.padding(top = 4.dp).fillMaxWidth().height(16.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                order.forEach { k -> byCall[k]?.takeIf { it > 0 }?.let { v -> Box(Modifier.weight(v.toFloat()).fillMaxHeight().background(DEC_BAR[k] ?: C.dim)) } }
+            }
+            Row(Modifier.padding(top = 4.dp, bottom = 6.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                order.forEach { k -> byCall[k]?.takeIf { it > 0 }?.let { v -> T("$k ${fmt(v / tot * 100, 0)}%", 11.sp, if (k == "Not rated") C.dim else DEC_BAR[k] ?: C.dim, FontWeight.SemiBold) } }
+            }
+        }
+    }
+}
+
+/** Paper look, one holding: name over its seven dots and qty @ avg; P&L with an arrow over its share of the portfolio; the call tag. */
+@Composable
+fun PaperHoldingRow(st: AppState, h: Holding, p: Double?, d: Double?, pk: P?, pl: Double?, total: Double?) {
+    val dg = decisionOf(pk)
+    val share = if (total != null && total > 0 && p != null) h.qty * p / total * 100 else null
+    Row(Modifier.fillMaxWidth().then(if (pk != null) Modifier.clickable { st.go(Screen.Stock(pk.s)) } else Modifier)
+        .padding(horizontal = 4.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            androidx.compose.material3.Text(h.s, fontSize = 15.sp, color = C.white, fontFamily = PaperFonts.headline, fontWeight = FontWeight.Bold, maxLines = 1)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (pk != null) InkDots(pk.t)
+                androidx.compose.material3.Text("${fmt(h.qty, 0)} @ ${priceStr(h.avg)} · now ${priceStr(p)}", fontSize = 10.sp, color = C.dim,
+                    fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, maxLines = 1)
+            }
+        }
+        Column(Modifier.padding(horizontal = 8.dp), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            T(if (pl == null) "–" else (if (pl >= 0) "▲ " else "▼ ") + fmt(kotlin.math.abs(pl), 1) + "%", 12.sp, plColor(pl), FontWeight.SemiBold, maxLines = 1)
+            T("today " + arrowPct(d), 10.sp, plColor(d), maxLines = 1)
+            share?.let { InkMeter(it.coerceAtMost(100.0), C.grey, Modifier.width(56.dp).height(5.dp)) }
+        }
+        if (dg != null) PaperTag(dg.text, dg.color, 10.sp) else T(holdingLabel(null, h.s).first, 10.sp, C.dim, maxLines = 1)
     }
 }

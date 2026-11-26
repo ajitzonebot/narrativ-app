@@ -154,10 +154,10 @@ fun ScreenerScreen(st: AppState, preset: String?) {
     }
     val nVerList = remember(f, pf, st.research) { pf.picks.count { it.verified() && f.copy(research = "Any").match(it, researched) } }
     val nLive = remember(pf) { pf.picks.count { it.out == null } }
-    LazyColumn(Modifier.fillMaxSize().background(C.screen), contentPadding = PaddingValues(bottom = 110.dp)) {
+    LazyColumn(Modifier.fillMaxSize().pageBackground(), contentPadding = PaddingValues(bottom = 110.dp)) {
         item { TopBar(st, "Stocks", back = st.stack.size > 1, big = st.stack.size == 1) }
         item {
-            Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Color.White.copy(alpha = 0.07f))
+            Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth().clip(rr(14.dp)).background(C.hi.copy(alpha = 0.07f))
                 .padding(horizontal = 12.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Rounded.Search, null, tint = C.dim, modifier = Modifier.size(20.dp)); Spacer(Modifier.width(8.dp))
                 BasicTextField(f.q, { f = f.copy(q = it); limit = 60 }, singleLine = true, textStyle = TextStyle(color = C.white, fontSize = 15.sp), cursorBrush = SolidColor(C.blue),
@@ -180,12 +180,12 @@ fun ScreenerScreen(st: AppState, preset: String?) {
         }
         if (nRes > 0) item {
             Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
-                SegmentedBar(listOf(Segment(nVer.toDouble(), TierC.lightGreen), Segment((nRes - nVer).coerceAtLeast(0).toDouble(), Color.White.copy(alpha = 0.15f))),
+                SegmentedBar(listOf(Segment(nVer.toDouble(), TierC.lightGreen), Segment((nRes - nVer).coerceAtLeast(0).toDouble(), C.hi.copy(alpha = 0.15f))),
                     height = 6.dp, legend = SegLegend.None)
                 Row(Modifier.padding(top = 5.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    listOf(Triple("Verified by Narrativ.ai", nVer, TierC.lightGreen), Triple("Researched, not verified", nRes - nVer, Color.White.copy(alpha = 0.15f))).forEach { (k, n, c) ->
+                    listOf(Triple("Verified by Narrativ.ai", nVer, TierC.lightGreen), Triple("Researched, not verified", nRes - nVer, C.hi.copy(alpha = 0.15f))).forEach { (k, n, c) ->
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(Modifier.size(8.dp).clip(RoundedCornerShape(2.dp)).background(c)); T(" $k ", 11.sp, C.dim, maxLines = 1); T("$n", 11.sp, weight = FontWeight.SemiBold)
+                            Box(Modifier.size(8.dp).clip(rr(2.dp)).background(c)); T(" $k ", 11.sp, C.dim, maxLines = 1); T("$n", 11.sp, weight = FontWeight.SemiBold)
                         }
                     }
                 }
@@ -221,7 +221,9 @@ fun ScreenerScreen(st: AppState, preset: String?) {
             val r = 20.dp
             val shape = RoundedCornerShape(topStart = if (k == 0) r else 0.dp, topEnd = if (k == 0) r else 0.dp,
                 bottomStart = if (k == shown.lastIndex) r else 0.dp, bottomEnd = if (k == shown.lastIndex) r else 0.dp)
-            Column(Modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(shape).background(C.card)) {
+            // Paper: rows sit on the paper under a rule (no panel), like the mock-up
+            Column(Modifier.padding(horizontal = 16.dp).fillMaxWidth().then(if (Look.paper) Modifier else Modifier.clip(shape).background(C.card))) {
+                if (Look.paper && k == 0) Box(Modifier.fillMaxWidth().height(1.dp).background(C.white))
                 StockRow(st, p)
                 if (k < shown.lastIndex) HLineDivider(Modifier.padding(horizontal = S.cardPad))
             }
@@ -240,8 +242,8 @@ fun ScreenerScreen(st: AppState, preset: String?) {
 
 @Composable
 private fun CtlButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, on: Boolean = false, onClick: () -> Unit) {
-    Row(Modifier.clip(RoundedCornerShape(16.dp)).background(if (on) C.teal.copy(alpha = 0.18f) else C.chip)
-        .then(if (on) Modifier.border(1.dp, C.teal, RoundedCornerShape(16.dp)) else Modifier).clickable(onClick = onClick)
+    Row(Modifier.clip(rr(16.dp)).background(if (on) C.teal.copy(alpha = 0.18f) else C.chip)
+        .then(if (on) Modifier.border(1.dp, C.teal, rr(16.dp)) else Modifier).clickable(onClick = onClick)
         .padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         Icon(icon, null, tint = C.white, modifier = Modifier.size(16.dp)); T(label, 13.sp, maxLines = 1)
     }
@@ -250,6 +252,7 @@ private fun CtlButton(icon: androidx.compose.ui.graphics.vector.ImageVector, lab
 /** One stock in the list: code, Claude tick, decision; setup · industry (or why it was removed); seven level dots; sparkline, price, day move. */
 @Composable
 fun StockRow(st: AppState, p: P) {
+    if (Look.paper) return PaperStockRow(st, p)
     Row(Modifier.fillMaxWidth().clickable { st.go(Screen.Stock(p.s)) }.padding(horizontal = S.cardPad, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -268,6 +271,40 @@ fun StockRow(st: AppState, p: P) {
         Column(Modifier.widthIn(min = 76.dp), horizontalAlignment = Alignment.End) {
             T(priceStr(p.p), 15.sp, weight = FontWeight.Bold, maxLines = 1)
             T(pct2(p.d1), 12.sp, gainColor(p.d1), maxLines = 1)
+        }
+    }
+}
+
+/** Paper look, one stock in the list (mock-up): code + verdict in its ink and the decision tag; seven dots, setup in capitals,
+ *  conviction squares, industry; a 30-day line; price over the day's move with an arrow. Same facts as Classic's row. */
+@Composable
+fun PaperStockRow(st: AppState, p: P) {
+    val col = if ((p.d1 ?: 0.0) >= 0) TierC.darkGreen else TierC.red
+    Row(Modifier.fillMaxWidth().clickable { st.go(Screen.Stock(p.s)) }.padding(horizontal = S.cardPad, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(p.c, fontSize = 15.sp, fontFamily = PaperFonts.headline, fontWeight = FontWeight.Bold, color = C.white, maxLines = 1,
+                    overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, false))
+                StockTick(st, p)
+                if (p.out != null) TierChip("Removed L${p.out.l}", TierC.red, 10.sp) else p.dc?.let { DecisionChip(it, 11.sp) }
+            }
+            if (p.out != null) T(p.out.w ?: p.n, 12.sp, TierC.lightRed, maxLines = 1)
+            else {
+                if (p.vd.isNotBlank()) Text(p.vd, fontSize = 11.sp, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, color = verdictColor(p.vd), maxLines = 1)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    InkDots(p.t)
+                    PaperLabel(setupName(p.su, p.tb == 1), setupColor(p.su, p.tb == 1).takeIf { p.su != "Base" } ?: C.grey, 9.sp, bold = false)
+                    p.cv?.let { cv -> Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                        (1..3).forEach { k -> Box(Modifier.size(6.dp).background(if (k <= (if (cv == "High") 3 else if (cv == "Medium") 2 else 1)) C.white else C.line)) }
+                    } }
+                }
+                T(p.i ?: p.n, 11.sp, C.dim, maxLines = 1)
+            }
+        }
+        InkSpark(p.sp, col, Modifier.padding(horizontal = 6.dp).size(54.dp, 22.dp))
+        Column(Modifier.widthIn(min = 70.dp), horizontalAlignment = Alignment.End) {
+            T(priceStr(p.p), 13.sp, weight = FontWeight.SemiBold, maxLines = 1)
+            T(arrowPct(p.d1), 11.sp, col, maxLines = 1)
         }
     }
 }
@@ -296,14 +333,14 @@ fun FilterSheet(st: AppState, start: Filt, saved: List<Filt>, onDismiss: () -> U
     val nVer = remember(pf) { pf.picks.count { it.verified() } }
     val nRes = remember(pf, st.research) { pf.picks.count { st.researched(it) } }
     BottomSheet(onDismiss, "Filters", titleExtra = {
-        T("Reset", 14.sp, C.blue, modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable { d = Filt(sort = d.sort, q = d.q) }.padding(4.dp))
+        T("Reset", 14.sp, C.blue, modifier = Modifier.clip(rr(8.dp)).clickable { d = Filt(sort = d.sort, q = d.q) }.padding(4.dp))
     }) {
         Label("Narrativ.ai research")
-        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(C.chip).padding(3.dp), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+        Row(Modifier.fillMaxWidth().clip(rr(14.dp)).background(C.chip).padding(3.dp), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
             RESEARCH.forEach { r ->
                 val on = d.research == r
-                Row(Modifier.weight(1f).clip(RoundedCornerShape(11.dp)).background(if (on) TierC.lightGreen.copy(alpha = 0.15f) else Color.Transparent)
-                    .then(if (on) Modifier.border(1.dp, TierC.lightGreen, RoundedCornerShape(11.dp)) else Modifier).clickable { d = d.copy(research = r) }
+                Row(Modifier.weight(1f).clip(rr(11.dp)).background(if (on) TierC.lightGreen.copy(alpha = 0.15f) else Color.Transparent)
+                    .then(if (on) Modifier.border(1.dp, TierC.lightGreen, rr(11.dp)) else Modifier).clickable { d = d.copy(research = r) }
                     .padding(vertical = 9.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
                     if (r == "Verified") Icon(Icons.Rounded.Check, null, tint = TierC.lightGreen, modifier = Modifier.padding(end = 4.dp).size(14.dp))
                     T(r, 13.sp, if (on) C.white else C.muted, maxLines = 1)
@@ -329,17 +366,17 @@ fun FilterSheet(st: AppState, start: Filt, saved: List<Filt>, onDismiss: () -> U
                 }
                 Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
                     val anyOn = if (i == 5) d.disc.isEmpty() else d.minTier[i] == 0
-                    Box(Modifier.weight(1.4f).height(30.dp).clip(RoundedCornerShape(7.dp)).background(Color.White.copy(alpha = if (anyOn) 0.15f else 0.05f))
+                    Box(Modifier.weight(1.4f).height(30.dp).clip(rr(7.dp)).background(C.hi.copy(alpha = if (anyOn) 0.15f else 0.05f))
                         .clickable { d = if (i == 5) d.copy(disc = emptyList()) else d.copy(minTier = d.minTier.toMutableList().also { it[i] = 0 }) },
                         contentAlignment = Alignment.Center) { T("Any", 11.sp, if (anyOn) C.white else C.dim, if (anyOn) FontWeight.SemiBold else FontWeight.Normal) }
                     (1..5).forEach { t ->
                         val inn = if (i == 5) t in d.disc else d.minTier[i].let { it != 0 && t <= it }
-                        Box(Modifier.weight(1f).height(30.dp).clip(RoundedCornerShape(7.dp)).background(Color.White.copy(alpha = if (inn) 0.10f else 0.05f))
+                        Box(Modifier.weight(1f).height(30.dp).clip(rr(7.dp)).background(C.hi.copy(alpha = if (inn) 0.10f else 0.05f))
                             .clickable {
                                 d = if (i == 5) d.copy(disc = if (t in d.disc) d.disc - t else d.disc + t)
                                 else d.copy(minTier = d.minTier.toMutableList().also { it[i] = if (it[i] == t) 0 else t })
                             }, contentAlignment = Alignment.Center) {
-                            Box(Modifier.fillMaxWidth(0.6f).height(5.dp).clip(RoundedCornerShape(3.dp)).background(tierColor(t).copy(alpha = if (inn) 1f else 0.28f)))
+                            Box(Modifier.fillMaxWidth(0.6f).height(5.dp).clip(rr(3.dp)).background(tierColor(t).copy(alpha = if (inn) 1f else 0.28f)))
                         }
                     }
                 }
@@ -355,7 +392,7 @@ fun FilterSheet(st: AppState, start: Filt, saved: List<Filt>, onDismiss: () -> U
             MCAP.forEach { s -> ToggleChip(s, d.mcap == s, { d = d.copy(mcap = s) }) }
         }
         Label("Industry contains")
-        Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(C.chip).padding(horizontal = 12.dp, vertical = 11.dp)) {
+        Box(Modifier.fillMaxWidth().clip(rr(12.dp)).background(C.chip).padding(horizontal = 12.dp, vertical = 11.dp)) {
             BasicTextField(d.industry, { d = d.copy(industry = it, industryExact = false) }, singleLine = true, textStyle = TextStyle(color = C.white, fontSize = 14.sp), cursorBrush = SolidColor(C.blue),
                 modifier = Modifier.fillMaxWidth(), decorationBox = { inner -> if (d.industry.isEmpty()) T("e.g. Chemicals", 14.sp, C.dim); inner() })
         }
@@ -371,7 +408,7 @@ fun FilterSheet(st: AppState, start: Filt, saved: List<Filt>, onDismiss: () -> U
             if (k < 2) HLineDivider()
         }
         Row(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Box(Modifier.clip(RoundedCornerShape(16.dp)).border(1.dp, C.teal, RoundedCornerShape(16.dp))
+            Box(Modifier.clip(rr(16.dp)).border(1.dp, C.teal, rr(16.dp))
                 .clickable { onSave(d.copy(name = "Saved ${saved.size + 1}")) }.padding(horizontal = 18.dp, vertical = 13.dp)) {
                 T("Save", 15.sp, C.blue, FontWeight.SemiBold)
             }
@@ -385,8 +422,8 @@ private fun Label(text: String) = T(text, 12.sp, C.dim, modifier = Modifier.padd
 
 @Composable
 fun FChip(text: String, on: Boolean, color: Color, onClick: () -> Unit) {
-    Box(Modifier.clip(RoundedCornerShape(16.dp)).background(if (on) color.copy(alpha = 0.22f) else C.card2)
-        .then(if (on) Modifier.border(1.dp, color, RoundedCornerShape(16.dp)) else Modifier).clickable(onClick = onClick)
+    Box(Modifier.clip(rr(16.dp)).then(if (Look.paper) Modifier.border(1.dp, if (on) color else C.line) else Modifier.background(if (on) color.copy(alpha = 0.22f) else C.card2))
+        .then(if (on && !Look.paper) Modifier.border(1.dp, color, rr(16.dp)) else Modifier).clickable(onClick = onClick)
         .heightIn(min = 40.dp).padding(horizontal = 12.dp, vertical = 10.dp), contentAlignment = Alignment.Center) { T(text, 12.sp, if (on) C.white else C.grey, FontWeight.Medium, maxLines = 1) }
 }
 

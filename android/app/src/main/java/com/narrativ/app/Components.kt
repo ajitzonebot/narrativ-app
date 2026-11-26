@@ -15,6 +15,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -41,14 +42,14 @@ fun T(text: String, size: TextUnit = 14.sp, color: Color = C.white, weight: Font
       modifier: Modifier = Modifier, maxLines: Int = Int.MAX_VALUE, lineHeight: TextUnit = TextUnit.Unspecified,
       align: androidx.compose.ui.text.style.TextAlign? = null) =
     Text(text, modifier = modifier, fontSize = size, color = color, fontWeight = weight, maxLines = maxLines,
-        overflow = TextOverflow.Ellipsis, lineHeight = lineHeight, textAlign = align)
+        overflow = TextOverflow.Ellipsis, lineHeight = lineHeight, textAlign = align, fontFamily = paperFamily(size, weight))
 
 @Composable
 fun CircleBtn(icon: ImageVector, tint: Color = C.white, accent: Boolean = false, onClick: () -> Unit) {
     Box(
         Modifier.size(44.dp).clip(CircleShape)
-            .background(if (accent) C.teal.copy(alpha = 0.08f) else Color.White.copy(alpha = 0.07f))
-            .then(if (accent) Modifier.border(1.dp, C.teal.copy(alpha = 0.35f), CircleShape) else Modifier)
+            .then(if (Look.paper) Modifier else Modifier.background(if (accent) C.teal.copy(alpha = 0.08f) else C.hi.copy(alpha = 0.07f)))
+            .then(if (accent && !Look.paper) Modifier.border(1.dp, C.teal.copy(alpha = 0.35f), CircleShape) else Modifier)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) { Icon(icon, null, tint = if (accent) C.teal else tint, modifier = Modifier.size(22.dp)) }
@@ -56,7 +57,8 @@ fun CircleBtn(icon: ImageVector, tint: Color = C.white, accent: Boolean = false,
 
 @Composable
 fun Pill(text: String, fg: Color = C.grey, bg: Color = C.chip, size: TextUnit = 11.sp, modifier: Modifier = Modifier) {
-    Box(modifier.clip(RoundedCornerShape(S.inner)).background(bg).padding(horizontal = 8.dp, vertical = 3.dp)) {
+    if (Look.paper) return PaperTag(text, fg, size, modifier)
+    Box(modifier.clip(rr(S.inner)).background(bg).padding(horizontal = 8.dp, vertical = 3.dp)) {
         T(text, size, fg, FontWeight.SemiBold, maxLines = 1)
     }
 }
@@ -64,8 +66,17 @@ fun Pill(text: String, fg: Color = C.grey, bg: Color = C.chip, size: TextUnit = 
 @Composable
 fun Card(modifier: Modifier = Modifier, color: Color = C.card, radius: Dp = S.card, pad: Dp = S.cardPad,
          onClick: (() -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {
-    Column(
-        modifier.clip(RoundedCornerShape(radius)).background(color)
+    if (Look.paper && color == C.card) {
+        // Paper: no box, a rule across the top like a newspaper section; content sits on the paper
+        val ink = C.white
+        Column(
+            modifier.drawBehind { drawLine(ink, androidx.compose.ui.geometry.Offset(0f, 0f), androidx.compose.ui.geometry.Offset(size.width, 0f), 1.dp.toPx()) }
+                .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+                .padding(start = if (pad > 0.dp) 2.dp else 0.dp, end = if (pad > 0.dp) 2.dp else 0.dp, top = pad.coerceAtLeast(6.dp), bottom = pad),
+            content = content,
+        )
+    } else Column(
+        modifier.clip(rr(radius)).background(color)
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier).padding(pad),
         content = content,
     )
@@ -78,7 +89,7 @@ fun SectionTitle(title: String, right: String? = null, onClick: (() -> Unit)? = 
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        T(title, 18.sp, weight = FontWeight.SemiBold)
+        if (Look.paper) PaperLabel(title, size = 12.sp) else T(title, 18.sp, weight = FontWeight.SemiBold)
         if (right != null) T(right, 13.sp, C.grey)
     }
 }
@@ -107,8 +118,8 @@ fun VsChart(a: List<Double>, b: List<Double>, modifier: Modifier = Modifier) {
 /** Icon tile used in timelines and section headers. */
 @Composable
 fun Tile(icon: ImageVector, brush: Brush = C.tile, size: Dp = 46.dp, iconSize: Dp = 26.dp) {
-    Box(Modifier.size(size).clip(RoundedCornerShape(14.dp)).background(brush), contentAlignment = Alignment.Center) {
-        Icon(icon, null, tint = Color.White, modifier = Modifier.size(iconSize))
+    Box(Modifier.size(size).clip(rr(14.dp)).background(brush), contentAlignment = Alignment.Center) {
+        Icon(icon, null, tint = C.onAccent, modifier = Modifier.size(iconSize))
     }
 }
 
@@ -141,14 +152,15 @@ val DEFAULT_TIERS = mapOf(
 )
 
 object TierC {
-    val darkGreen = Color(0xFF1E9E5A)
-    val lightGreen = Color(0xFF8BDB8F)
-    val yellow = Color(0xFFF2C94C)
-    val lightRed = Color(0xFFF2908A)
-    val red = Color(0xFFE5483B)
-    val grey = Color(0xFF6B7075)
-    val lime = Color(0xFFC9E27C)    // verdict "Undervalued quality" (between light green and yellow)
-    val violet = Color(0xFFC3A6F5)  // verdict "Momentum play" (replaces the old cyan 0xFF5FD9E8, which read as tappable blue)
+    // Classic first, then the Paper ink (darker so it reads on cream; same order, best to worst)
+    val darkGreen: Color get() = if (Look.paper) Color(0xFF2F5A36) else Color(0xFF1E9E5A)
+    val lightGreen: Color get() = if (Look.paper) Color(0xFF3F6B30) else Color(0xFF8BDB8F)
+    val yellow: Color get() = if (Look.paper) Color(0xFF7A5C0B) else Color(0xFFF2C94C)
+    val lightRed: Color get() = if (Look.paper) Color(0xFF9A4A2E) else Color(0xFFF2908A)
+    val red: Color get() = if (Look.paper) Color(0xFF862A22) else Color(0xFFE5483B)
+    val grey: Color get() = if (Look.paper) Color(0xFF8C8072) else Color(0xFF6B7075)
+    val lime: Color get() = if (Look.paper) Color(0xFF5A6418) else Color(0xFFC9E27C)    // verdict "Undervalued quality" (between light green and yellow)
+    val violet: Color get() = if (Look.paper) Color(0xFF5B4A7A) else Color(0xFFC3A6F5)  // verdict "Momentum play" (replaces the old cyan 0xFF5FD9E8, which read as tappable blue)
 }
 
 fun tierColor(t: Int): Color = when (t) {
@@ -169,9 +181,18 @@ fun P.levelColor(level: Int): Color = tierColor(tier(level))
 
 @Composable
 fun TierChip(text: String, color: Color, size: TextUnit = 11.sp) {
-    Box(Modifier.clip(RoundedCornerShape(S.inner)).background(color.copy(alpha = 0.16f)).border(1.dp, color.copy(alpha = 0.55f), RoundedCornerShape(S.inner))
+    if (Look.paper) return PaperTag(text, color, size)
+    Box(Modifier.clip(rr(S.inner)).background(color.copy(alpha = 0.16f)).border(1.dp, color.copy(alpha = 0.55f), rr(S.inner))
         .padding(horizontal = 8.dp, vertical = 2.dp), contentAlignment = Alignment.Center) {  // feedback #61: text centred in the pill
         T(text, size, color, FontWeight.SemiBold, maxLines = 1) }
+}
+
+/** Paper tag: square, 1 dp border and capital label in the tag's ink (no fill), as printed. */
+@Composable
+fun PaperTag(text: String, color: Color, size: TextUnit = 11.sp, modifier: Modifier = Modifier) {
+    Box(modifier.border(1.dp, color.copy(alpha = 0.8f)).padding(horizontal = 5.dp, vertical = 1.dp), contentAlignment = Alignment.Center) {
+        PaperLabel(text, color, (size.value - 1.5f).coerceAtLeast(8.5f).sp)
+    }
 }
 
 /** Seven dots, one per funnel level, in tier colours. */
@@ -184,7 +205,7 @@ fun LevelDots(p: P, dot: Dp = 8.dp) {
 
 data class VerdictMeta(val name: String, val color: Color, val icon: ImageVector, val rule: String)
 
-val VERDICTS = listOf(
+val VERDICTS get() = listOf(
     // no blue (blue means tappable): best verdicts darkest green, then light green, lime, violet, amber, yellow, greys
     VerdictMeta("Prime candidate", TierC.darkGreen, Icons.Rounded.Star, "Quality good+, management trustworthy+, fair or cheaper, outlook strong+"),
     VerdictMeta("Early story", TierC.lightGreen, Icons.Rounded.RocketLaunch, "Outlook strong+, quality average or turnaround"),
@@ -210,7 +231,8 @@ fun decisionColor(d: String?): Color = when (d) {
 fun DecisionChip(d: String?, size: TextUnit = 11.sp) {  // redesign: tinted pill, no border (mockup .dch)
     if (d == null) return
     val c = decisionColor(d)
-    Box(Modifier.clip(RoundedCornerShape(S.inner)).background(c.copy(alpha = 0.13f)).padding(horizontal = 8.dp, vertical = 2.dp), contentAlignment = Alignment.Center) {
+    if (Look.paper) return PaperTag(d, c, size)
+    Box(Modifier.clip(rr(S.inner)).background(c.copy(alpha = 0.13f)).padding(horizontal = 8.dp, vertical = 2.dp), contentAlignment = Alignment.Center) {
         T(d, size, c, FontWeight.SemiBold, maxLines = 1)
     }
 }

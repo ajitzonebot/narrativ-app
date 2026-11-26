@@ -84,7 +84,7 @@ fun KeyScreen(onDone: () -> Unit) {
 
     Column(Modifier.fillMaxSize().background(C.bg).systemBarsPadding().imePadding().padding(horizontal = 20.dp, vertical = 16.dp)) {
         Box(Modifier.fillMaxWidth().height(40.dp), contentAlignment = Alignment.CenterEnd) {
-            if (canCancel) T("Cancel", 15.sp, C.blue, modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable { KeyGate.editing = false }
+            if (canCancel) T("Cancel", 15.sp, C.blue, modifier = Modifier.clip(rr(12.dp)).clickable { KeyGate.editing = false }
                 .padding(horizontal = 8.dp, vertical = 6.dp))
         }
         Spacer(Modifier.height(24.dp))
@@ -93,8 +93,8 @@ fun KeyScreen(onDone: () -> Unit) {
         T("Enter your access key", 24.sp, weight = FontWeight.Bold)
         T("Narrativ is private. You only need the key once on this phone.", 14.sp, C.dim, lineHeight = 20.sp,
             modifier = Modifier.padding(top = 6.dp))
-        Box(Modifier.padding(top = 20.dp).fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Color(0xFF0B0C0D))
-            .border(1.dp, if (err != null) C.red else C.teal.copy(alpha = 0.33f), RoundedCornerShape(16.dp)).padding(14.dp)) {
+        Box(Modifier.padding(top = 20.dp).fillMaxWidth().clip(rr(16.dp)).background(C.card2)
+            .border(1.dp, if (err != null) C.red else C.teal.copy(alpha = 0.33f), rr(16.dp)).padding(14.dp)) {
             BasicTextField(text, { text = it.trim(); err = null }, singleLine = true,
                 textStyle = TextStyle(color = C.white, fontSize = 16.sp, letterSpacing = 1.sp), cursorBrush = SolidColor(C.blue),
                 visualTransformation = PasswordVisualTransformation(),
@@ -105,7 +105,7 @@ fun KeyScreen(onDone: () -> Unit) {
         err?.let { T(it, 13.sp, C.red, modifier = Modifier.padding(top = 8.dp)) }
         Spacer(Modifier.weight(1f))
         val ready = text.isNotBlank() && !busy
-        Box(Modifier.fillMaxWidth().height(50.dp).clip(RoundedCornerShape(25.dp)).background(if (ready) C.teal else C.chip)
+        Box(Modifier.fillMaxWidth().height(50.dp).clip(rr(25.dp)).background(if (ready) C.teal else C.chip)
             .clickable(enabled = ready) {
                 busy = true
                 scope.launch {
@@ -118,7 +118,7 @@ fun KeyScreen(onDone: () -> Unit) {
                     }
                 }
             }, contentAlignment = Alignment.Center) {
-            T(if (busy) "Checking…" else "Open Narrativ", 16.sp, if (ready) Color.White else C.dim, FontWeight.SemiBold)
+            T(if (busy) "Checking…" else "Open Narrativ", 16.sp, if (ready) C.onAccent else C.dim, FontWeight.SemiBold)
         }
     }
 }

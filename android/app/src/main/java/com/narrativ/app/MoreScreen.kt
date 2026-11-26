@@ -51,6 +51,7 @@ private fun SetRow(icon: ImageVector, title: String, sub: String, onClick: () ->
 
 @Composable
 fun SettingsScreen(st: AppState) {
+    val ctx = LocalContext.current
     val v = st.version
     val callsF by produceState(st.repo.peekF<CallsFile>("data/calls.json")) { st.repo.cacheFirst<CallsFile>("data/calls.json") { value = Fetched(it) } }
     val calls = callsF?.v
@@ -81,7 +82,13 @@ fun SettingsScreen(st: AppState) {
                 // a switch, not a click-through (the old "Alerts" page described push alerts that were never set up: removed)
                 SetRow(Icons.Rounded.NotificationsNone, "IPO alerts", "09:15 each open day · 15:45 on the last day", { st.toggleIpoAlerts() }, trailing = {
                     androidx.compose.material3.Switch(checked = st.ipoAlerts, onCheckedChange = { st.toggleIpoAlerts() },
-                        colors = androidx.compose.material3.SwitchDefaults.colors(checkedTrackColor = C.teal, checkedThumbColor = Color.White))
+                        colors = androidx.compose.material3.SwitchDefaults.colors(checkedTrackColor = C.teal, checkedThumbColor = C.onAccent))
+                })
+                HLineDivider(Modifier.padding(horizontal = 14.dp))
+                // owner, 25 Nov 2026: Paper look with Classic one tap away (rollback without reinstalling)
+                SetRow(Icons.Rounded.Palette, "Paper look", if (Look.paper) "On · turn off for the Classic dark look" else "Off · Classic dark look", { Look.set(ctx, !Look.paper) }, trailing = {
+                    androidx.compose.material3.Switch(checked = Look.paper, onCheckedChange = { Look.set(ctx, it) },
+                        colors = androidx.compose.material3.SwitchDefaults.colors(checkedTrackColor = C.teal, checkedThumbColor = C.onAccent))
                 })
                 HLineDivider(Modifier.padding(horizontal = 14.dp))
                 SetRow(Icons.Rounded.ChatBubbleOutline, "Feedback", "Send a note or see yours", { st.go(Screen.Feedback) })
@@ -142,7 +149,7 @@ fun AdvancedScreen(st: AppState) {
 private fun AdvRow(icon: ImageVector, title: String, onClick: () -> Unit, dot: Color?, sub: String, visual: (@Composable () -> Unit)? = null, badge: Int? = null) {
     Row(Modifier.fillMaxWidth().clickable(onClick = onClick).defaultMinSize(minHeight = 76.dp).padding(horizontal = 14.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Box(Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(Color.White.copy(alpha = 0.06f)), contentAlignment = Alignment.Center) {
+        Box(Modifier.size(40.dp).clip(rr(12.dp)).background(C.hi.copy(alpha = 0.06f)), contentAlignment = Alignment.Center) {
             Icon(icon, null, tint = C.blue, modifier = Modifier.size(22.dp))
         }
         Column(Modifier.weight(1f)) {
@@ -190,7 +197,7 @@ fun UpdateDialog(st: AppState) {
     var err by remember { mutableStateOf<String?>(null) }
     var done by remember { mutableStateOf<java.io.File?>(null) }
     Dialog(onDismissRequest = { if (!busy) st.dismissUpdate() }) {
-        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(C.card).border(1.dp, C.line, RoundedCornerShape(28.dp)).padding(20.dp)
+        Column(Modifier.fillMaxWidth().clip(rr(28.dp)).background(C.card).border(1.dp, C.line, rr(28.dp)).padding(20.dp)
             .heightIn(max = 560.dp).verticalScroll(rememberScrollState())) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Box(Modifier.size(40.dp).clip(CircleShape).background(C.amber.copy(alpha = 0.13f)), contentAlignment = Alignment.Center) {
@@ -212,8 +219,8 @@ fun UpdateDialog(st: AppState) {
             }
             Spacer(Modifier.height(16.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Box(Modifier.weight(1f).height(48.dp).clip(RoundedCornerShape(24.dp)).background(Color.White.copy(alpha = 0.06f))
-                    .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(24.dp)).clickable { st.dismissUpdate() }, contentAlignment = Alignment.Center) {
+                Box(Modifier.weight(1f).height(48.dp).clip(rr(24.dp)).background(C.hi.copy(alpha = 0.06f))
+                    .border(1.dp, C.hi.copy(alpha = 0.12f), rr(24.dp)).clickable { st.dismissUpdate() }, contentAlignment = Alignment.Center) {
                     T("Later", 15.sp, weight = FontWeight.SemiBold)
                 }
                 PrimaryButton(when { busy && prog >= 0f -> "Downloading ${(prog * 100).toInt()}%"; busy -> "Downloading…"; done != null -> "Install"; else -> "Update now" },
@@ -228,7 +235,7 @@ fun UpdateDialog(st: AppState) {
                     }
                 }
             }
-            if (busy && prog >= 0f) Box(Modifier.padding(top = 10.dp).fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)).background(C.chip)) {
+            if (busy && prog >= 0f) Box(Modifier.padding(top = 10.dp).fillMaxWidth().height(4.dp).clip(rr(2.dp)).background(C.chip)) {
                 Box(Modifier.fillMaxWidth(prog.coerceIn(0f, 1f)).fillMaxHeight().background(C.muted))
             }
             err?.let { T(it, 12.sp, C.red, modifier = Modifier.padding(top = 10.dp)) }
@@ -250,8 +257,8 @@ fun FeedbackSheet(st: AppState) {
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf("Idea", "Bug", "Data looks wrong", "Stock request").forEach { t -> ToggleChip(t, type == t, { type = t }) }
         }
-        Box(Modifier.fillMaxWidth().heightIn(min = 130.dp).clip(RoundedCornerShape(16.dp)).background(C.card2)
-            .border(1.dp, C.teal.copy(alpha = 0.33f), RoundedCornerShape(16.dp)).padding(14.dp)) {
+        Box(Modifier.fillMaxWidth().heightIn(min = 130.dp).clip(rr(16.dp)).background(C.card2)
+            .border(1.dp, C.teal.copy(alpha = 0.33f), rr(16.dp)).padding(14.dp)) {
             BasicTextField(text, { text = it; err = null }, textStyle = TextStyle(color = C.white, fontSize = 15.sp), cursorBrush = SolidColor(C.blue),
                 modifier = Modifier.fillMaxWidth().imePadding(),
                 decorationBox = { inner -> if (text.isEmpty()) T(if (type == "Stock request") "Symbol and why, e.g. DEEPINDS: check order book" else "What should change?", 15.sp, C.dim); inner() })

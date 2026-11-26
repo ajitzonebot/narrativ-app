@@ -89,7 +89,7 @@ fun skDue(s: String?): String {
 /** Chip with coloured text and no dot ("1M +11.0%", "vs 200-day −5.2%"). */
 @Composable
 fun ValChip(text: String, color: Color = C.muted, modifier: Modifier = Modifier) {
-    Box(modifier.clip(RoundedCornerShape(S.inner)).background(C.chip).padding(horizontal = 8.dp, vertical = 3.dp)) {
+    Box(modifier.clip(rr(S.inner)).background(C.chip).padding(horizontal = 8.dp, vertical = 3.dp)) {
         T(text, 11.sp, color, maxLines = 1)
     }
 }
@@ -97,7 +97,7 @@ fun ValChip(text: String, color: Color = C.muted, modifier: Modifier = Modifier)
 /** Empty state inside the page padding. */
 @Composable
 fun EmptyNote(text: String, modifier: Modifier = Modifier) {
-    Box(modifier.fillMaxWidth().clip(RoundedCornerShape(S.card)).background(C.card).padding(S.cardPad)) { T(text, 13.sp, C.dim, lineHeight = 18.sp) }
+    Box(modifier.fillMaxWidth().clip(rr(S.card)).background(C.card).padding(S.cardPad)) { T(text, 13.sp, C.dim, lineHeight = 18.sp) }
 }
 
 /** Tappable row with a label, grey right text and a chevron (Summary: Claude's research, all ratios). */
@@ -132,8 +132,8 @@ fun PairBars(rows: List<Triple<String, Double, Color>>, valueFmt: (Double) -> St
         Row(Modifier.fillMaxWidth().padding(top = if (i > 0) 10.dp else 0.dp, bottom = 4.dp)) {
             T(label, 12.sp, C.muted, modifier = Modifier.weight(1f), maxLines = 1); T(valueFmt(v), 12.sp, weight = FontWeight.Bold, maxLines = 1)
         }
-        BoxWithConstraints(Modifier.fillMaxWidth().height(12.dp).clip(RoundedCornerShape(6.dp)).background(TRACK)) {
-            Box(Modifier.width((maxWidth * (v / mx).toFloat()).coerceAtLeast(6.dp)).fillMaxHeight().clip(RoundedCornerShape(6.dp)).background(c))
+        BoxWithConstraints(Modifier.fillMaxWidth().height(12.dp).clip(rr(6.dp)).background(TRACK)) {
+            Box(Modifier.width((maxWidth * (v / mx).toFloat()).coerceAtLeast(6.dp)).fillMaxHeight().clip(rr(6.dp)).background(c))
         }
     }
 }
@@ -141,8 +141,8 @@ fun PairBars(rows: List<Triple<String, Double, Color>>, valueFmt: (Double) -> St
 /** Thin progress bar 0..1. */
 @Composable
 fun ProgressLine(frac: Float, color: Color = C.muted, modifier: Modifier = Modifier, height: Dp = 6.dp) {
-    BoxWithConstraints(modifier.fillMaxWidth().height(height).clip(RoundedCornerShape(height / 2)).background(TRACK)) {
-        Box(Modifier.width(maxWidth * frac.coerceIn(0f, 1f)).fillMaxHeight().clip(RoundedCornerShape(height / 2)).background(color))
+    BoxWithConstraints(modifier.fillMaxWidth().height(height).clip(rr(height / 2)).background(TRACK)) {
+        Box(Modifier.width(maxWidth * frac.coerceIn(0f, 1f)).fillMaxHeight().clip(rr(height / 2)).background(color))
     }
 }
 
@@ -214,7 +214,7 @@ fun CheckItemRow(item: Item, onClick: () -> Unit) {
 // ---------------------------------------------------------------- Filings tab (s09)
 private val FILING_BOILER = Regex("^.*?(has informed the Exchange|has submitted to the Exchange|has intimated the Exchange|informed the Exchange)\\s*(about|regarding|that|of|,)?\\s*", RegexOption.IGNORE_CASE)
 private val RESULTS_RE = Regex("result|board meeting|presentation|con\\. ?call|analyst|investor meet|earnings", RegexOption.IGNORE_CASE)
-private val INFO_DOT = TierC.grey  // routine filings: one grey for the strip, the legend and the list
+private val INFO_DOT get() = TierC.grey  // routine filings: one grey for the strip, the legend and the list
 
 /** Subject of a filing without the exchange boilerplate. */
 fun filingSubject(e: Ev): String {
@@ -234,9 +234,9 @@ fun FilingsTab(det: Detail?) {
 /** Two-option segmented control: C.chip track, the selected option on C.card in SemiBold. */
 @Composable
 private fun FilingsNewsSwitch(selected: Int, onSelect: (Int) -> Unit) {
-    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(S.tile)).background(C.chip).padding(3.dp)) {
+    Row(Modifier.fillMaxWidth().clip(rr(S.tile)).background(C.chip).padding(3.dp)) {
         listOf("Filings", "News").forEachIndexed { i, o ->
-            Box(Modifier.weight(1f).clip(RoundedCornerShape(S.inner)).background(if (i == selected) C.card else Color.Transparent)
+            Box(Modifier.weight(1f).clip(rr(S.inner)).background(if (i == selected) C.card else Color.Transparent)
                 .clickable { onSelect(i) }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
                 T(o, 13.sp, if (i == selected) C.white else C.dim, if (i == selected) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1)
             }
@@ -305,7 +305,7 @@ private fun FilingsList(det: Detail?) {
             }
             if (i < n - 1) HLineDivider()
         }
-        if (shown.size > 11) Row(Modifier.clip(RoundedCornerShape(S.inner)).clickable { showAll = !showAll }.padding(top = 8.dp, bottom = 2.dp),
+        if (shown.size > 11) Row(Modifier.clip(rr(S.inner)).clickable { showAll = !showAll }.padding(top = 8.dp, bottom = 2.dp),
             verticalAlignment = Alignment.CenterVertically) {
             T(if (showAll) "Show fewer" else "Show ${shown.size - 11} older", 13.sp, C.blue)
             Icon(Icons.Rounded.ExpandMore, null, tint = C.blue, modifier = Modifier.size(16.dp))

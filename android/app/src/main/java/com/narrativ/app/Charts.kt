@@ -76,8 +76,8 @@ fun smoothPath(pts: List<Offset>, k: Float = 1f / 8f, into: Path = Path(), moveF
 private val dash = PathEffect.dashPathEffect(floatArrayOf(10f, 10f))
 private val dashFine = PathEffect.dashPathEffect(floatArrayOf(8f, 10f))
 /** Track behind bars, meters and gauges (#ffffff1a in the mockups). */
-val TRACK = C.line
-private val KNOB_RING = C.card2
+val TRACK get() = C.line
+private val KNOB_RING get() = C.card2
 
 // ---------------------------------------------------------------- AreaLine
 /** Horizontal level on a line chart (exit, buy-rest, pass line), dashed by default, label as a dark tag at the left. */
@@ -157,8 +157,8 @@ fun AreaLine(
         if (pointDots) pts.forEach { drawCircle(color, 3.5.dp.toPx(), it) }
 
         // level tags drawn over the line so they stay readable
-        bands.forEach { b -> b.label?.let { chartText(tm, it, 7.dp.toPx(), y(b.hi) - 5.dp.toPx(), b.color, 10.sp, FontWeight.SemiBold, bg = Color.Black.copy(alpha = 0.8f)) } }
-        lines.forEach { l -> l.label?.let { chartText(tm, it, 7.dp.toPx(), y(l.value) + (if (l.labelBelow) 14 else -4).dp.toPx(), l.color, 10.sp, FontWeight.SemiBold, bg = Color.Black.copy(alpha = 0.8f)) } }
+        bands.forEach { b -> b.label?.let { chartText(tm, it, 7.dp.toPx(), y(b.hi) - 5.dp.toPx(), b.color, 10.sp, FontWeight.SemiBold, bg = C.lo.copy(alpha = 0.8f)) } }
+        lines.forEach { l -> l.label?.let { chartText(tm, it, 7.dp.toPx(), y(l.value) + (if (l.labelBelow) 14 else -4).dp.toPx(), l.color, 10.sp, FontWeight.SemiBold, bg = C.lo.copy(alpha = 0.8f)) } }
 
         marks.forEach { m ->
             val o = pts.getOrNull(m.index) ?: return@forEach
@@ -177,7 +177,7 @@ fun AreaLine(
             todayCaption?.let { chartText(tm, it, size.width, ty + 20.dp.toPx(), todayColor, 10.sp, anchor = Anchor.End) }
         }
         if (endDot) {
-            if (hollowEnd) { drawCircle(Color.Black, 4.5.dp.toPx(), last); drawCircle(C.white, 4.5.dp.toPx(), last, style = Stroke(2.dp.toPx())) }
+            if (hollowEnd) { drawCircle(C.lo, 4.5.dp.toPx(), last); drawCircle(C.white, 4.5.dp.toPx(), last, style = Stroke(2.dp.toPx())) }
             else { drawCircle(C.card, 6.dp.toPx(), last); drawCircle(color, 4.dp.toPx(), last) }
         }
         if (endLabelPos == EndLabel.Right) {
@@ -360,7 +360,7 @@ fun FillBar(value: Double, lo: Double, hi: Double, pass: Double, color: Color, m
             val f = ((value - lo) / span).coerceIn(0.0, 1.0).toFloat()
             if (f > 0f) drawRoundRect(color, Offset(0f, top), Size(max(size.width * f, bh), bh), r)
             val tx = (size.width * tick).coerceIn(1.dp.toPx(), size.width - 1.dp.toPx())
-            drawRect(Color.White, Offset(tx - 1.dp.toPx(), 0f), Size(2.dp.toPx(), size.height))
+            drawRect(C.hi, Offset(tx - 1.dp.toPx(), 0f), Size(2.dp.toPx(), size.height))
         }
         // min left, "pass x" centred on the tick, max right; an end label that would touch the pass label is left out
         if (labels) Layout(content = {
@@ -411,7 +411,7 @@ fun RangeBar(lo: Double, hi: Double, marks: List<RangeMark>, modifier: Modifier 
 /** Zone of a [Gauge] up to (exclusive) [upTo] on 0..100. */
 data class GaugeZone(val upTo: Double, val color: Color, val name: String = "")
 /** Market mood zones (Market screen and Home strip). */
-val MOOD_ZONES = listOf(GaugeZone(25.0, TierC.red, "Extreme fear"), GaugeZone(45.0, TierC.lightRed, "Fear"), GaugeZone(55.0, TierC.yellow, "Neutral"),
+val MOOD_ZONES get() = listOf(GaugeZone(25.0, TierC.red, "Extreme fear"), GaugeZone(45.0, TierC.lightRed, "Fear"), GaugeZone(55.0, TierC.yellow, "Neutral"),
     GaugeZone(75.0, TierC.lightGreen, "Greed"), GaugeZone(100.0, TierC.darkGreen, "Extreme greed"))
 fun zoneColor(score: Double, zones: List<GaugeZone> = MOOD_ZONES): Color = zones[ChartMath.zoneOf(score, zones.map { it.upTo })].color
 
@@ -437,7 +437,7 @@ fun Gauge(score: Int, modifier: Modifier = Modifier.size(220.dp, 124.dp), zones:
         val an = PI * (1 - score.coerceIn(0, 100) / 100.0)
         val k = Offset(cx + (r * cos(an)).toFloat(), cy - (r * sin(an)).toFloat())
         val kr = if (mini) sw / 2 + 0.5.dp.toPx() else sw / 2 + 3.dp.toPx()
-        drawCircle(KNOB_RING, kr + 2.dp.toPx(), k); drawCircle(Color.White, kr, k)
+        drawCircle(KNOB_RING, kr + 2.dp.toPx(), k); drawCircle(C.hi, kr, k)
         if (!mini) {
             chartText(tm, "$score", cx, cy - 22.dp.toPx(), C.white, 40.sp, FontWeight.ExtraBold, Anchor.Middle)
             (label ?: zones.getOrNull(active)?.name)?.let { chartText(tm, it, cx, cy, labelColor ?: zones[active].color, 16.sp, FontWeight.Bold, Anchor.Middle) }
@@ -509,7 +509,7 @@ fun Meter(n: Int, on: Int, modifier: Modifier = Modifier, color: Color = TierC.y
         repeat(n) { i ->
             val c = colors?.getOrNull(i) ?: if (i < on) color else off
             if (style == MeterStyle.Dot) Box(Modifier.size(segment).clip(CircleShape).background(c))
-            else Box(Modifier.size(segment, 5.dp).clip(RoundedCornerShape(2.dp)).background(c))
+            else Box(Modifier.size(segment, 5.dp).clip(rr(2.dp)).background(c))
         }
     }
 }
@@ -659,7 +659,7 @@ fun RotationMap(points: List<RotPoint>, modifier: Modifier = Modifier.fillMaxWid
 @Composable
 fun TierScale(tier: Int, modifier: Modifier = Modifier.fillMaxWidth(), height: Dp = 6.dp) {
     Row(modifier, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        (1..5).forEach { i -> Box(Modifier.weight(1f).height(height).clip(RoundedCornerShape(height / 2)).background(tierColor(i).copy(alpha = if (i == tier) 1f else 0.25f))) }
+        (1..5).forEach { i -> Box(Modifier.weight(1f).height(height).clip(rr(height / 2)).background(tierColor(i).copy(alpha = if (i == tier) 1f else 0.25f))) }
     }
 }
 

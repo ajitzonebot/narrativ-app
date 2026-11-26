@@ -38,7 +38,8 @@ android {
 
     buildTypes {
         debug {
-            buildConfigField("String", "APP_KEY", "\"narrativ-app\"")  // dummy for debug and CI screenshots
+            // dummy for debug; the CI screenshot job passes the real key (-PciAppKey) into an APK that never leaves the runner
+            buildConfigField("String", "APP_KEY", "\"${(project.findProperty("ciAppKey") as String?) ?: "narrativ-app"}\"")
         }
         release {
             // No key in release builds: the APK is public. The owner types the key once (AccessKey.kt).
