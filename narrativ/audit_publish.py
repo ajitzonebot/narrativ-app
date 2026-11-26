@@ -198,6 +198,32 @@ def _runs(today: date) -> list | None:
         return None
 
 
+def repair_r2(first: dict, rev: str, mkey: str, r2, last_ct: int | None) -> dict:
+    """R2 behind or with failed uploads: run the upload from the published commit here (safe: appsync uploads the pushed
+    tree, never the work tree) and report its own result line, so a silent upload failure in the data jobs shows up in
+    audit.json and the issue (first audit, 26 Nov 2026: R2 had stayed at a 25 Nov commit)."""
+    import contextlib
+    import io
+    from narrativ import appsync
+    out = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(out):
+            res = appsync.sync(rev=rev)
+    except Exception as e:  # noqa: BLE001
+        res = {"ok": False, "error": f"{type(e).__name__}: {e}"}
+    lines = [x for x in out.getvalue().splitlines() if x.startswith("[appsync]") and not x.startswith("[appsync] put ")]
+    why = (lines[-1] if lines else str(res))[:300]
+    try:
+        st, body, _ = r2.get(mkey)
+        man = json.loads(body) if st == 200 else {}
+    except Exception:  # noqa: BLE001
+        man = None
+    after = check_r2_app(man, last_ct, _git("rev-parse", rev))
+    verdict = "repaired by the audit" if after["ok"] else "still behind"
+    return {**after, "ok": False if not after["ok"] else True,
+            "detail": f"{first['detail']}; {verdict}: {why}"}
+
+
 def gather() -> dict:
     today = ist_today()
     rev = data_rev()
@@ -218,7 +244,10 @@ def gather() -> dict:
         except Exception as e:  # noqa: BLE001
             print(f"[audit] archive: {e}")
     last_ct = _git("log", "-1", "--format=%ct", rev, "--", "docs/data", ":(exclude)docs/data/audit.json")
-    checks.append(check_r2_app(manifest, int(last_ct) if last_ct else None, _git("rev-parse", rev)))
+    r2c = check_r2_app(manifest, int(last_ct) if last_ct else None, _git("rev-parse", rev))
+    if not r2c["ok"] and r2 is not None and not r2c.get("skipped"):
+        r2c = repair_r2(r2c, rev, mkey, r2, int(last_ct) if last_ct else None)
+    checks.append(r2c)
     checks.append(check_archive(arch, akey))
     row, configured = _d1_row()
     checks.append(check_d1(row, have, configured))

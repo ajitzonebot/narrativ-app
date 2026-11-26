@@ -182,3 +182,20 @@ def test_audit_issue_opened_updated_closed(monkeypatch):
     for k in ("GITHUB_TOKEN", "ISSUE_REPO"):
         os.environ.pop(k, None)
     assert AP.sync_issue(bad, FakeGH([])) == "issue: not configured"
+
+
+def test_audit_repair_reports_the_upload_result(monkeypatch):
+    from narrativ import appsync, audit_publish as A
+
+    def fake_sync(rev=None, **k):
+        print("[appsync] could not claim the manifest; nothing uploaded")
+        return {"ok": False}
+    monkeypatch.setattr(appsync, "sync", fake_sync)
+    monkeypatch.setattr(A, "_git", lambda *a: "abc")
+
+    class R2:
+        def get(self, key):
+            return 200, json.dumps({"sha": "old", "ct": 1, "failed": []}).encode(), None
+    first = {"name": "r2_app", "ok": False, "detail": "R2 holds commit old, older than the last data commit"}
+    c = A.repair_r2(first, "HEAD", "app/_manifest.json", R2(), 100)
+    assert c["ok"] is False and "could not claim the manifest" in c["detail"] and "still behind" in c["detail"]
