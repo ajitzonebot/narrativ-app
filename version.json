@@ -1,11 +1,41 @@
 {
- "versionCode": 89,
- "versionName": "2.31.3",
+ "versionCode": 90,
+ "versionName": "2.31.4",
  "date": "2026-11-26",
- "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.31.3-b89/narrativ-v2.31.3-b89.apk",
+ "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.31.4-b90/narrativ-v2.31.4-b90.apk",
  "sizeMb": 12.2,
- "sha256": "6b2ccf98bf617c10f1bf4a7ef5d5a5bcd23202d60daeec700fef1c437c53e9b2",
+ "sha256": "cb65892de2d98e41ca2a33553fb2bd75cdcf5b998ad5a71ec1a2100f9de6bdb3",
  "changelog": [
+  {
+   "version": "2.31.4",
+   "date": "2026-11-26",
+   "changes": [
+    {
+     "type": "improved",
+     "text": "Why Buy: how sure we are first (conviction and its checks), then three questions: good business, right price, right time; then future guidance by management and Narrativ.ai's check"
+    },
+    {
+     "type": "improved",
+     "text": "The plan: labels alternate above and below the line; when stop, price and buy zone are close, the line zooms on them and the analyst target shows as a label with its upside"
+    },
+    {
+     "type": "new",
+     "text": "Filters: 50-day vs 200-day average (golden cross in the last month or 3 months, 50-day above 200-day, death cross); rows say when the cross happened"
+    },
+    {
+     "type": "improved",
+     "text": "How it's going: whether profit turns into cash, with the cash conversion %, and the cash position (cash, and borrowings for lenders)"
+    },
+    {
+     "type": "fixed",
+     "text": "Conviction check 'Quotes double-checked' saw an empty newer document and missed the call transcript already read (55 stocks)"
+    },
+    {
+     "type": "fixed",
+     "text": "'Stories studied' on Home now updates after each Narrativ.ai research run, not only once a day"
+    }
+   ]
+  },
   {
    "version": "2.31.3",
    "date": "2026-11-26",
