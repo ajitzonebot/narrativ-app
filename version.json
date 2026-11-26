@@ -1,11 +1,33 @@
 {
- "versionCode": 86,
- "versionName": "2.31.0",
+ "versionCode": 87,
+ "versionName": "2.31.1",
  "date": "2026-11-26",
- "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.31.0-b86/narrativ-v2.31.0-b86.apk",
+ "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.31.1-b87/narrativ-v2.31.1-b87.apk",
  "sizeMb": 12.2,
- "sha256": "f6ff646b5ddc1df4f15365ec457c99c9e0ad20510360d06691750b39733d8cfe",
+ "sha256": "83a42382c325906fb405fcef3fe1670b8bd2ff9b130da365864e1d15fb8cfbba",
  "changelog": [
+  {
+   "version": "2.31.1",
+   "date": "2026-11-26",
+   "changes": [
+    {
+     "type": "improved",
+     "text": "Stocks and Top 10 rows: a second line that does not fit scrolls slowly so the hidden end shows"
+    },
+    {
+     "type": "improved",
+     "text": "Key checks: words in sentence case ('None filed', 'No trades') and on two lines instead of cut off"
+    },
+    {
+     "type": "fixed",
+     "text": "Discovery: the institutions bar no longer runs past the edge of the screen"
+    },
+    {
+     "type": "improved",
+     "text": "Buy box: the lead line upright instead of italic; every pop-up sheet has its own feedback button"
+    }
+   ]
+  },
   {
    "version": "2.31.0",
    "date": "2026-11-26",
