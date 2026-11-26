@@ -87,6 +87,13 @@ def _http_default():
     return call
 
 
+def strong_etag(etag: str | None) -> str | None:
+    """The ETag without a weak prefix: W/"abc" -> "abc" (If-Match compares strong ETags only)."""
+    if not etag:
+        return etag
+    return etag[2:] if etag.startswith(("W/", "w/")) else etag
+
+
 class R2S3:
     """Minimal S3 client for one R2 bucket: get / put (with If-Match / If-None-Match) / delete, AWS SigV4 signed."""
 
@@ -138,8 +145,10 @@ class R2S3:
         return self.http(method, f"https://{self.host}{uri}", h, data, timeout)
 
     def get(self, key: str) -> tuple[int, bytes, str | None]:
-        st, h, body = self._req("GET", key)
-        return st, body, h.get("etag")
+        # identity: a compressed answer carries a weak ETag (W/"..."), and R2 never matches a weak ETag in If-Match, so
+        # every conditional manifest write failed with 412 from 25 Nov 2026 until the audit found it (26 Nov)
+        st, h, body = self._req("GET", key, headers={"Accept-Encoding": "identity"})
+        return st, body, strong_etag(h.get("etag"))
 
     def put(self, key: str, data: bytes, ctype: str = "application/json; charset=utf-8", if_match: str | None = None,
             if_none_match: str | None = None) -> tuple[int, str | None]:
@@ -149,7 +158,7 @@ class R2S3:
         if if_none_match:
             h["If-None-Match"] = if_none_match
         st, rh, _ = self._req("PUT", key, data, h, 120)
-        return st, rh.get("etag")
+        return st, strong_etag(rh.get("etag"))
 
     def delete(self, key: str) -> int:
         return self._req("DELETE", key)[0]

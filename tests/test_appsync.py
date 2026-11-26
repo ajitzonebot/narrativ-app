@@ -245,3 +245,19 @@ def test_mass_delete_is_refused(repo, s3, monkeypatch):
 
 def test_unknown_ref_is_a_quiet_failure(repo, s3):
     assert not appsync.sync(r2=client(s3), ref="gh-pages")["ok"] and s3.objs == {}
+
+
+def test_weak_etag_is_sent_strong_and_reads_are_uncompressed():
+    # 26 Nov 2026: R2 answered a compressed read with W/"..." and refused every If-Match with that value (412)
+    from narrativ.appsync import R2S3, strong_etag
+    assert strong_etag('W/"abc"') == '"abc"' and strong_etag('"abc"') == '"abc"' and strong_etag(None) is None
+    seen = {}
+
+    def http(method, url, headers, data, timeout):
+        seen[method] = headers
+        return 200, {"etag": 'W/"abc"'}, b"{}"
+    r2 = R2S3("acc", "kid", "sec", http=http)
+    st, body, etag = r2.get("app/_manifest.json")
+    assert etag == '"abc"' and seen["GET"].get("Accept-Encoding") == "identity"
+    r2.put("app/_manifest.json", b"{}", if_match=etag)
+    assert seen["PUT"]["If-Match"] == '"abc"'
