@@ -177,6 +177,124 @@ def _c7(th, reader):
     return True, f"{len(hit)} of Narrativ.ai's dated statements matched word for word"
 
 
+# ---------------------------------------------------------------- proof score (owner, 26 Nov 2026, feedback #175)
+# Conviction is driven by proofs: each proof adds points, the total (0-100) sets the level. Weights approved by the owner.
+SCORE_RULE = "conviction score v2 (2026-11-26)"
+HIGH_AT, MEDIUM_AT = 70, 45
+SIZE = {"High": "full", "Medium": "half", "Low": "quarter"}  # option C: every verified Buy stays a Buy, sized by conviction
+TARGET_YEARS = 5  # a management target counts when its verified due date is within 5 years
+_YEAR = re.compile(r"^(19|20)\d\d$")
+_NUM = re.compile(r"\d[\d,]*\.?\d*")
+
+
+def _target_key(text: str, due) -> tuple:
+    """The same target said twice (a driver and a promise) counts once: its due date plus its largest non-year number."""
+    ns = [float(x.replace(",", "")) for x in _NUM.findall(str(text or "")) if not _YEAR.match(x.replace(",", ""))]
+    return str(due)[:10], max(ns) if ns else _norm(text)[:30]
+
+
+def management_targets(th: dict, today: date) -> list[dict]:
+    """Quoted management targets / guidance whose due date the verifier confirmed, due within TARGET_YEARS."""
+    end = today + timedelta(days=365 * TARGET_YEARS)
+    out, seen = [], set()
+    rows = [(d.get("text"), d.get("due"), None) for d in th.get("drivers") or [] if d.get("due_verified")]
+    rows += [(p.get("promise"), p.get("due"), p.get("status")) for p in th.get("promises") or []
+             if p.get("due_verified") and p.get("status") in ("pending", "raised", "ahead", "met")]
+    for text, due, status in rows:
+        dd = _d(due)
+        if not dd or not (today <= dd <= end) or not text:
+            continue
+        k = _target_key(text, due)
+        if k in seen:
+            continue
+        seen.add(k)
+        out.append({"text": str(text).rstrip("."), "due": str(due)[:10], "better": status in ("raised", "ahead", "met")})
+    return out
+
+
+_PCT = re.compile(r"([+-]?\d+(?:\.\d+)?)%")
+
+
+def _signal_strong(t: dict) -> bool:
+    """T11: price ≥ +5% vs Nifty after results with profit up ≥ 20%; T12: estimates up ≥ 10%; others: the Outlook flag."""
+    v = str(t.get("v") or "")
+    nums = [float(x) for x in _PCT.findall(v)]
+    if t.get("id") == "T11" and len(nums) >= 2:
+        return nums[0] >= 5 and nums[-1] >= 20
+    if t.get("id") == "T12" and nums:
+        return nums[0] >= 10
+    return bool(t.get("strong"))
+
+
+def _short_date(x: str) -> str:
+    d = _d(x)
+    return f"{d:%b %Y}" if d else str(x)
+
+
+def score(dec: dict, L: dict, setup: dict | None, th: dict, Mx: dict | None, today: date, *, shp=None, open_issues=0,
+          reader=None, lender=False, checks: dict | None = None) -> dict:
+    """Proofs with points, what is missing (one statement each), total score, level and position size."""
+    proofs, not_yet = [], []
+    tg = management_targets(th, today)
+    if tg:
+        pts = min(35, sum(10 + (5 if t["better"] else 0) for t in tg))
+        proofs.append({"k": "management", "pts": pts, "t": "Management targets with dates",
+                       "v": " · ".join(f"{t['text']} (due {_short_date(t['due'])})" for t in tg[:3])})
+    elif (th or {}).get("no_concall"):
+        not_yet.append("No call this quarter: no management target on record")
+    else:
+        not_yet.append("No dated management target on record")
+    sig = [t for t in (L.get("out") or {}).get("triggers") or [] if t.get("id") and t.get("id") != "T4"]
+    for t in sig:
+        st = _signal_strong(t)
+        proofs.append({"k": "signal", "pts": 12 if st else 8, "t": ("Strong " + t["n"][0].lower() + t["n"][1:]) if st else t["n"],
+                       "v": t.get("v")})
+    sig_pts = sum(x["pts"] for x in proofs if x["k"] == "signal")
+    if sig_pts > 25:  # cap the signals at 25, trimming the last ones
+        over = sig_pts - 25
+        for x in reversed([x for x in proofs if x["k"] == "signal"]):
+            cut = min(over, x["pts"]); x["pts"] -= cut; over -= cut
+        proofs = [x for x in proofs if x["pts"] > 0]
+    if not sig:
+        not_yet.append("No price or earnings signal live")
+    c = checks or {}
+    ok2, v2 = c.get("C2") or _c2(th, lender)
+    ok7, v7 = c.get("C7") or _c7(th, reader)
+    if ok2:
+        au = th.get("audit") or {}
+        n = len(au.get("checks") or [])
+        proofs.append({"k": "checks", "pts": 15 + (5 if ok7 else 0), "t": "Narrativ.ai checks pass",
+                       "v": f"{n} of {n} checks match the filing" + (f" · {v7}" if ok7 else "")})
+    else:
+        not_yet.append(f"Narrativ.ai checks: {v2}")
+    ok3, v3 = c.get("C3") or _c3(L, setup)
+    if ok3:
+        proofs.append({"k": "setup", "pts": 10, "t": f"Entry setup: {str(v3).lower()}", "v": None})
+    else:
+        ty = (setup or {}).get("type") or "No setup"
+        not_yet.append("Price extended: wait for a pullback" if "extended" in str(v3) else "No entry setup yet: wait for a breakout, pullback or base")
+    ok5, v5 = c.get("C5") or _c5(L, shp)
+    if ok5:
+        proofs.append({"k": "institutions", "pts": 10, "t": "Institutions adding", "v": v5})
+    else:
+        not_yet.append(f"Institutions not adding: {v5}" if "no shareholding" not in str(v5) else "No shareholding data yet")
+    total = min(100, sum(x["pts"] for x in proofs))
+    level = "High" if total >= HIGH_AT else "Medium" if total >= MEDIUM_AT else "Low"
+    caps = []
+    ok4, v4 = c.get("C4") or _c4(th, dec)
+    if "integrity" in str(v4):
+        caps.append(str(v4))
+    ok6, v6 = c.get("C6") or _c6(Mx, lender, open_issues)
+    if not ok6:
+        caps.append(f"data incomplete ({str(v6).replace('missing: ', '')})")
+    if level == "High" and caps:
+        level = "Medium"
+    if not ok4 and "integrity" not in str(v4):
+        not_yet.append(f"Story {str(v4).replace('story ', '')}" if str(v4).startswith("story") else str(v4))
+    return {"score": total, "level": level, "size": SIZE[level], "proofs": proofs, "not_yet": not_yet,
+            "capped": caps or None, "score_rule": SCORE_RULE}
+
+
 def assess(dec: dict, L: dict, setup: dict | None, th: dict | None, Mx: dict | None, today: date, *,
            shp: dict | None = None, open_issues: int = 0, reader: dict | None = None, lender: bool | None = None) -> dict | None:
     """Conviction of one verified Buy / Strong Buy; None for any other decision (conviction never makes a Buy)."""
@@ -187,10 +305,9 @@ def assess(dec: dict, L: dict, setup: dict | None, th: dict | None, Mx: dict | N
     res = {"C1": _c1(th, L, today), "C2": _c2(th, lender), "C3": _c3(L, setup), "C4": _c4(th, dec),
            "C5": _c5(L, shp), "C6": _c6(Mx, lender, open_issues), "C7": _c7(th, reader)}
     met = [k for k, (ok, _) in res.items() if ok]
-    core_ok = all(k in met for k in CORE)
-    level = "High" if len(met) >= HIGH and core_ok else "Low" if len(met) <= LOW else "Medium"
-    why = f"{len(met)} of {len(res)} checks met"
-    if len(met) >= HIGH and not core_ok:
-        why += f"; not High without {', '.join(NAMES[k].lower() for k in CORE if k not in met)}"
-    return {"level": level, "met": len(met), "of": len(res), "why": why, "rule": RULE, "date": str(today),
+    sc = score(dec, L, setup, th, Mx, today, shp=shp, open_issues=open_issues, reader=reader, lender=lender, checks=res)
+    # the level is the proof score's (owner, 26 Nov 2026); met / of and the checks stay for app versions before 2.32
+    why = f"{sc['score']} of 100 from proofs" + (f"; capped at Medium: {', '.join(sc['capped'])}" if sc["capped"] and sc["score"] >= HIGH_AT else "")
+    return {"level": sc["level"], "score": sc["score"], "size": sc["size"], "proofs": sc["proofs"], "not_yet": sc["not_yet"],
+            "met": len(met), "of": len(res), "why": why, "rule": SCORE_RULE, "date": str(today),
             "checks": [{"id": k, "n": NAMES[k], "ok": ok, "v": v} for k, (ok, v) in res.items()]}

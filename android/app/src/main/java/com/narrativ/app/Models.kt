@@ -201,7 +201,12 @@ import kotlinx.serialization.json.JsonPrimitive
 /** Rule-built conviction of a verified Buy (narrativ/conviction.py assess(); fin/<SYM>.json "conviction", null for any
  *  other decision). level High / Medium / Low; met of [of] checks C1..C7; never changes the decision. */
 @Serializable data class Conviction(val level: String? = null, val met: Int? = null, val of: Int? = null, val why: String? = null,
-                                    val rule: String? = null, val date: String? = null, val checks: List<ConvCheck> = emptyList())
+                                    val rule: String? = null, val date: String? = null, val checks: List<ConvCheck> = emptyList(),
+                                    /** Proof score (owner, 26 Nov 2026, #175): 0-100 from the proofs; size = full / half / quarter position. */
+                                    val score: Int? = null, val size: String? = null, val proofs: List<ConvProof> = emptyList(),
+                                    @SerialName("not_yet") val notYet: List<String> = emptyList())
+/** One proof behind the conviction: kind, points, what it is (t) and its figures (v). */
+@Serializable data class ConvProof(val k: String = "", val pts: Int = 0, val t: String = "", val v: String? = null)
 /** One conviction check: id (C1..C7), name, met, the figure or reason (v). */
 @Serializable data class ConvCheck(val id: String = "", val n: String = "", val ok: Boolean? = null, val v: String? = null, val why: String? = null)
 /** The latest earnings call in brief (AlphaStreet's AlphaBrief): metrics are [label, value, direction]. */

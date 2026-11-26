@@ -402,7 +402,8 @@ private fun PaperDecisionBox(st: AppState, sym: String, p: P?, det: Detail?, onO
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 val cv = det?.conviction?.takeIf { it.level != null }
                 (cv?.level ?: p?.cv)?.let { lvl ->
-                    PaperLabel("$lvl conviction" + (if (cv?.met != null && cv.of != null) " · ${cv.met} of ${cv.of}" else ""), if (lvl == "High") TierC.darkGreen else TierC.yellow, 10.sp)
+                    PaperLabel("$lvl conviction" + (cv?.score?.let { " · $it/100" + (cv.size?.let { z -> " · $z position" } ?: "") }
+                        ?: if (cv?.met != null && cv.of != null) " · ${cv.met} of ${cv.of}" else ""), if (lvl == "High") TierC.darkGreen else if (lvl == "Low") TierC.red else TierC.yellow, 10.sp)
                 }
                 topTenRank(st, sym)?.let { PaperLabel("#$it in today's Top 10", C.grey, 10.sp, bold = false) }
                 when {
@@ -468,7 +469,8 @@ private fun DecisionCard(st: AppState, sym: String, p: P?, det: Detail?, onOpen:
                 val level = cv?.level ?: p?.cv
                 if (level != null) {
                     Row(verticalAlignment = Alignment.CenterVertically) { T("Conviction ", 13.sp, C.dim, maxLines = 1); T(level, 13.sp, weight = FontWeight.SemiBold, maxLines = 1) }
-                    if (cv?.met != null && cv.of != null && cv.of > 0) Meter(cv.of, cv.met, color = TierC.lightGreen, style = MeterStyle.Dot)
+                    if (cv?.score != null) T("${cv.score}/100" + (cv.size?.let { " · $it position" } ?: ""), 12.sp, C.dim, maxLines = 1)
+                    else if (cv?.met != null && cv.of != null && cv.of > 0) Meter(cv.of, cv.met, color = TierC.lightGreen, style = MeterStyle.Dot)
                 }
                 topTenRank(st, sym)?.let { T("#$it in today's Top 10", 13.sp, C.dim, maxLines = 1) }
             }
@@ -789,7 +791,41 @@ fun DecisionDetailsSheet(st: AppState, sym: String, p: P?, det: Detail?, onDismi
         // feedback #165 (owner, 26 Nov 2026): "How sure are we?" first: the rule-built conviction and its seven checks
         val cv = det?.conviction
         val cvLevel = cv?.level
-        if (cv != null && cvLevel != null) SheetSection("How sure are we?", cv.date?.let { skDay(it) }) {
+        if (cv != null && cvLevel != null && cv.score != null) SheetSection("How sure are we?", cv.date?.let { skDay(it) }) {
+            // feedback #175 (owner, 26 Nov 2026): a score from proofs, no dots; each proof one line with its points; what is
+            // missing as one statement each; the level sets the position size (option C)
+            val col = if (cvLevel == "High") TierC.lightGreen else if (cvLevel == "Low") TierC.lightRed else TierC.yellow
+            Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                T(cvLevel, 22.sp, col, FontWeight.Bold)
+                T("${cv.score}/100", 15.sp, weight = FontWeight.SemiBold, modifier = Modifier.padding(bottom = 2.dp))
+                cv.size?.let { T("· $it position", 13.sp, C.dim, modifier = Modifier.padding(bottom = 3.dp)) }
+            }
+            Row(Modifier.fillMaxWidth().padding(top = 6.dp).height(7.dp), horizontalArrangement = Arrangement.spacedBy(1.dp)) {
+                listOf(45f to "Low", 25f to "Medium", 30f to "High").forEach { (w, l) ->
+                    val c = if (l == "High") TierC.lightGreen else if (l == "Low") TierC.lightRed else TierC.yellow
+                    Box(Modifier.weight(w).fillMaxHeight().background(c.copy(alpha = if (l == cvLevel) 0.95f else 0.22f)))
+                }
+            }
+            Row(Modifier.fillMaxWidth().padding(top = 2.dp)) {
+                T("Low", 9.sp, C.dim, modifier = Modifier.weight(45f)); T("45", 9.sp, C.dim, modifier = Modifier.weight(25f)); T("70 · High", 9.sp, C.dim, modifier = Modifier.weight(30f))
+            }
+            if (cv.proofs.isNotEmpty()) T("PROOFS", 10.sp, C.dim, FontWeight.Bold, modifier = Modifier.padding(top = 10.dp, bottom = 2.dp))
+            cv.proofs.forEach { pr ->
+                Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.Top) {
+                    T("+${pr.pts}", 13.sp, TierC.lightGreen, FontWeight.Bold, maxLines = 1, modifier = Modifier.width(38.dp))
+                    Column(Modifier.weight(1f)) {
+                        T(pr.t, 13.sp, lineHeight = 18.sp)
+                        pr.v?.takeIf { it.isNotBlank() }?.let { T(it, 11.5.sp, C.dim, lineHeight = 16.sp) }
+                    }
+                }
+            }
+            if (cv.notYet.isNotEmpty()) T("NOT YET", 10.sp, C.dim, FontWeight.Bold, modifier = Modifier.padding(top = 10.dp, bottom = 2.dp))
+            cv.notYet.forEach { t ->
+                Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.Top) {
+                    T("0", 13.sp, C.dim, maxLines = 1, modifier = Modifier.width(38.dp)); T(t, 12.5.sp, C.dim, lineHeight = 17.sp, modifier = Modifier.weight(1f))
+                }
+            }
+        } else if (cv != null && cvLevel != null) SheetSection("How sure are we?", cv.date?.let { skDay(it) }) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 T("$cvLevel conviction", 18.sp, if (cvLevel == "High") TierC.lightGreen else if (cvLevel == "Low") TierC.lightRed else TierC.yellow, FontWeight.Bold)
                 val oks = cv.checks.map { it.ok == true }
@@ -814,7 +850,9 @@ fun DecisionDetailsSheet(st: AppState, sym: String, p: P?, det: Detail?, onDismi
         val valn = why.filter { it !in lvl && it.contains("valuation", ignoreCase = true) }
         val rev = why.filter { it.startsWith("Verified") || it.contains("review", ignoreCase = true) }
         // R1 / R2 lender notes are not shown (owner: "why do we need to show this")
-        val fwd = why.filter { it !in lvl && it !in valn && it !in rev && !it.startsWith("R1 and R2 not applied") }
+        // feedback #175: only management's own quoted statements here; our signals and the setup note are proofs / timing
+        val fwd = why.filter { it !in lvl && it !in valn && it !in rev && !it.startsWith("R1 and R2 not applied") &&
+            !it.startsWith("Signal") && !it.startsWith("No entry setup") && !it.startsWith("Re-scored") }
         @Composable
         fun levelChips(keys: Set<String>) {
             val mine = lvl.filter { it.substringBefore(":") in keys }

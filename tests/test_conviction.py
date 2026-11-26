@@ -46,24 +46,46 @@ def test_never_for_a_non_buy_or_an_unverified_buy():
     assert run(dec={"d": "Buy", "verified": "pending"}) is None
 
 
-def test_all_evidence_is_high_with_a_reason_per_check():
+def test_score_adds_the_proofs():
+    # 2 dated targets 20 + checks 15 + quote matched 5 + breakout 10 + institutions 10 = 60: Medium, half position
     r = run()
-    assert r["level"] == "High" and r["met"] == 7 and r["of"] == 7
-    assert [c["id"] for c in r["checks"]] == [f"C{i}" for i in range(1, 8)]
-    assert all(c["v"] for c in r["checks"])
+    assert r["score"] == 60 and r["level"] == "Medium" and r["size"] == "half"
+    assert [p["k"] for p in r["proofs"]] == ["management", "checks", "setup", "institutions"]
+    assert "No price or earnings signal live" in r["not_yet"]
+    assert [c["id"] for c in r["checks"]] == [f"C{i}" for i in range(1, 8)]  # kept for app versions before 2.32
 
 
-def test_high_needs_the_replay_backed_checks():
-    r = run(setup={"type": "No setup"})  # 6 of 7, but no live entry setup (C3)
-    assert r["met"] == 6 and r["level"] == "Medium" and "entry setup live" in r["why"]
-    r = run(th=thesis(drivers=thesis()["drivers"][:1]))  # 6 of 7, one dated trigger only (C1)
-    assert r["met"] == 6 and r["level"] == "Medium"
-    assert run(reader=None)["level"] == "High"  # 6 of 7 with C1 and C3
+def test_strong_signals_reach_high():
+    L = levels(triggers=("T11",))
+    L["out"]["triggers"][0]["v"] = "+5.4% vs Nifty in 3 days after 2026-10-28 · profit +231% YoY"
+    r = run(L=L)
+    assert r["score"] == 72 and r["level"] == "High" and r["size"] == "full"
+    assert any(p["t"].startswith("Strong ") and p["pts"] == 12 for p in r["proofs"])
+
+
+def test_signals_capped_at_25_and_weak_signal_is_8():
+    L = levels(triggers=("T11", "T12", "T15", "T14"))
+    r = run(L=L)
+    assert sum(p["pts"] for p in r["proofs"] if p["k"] == "signal") == 25
+
+
+def test_no_setup_is_one_statement_and_high_capped_by_incomplete_data():
+    r = run(setup={"type": "No setup"})
+    assert "No entry setup yet: wait for a breakout, pullback or base" in r["not_yet"]
+    L = levels(triggers=("T11", "T12", "T15"))
+    r = run(L=L, Mx={"kind": "general", "quarters_available": 4})
+    assert r["score"] >= 70 and r["level"] == "Medium" and "capped at Medium" in r["why"]
+
+
+def test_same_target_twice_counts_once():
+    th = thesis(drivers=[{"due": "2030-03-31", "due_verified": True, "text": "Long-term target of ₹32,000 crore AUM by 2030"}],
+                promises=[{"due": "2030-03-31", "due_verified": True, "status": "pending", "promise": "AUM of ₹32,000 crore by 2030, 30% non-MF"}])
+    assert len(CV.management_targets(th, TODAY)) == 1
 
 
 def test_three_or_fewer_is_low():
     r = run(L=levels(d5=0), th=thesis(drivers=[], story={"status": "weakening"}), reader=None)
-    assert r["met"] == 3 and r["level"] == "Low"
+    assert r["met"] == 3 and r["level"] == "Low" and r["score"] == 25 and r["size"] == "quarter"
 
 
 def test_dated_triggers_counted_once_per_document_and_within_18_months():

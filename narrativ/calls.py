@@ -101,13 +101,16 @@ def exit_hit(calls: list[dict], s: str, kind: str | None, close: pd.Series) -> d
             "reentry_after": last.get("reentry_after") or reentry_after(last["ended"], close), "kind": kind}
 
 
+SIZE_WEIGHT = {"high": 1.0, "medium": 0.5, "low": 0.25}  # position size by conviction (narrativ/conviction.py SIZE)
 MIN_DAYS = 20  # Sharpe and volatility need about a month of daily returns to mean anything
 
 
 def daily_returns(calls: list[dict], px: dict, bench: pd.Series) -> tuple[pd.Series, pd.Series]:
-    """Equal-weight portfolio of the verified Buys: each call held from the close after its entry (first day measured from
-    the entry price) to its end date; each day's return = average of the calls held that day. Nifty over the same days."""
-    rets = []
+    """Portfolio of the verified Buys, sized by conviction at entry (owner, 26 Nov 2026, option C: High full, Medium half, Low
+    a quarter; calls without a rule-built level count as full): each call held from the close after its entry (first day
+    measured from the entry price) to its end date; each day's return = the size-weighted average of the calls held that
+    day. Nifty over the same days."""
+    rets, wts = [], []
     for c in calls:
         if c["kind"] != "verified" or c["symbol"] not in px:
             continue
@@ -118,10 +121,13 @@ def daily_returns(calls: list[dict], px: dict, bench: pd.Series) -> tuple[pd.Ser
         if not len(held):
             continue
         prev = pd.concat([pd.Series([float(c["price"])], index=[pd.Timestamp(c["date"])]), held]).shift(1).iloc[1:]
-        rets.append((held / prev - 1).rename(c["symbol"]))
+        rets.append((held / prev - 1).rename(f"{c['symbol']}|{c['date']}"))
+        wts.append(SIZE_WEIGHT.get(c.get("conviction") or "", 1.0))
     if not rets:
         return pd.Series(dtype=float), pd.Series(dtype=float)
-    port = pd.concat(rets, axis=1).mean(axis=1, skipna=True).sort_index()
+    R = pd.concat(rets, axis=1)
+    W = R.notna().mul(wts, axis=1)
+    port = (R.fillna(0).mul(wts, axis=1).sum(axis=1) / W.sum(axis=1)).dropna().sort_index()
     b = bench.dropna().pct_change().reindex(port.index).fillna(0.0)
     return port, b
 
