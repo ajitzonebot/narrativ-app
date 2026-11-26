@@ -23,8 +23,10 @@ from pathlib import Path
 
 API = "https://generativelanguage.googleapis.com/v1beta"
 STORE = Path("data/story.json")
-MODELS = ["gemini-3.1-flash-lite", "gemma-4-31b-it", "gemini-flash-lite-latest"]
-CAPS = {"what": 240, "money": 170, "plan": 80}
+# Order is the owner's pick after the side-by-side test (--compare); STORY_MODELS (comma list) overrides it for a run.
+MODELS = [m for m in os.environ.get("STORY_MODELS", "gemini-3.1-flash-lite,gemma-4-31b-it,gemma-4-26b-a4b-it,gemini-flash-lite-latest").split(",") if m]
+COMPARE = ["gemma-4-31b-it", "gemini-3.1-flash-lite"]  # the side-by-side test (owner, 26 Nov 2026)
+CAPS = {"what": 240, "money": 170, "plan": 80, "line": 120}
 BANNED = re.compile(r"\b(AUM|capex|consolidated|EBITDA|PAT|YoY|QoQ|bps|basis points|guidance|guided|synerg\w*|leverag\w*|robust|"
                     r"diversified portfolio|value chain|end-to-end|solutions provider)\b", re.I)
 EXAMPLE = {"what": "A microfinance company. It lends small amounts to women in villages and small towns so they can run a shop, "
@@ -88,7 +90,8 @@ def risks_of(sym: str, theses: dict) -> list[str]:
 # ---------------------------------------------------------------- model-written sections
 def _nums(s) -> set:
     out = set()
-    for m in re.findall(r"\d[\d,]*(?:\.\d+)?", str(s or "")):
+    s = re.sub(r"\bFY\s?'?(\d{2})\b", lambda m: f"FY{m.group(1)} 20{m.group(1)}", str(s or ""), flags=re.I)  # "FY27" is also 2027
+    for m in re.findall(r"\d[\d,]*(?:\.\d+)?", s):
         try:
             out.add(float(m.replace(",", "")))
         except ValueError:
@@ -117,7 +120,24 @@ def check(out: dict, facts_text: str) -> list[str]:
     return bad
 
 
-def prompt(name: str, industry: str | None, desc: str, plans: list[dict]) -> str:
+def check_line(line, facts_text: str) -> list[str]:
+    """The model's one-line story (kept apart: a bad line is dropped, the code phrase stays)."""
+    s, have, bad = str(line or "").strip(), _nums(facts_text), []
+    if not s:
+        return ["line empty"]
+    if len(s) > CAPS["line"]:
+        bad.append(f"line too long ({len(s)})")
+    if BANNED.search(s):
+        bad.append(f"jargon: {BANNED.search(s).group(0)}")
+    if re.search(r"\b(buy|sell|must|should|will (?:rise|double|grow)|multibagger|guaranteed?)\b", s, re.I):
+        bad.append("advice or prediction")
+    for v in _nums(s):
+        if v > 12 and v not in have and not any(abs(v - h) < 1 for h in have):
+            bad.append(f"number not in facts: {v:g}")
+    return bad
+
+
+def prompt(name: str, industry: str | None, desc: str, plans: list[dict], verdict: str | None = None, fix: str | None = None) -> str:
     return f"""You write the 'story' sheet of an Indian stock app for ordinary people who are not investors.
 Write like this example (another company), same length and style: {json.dumps(EXAMPLE, ensure_ascii=False)}
 Rules: plain everyday words; say concretely what it sells and to whom; no jargon (never: AUM, capex, consolidated, EBITDA,
@@ -126,8 +146,10 @@ do not copy the description's wording; do not praise, predict or advise; use onl
 Company: {name} ({industry or 'industry not known'})
 Description: {desc}
 Plans management stated: {json.dumps([p['text'] for p in plans], ensure_ascii=False)}
+Our verdict in words (do not change its judgement, do not add one): {verdict or 'none'}
 Return JSON only: {{"what": "max {CAPS['what']} characters", "money": "max {CAPS['money']} characters",
-"plans": ["each plan above reworded plainly, max {CAPS['plan']} characters, keep its numbers and dates, at most 2"]}}"""
+"plans": ["each plan above reworded plainly, max {CAPS['plan']} characters, keep its numbers and dates, at most 2"],
+"line": "one sentence, max {CAPS['line']} characters: what the company is, in a few words, joined to our verdict above; no advice, no prediction"}}""" + (f"\nYour last answer broke these limits; rewrite shorter: {fix}" if fix else "")
 
 
 def ask(key: str, model: str, text: str) -> tuple[dict | None, str | None]:
@@ -150,6 +172,54 @@ def ask(key: str, model: str, text: str) -> tuple[dict | None, str | None]:
         return json.loads(t[t.find("{"): t.rfind("}") + 1]), None
     except Exception as e:  # noqa: BLE001
         return None, f"parse: {str(e)[:60]}"
+
+
+def attempt(key: str, m: str, p: dict, desc: str, plans: list[dict], facts: str, verdict: str | None):
+    """One model's answer for one stock, checked; when the only problems are lengths, one more try asking it to shorten."""
+    out, err = ask(key, m, prompt(p.get("n") or p["s"], p.get("i"), desc, plans, verdict))
+    if err:
+        return None, [], err
+    bad = check(out or {}, facts)
+    if bad and all("too long" in b for b in bad):
+        time.sleep(4)
+        out2, err2 = ask(key, m, prompt(p.get("n") or p["s"], p.get("i"), desc, plans, verdict, fix="; ".join(bad)))
+        if not err2:
+            bad2 = check(out2 or {}, facts)
+            if not bad2:
+                return out2, [], None
+    return out, bad, None
+
+
+def compare(n: int = 30) -> None:
+    """Side-by-side test (owner, 26 Nov 2026): the same stocks written by each COMPARE model, checks applied, nothing stored
+    in the sheets. Output data/story_compare.json for the review board."""
+    key = os.environ["GEMINI_API_KEY"]
+    picks = json.loads(Path("docs/data/picks.json").read_text())
+    theses = json.loads(Path("docs/data/theses.json").read_text()) if Path("docs/data/theses.json").exists() else {}
+    forward = (json.loads(Path("docs/data/forward.json").read_text()) if Path("docs/data/forward.json").exists() else {}).get("stocks", {})
+    rows = sorted([p for p in picks["picks"] if not p.get("out")], key=lambda p: (p.get("rk") or 10 ** 6, -(p.get("pr") or 0)))
+    out, t0 = {"date": str(date.today()), "models": COMPARE, "stocks": []}, time.time()
+    for p in rows:
+        if len(out["stocks"]) >= n or time.time() - t0 > 35 * 60:
+            break
+        f = Path(f"docs/data/fin/{p['s']}.json")
+        desc = ((json.loads(f.read_text()).get("stock") or {}).get("summary") or "").strip() if f.exists() else ""
+        if len(desc) < 60:
+            continue
+        plans = plans_of(p["s"], theses, forward)
+        facts = desc + " " + " ".join(f"{x['text']} {x.get('due') or ''}" for x in plans) + " " + (p.get("n") or "")
+        verdict = one_line(p.get("t"))
+        row = {"s": p["s"], "n": p.get("n"), "i": p.get("i"), "verdict": verdict, "by": {}}
+        for m in COMPARE:
+            t1 = time.time()
+            a, bad, err = attempt(key, m, p, desc, plans, facts, verdict)
+            row["by"][m] = {"secs": round(time.time() - t1, 1), "error": err, "held": bad,
+                            "line_held": check_line((a or {}).get("line"), facts) if a else None,
+                            **{k: (a or {}).get(k) for k in ("what", "money", "plans", "line")}}
+            time.sleep(4)
+        out["stocks"].append(row)
+        print(f"[story] compare {p['s']}: " + ", ".join(f"{m} {'ok' if not r['error'] and not r['held'] else (r['error'] or 'held')}" for m, r in row["by"].items()))
+    Path("data/story_compare.json").write_text(json.dumps(out, ensure_ascii=False, indent=1))
 
 
 def _load() -> dict:
@@ -187,14 +257,14 @@ def write(max_minutes: float = 30, limit: int = 300) -> None:
             continue
         plans = plans_of(sym, theses, forward)
         facts = desc + " " + " ".join(f"{x['text']} {x.get('due') or ''}" for x in plans) + " " + (p.get("n") or "")  # due dates: "by March 2027"
+        verdict = one_line(p.get("t"))
         for m in [x for x in MODELS if x not in dead]:
-            out, err = ask(key, m, prompt(p.get("n") or sym, p.get("i"), desc, plans))
+            out, bad, err = attempt(key, m, p, desc, plans, facts, verdict)
             if err:
                 errs += 1
                 if err in ("HTTP 429", "HTTP 404"):
                     dead.add(m)  # out of today's allowance (or gone): skip it for the rest of the run
                 continue
-            bad = check(out or {}, facts)
             if bad:
                 held += 1
                 st.setdefault("held", {})[sym] = {"model": m, "date": today, "why": bad[:4]}
@@ -202,6 +272,8 @@ def write(max_minutes: float = 30, limit: int = 300) -> None:
             st["stocks"][sym] = {"what": out["what"].strip(), "money": out["money"].strip(),
                                  "plans": [str(x).strip() for x in (out.get("plans") or [])[:2]],
                                  "model": m, "date": today, "desc_len": len(desc)}
+            if out.get("line") and not check_line(out["line"], facts):
+                st["stocks"][sym]["line"] = str(out["line"]).strip()  # stored only: the app shows the code phrase until the owner approves
             st.get("held", {}).pop(sym, None)
             done += 1
             break
@@ -234,3 +306,5 @@ def sheet(sym: str, row: dict, metrics: dict, summary: str | None, theses: dict,
 if __name__ == "__main__":
     if "--write" in sys.argv:
         write()
+    elif "--compare" in sys.argv:
+        compare()

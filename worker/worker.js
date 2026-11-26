@@ -32,6 +32,9 @@ const IPO_CRONS = ["0 3 * * MON-FRI", "0 10 * * MON-FRI"];
 // publish. GitHub's own */30 schedule fired only every 4-9 hours on 23-26 Nov 2026, so finished research reached the app
 // hours late (owner feedback #144).
 const REPUBLISH_CRON = "*/30 * * * *";
+// 01:00 and 04:00 UTC = 06:30 and 09:30 IST: story.yml (Narrativ sheets). GitHub's own schedule for it skipped both runs on
+// 26 Nov 2026, so the Worker starts it too (one cron string: the free plan allows few cron triggers).
+const STORY_CRON = "0 1,4 * * *";
 const MAX_BODY = 8 * 1024;
 const IP_DAILY_CAP = 10;      // feedback + scan posts per IP per UTC day (best-effort, per isolate)
 const GLOBAL_DAILY_CAP = 100; // feedback + scan issues per rolling 24 h, counted from GitHub
@@ -329,7 +332,7 @@ async function recentScan(env, sym) {
 export default {
   async scheduled(event, env, ctx) {
     // 03:00 / 10:00 UTC = 08:30 / 15:30 IST -> IPO check; 11:40 UTC = 17:10 IST -> daily run
-    const wf = event.cron === REPUBLISH_CRON ? "republish.yml" : IPO_CRONS.includes(event.cron) ? "ipo.yml" : "daily.yml";
+    const wf = event.cron === REPUBLISH_CRON ? "republish.yml" : event.cron === STORY_CRON ? "story.yml" : IPO_CRONS.includes(event.cron) ? "ipo.yml" : "daily.yml";
     let status = 0, detail = "";
     for (let i = 1; i <= 3; i++) {  // 204 = started; retry transient failures (5xx, network)
       try {

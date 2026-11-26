@@ -18,6 +18,12 @@ Daily (python -m narrativ.reader --daily), after the daily run (.github/workflow
 Test (python -m narrativ.reader --test MODEL [LIMIT]): compare a model with Claude's items on the stocks Claude reviewed
 (data/reader_test/; results 19 Nov 2026: Flash-Lite found 51% of Claude's items on 56 stocks, 95% quotes verified, 13 s a
 document; Flash found 74% on 4 stocks, 97% verified, 317 s a document).
+Lanes (owner, 26 Nov 2026; narrativ/quota.py guards the free allowance per model per Pacific day, data/reader/usage.json):
+  lite  = stage 1: Gemini 3.5 Flash-Lite, then 3.1 Flash-Lite (400, the rest is the story job's), then 2.5 Flash-Lite.
+  flash = stage 2: Gemini 4 Hydrogen, 3.8, 3.6, 3, 2.5 Flash, 19 a day each.
+  agreement: on a document both lanes read, a row either model found in the other's rows is marked agree=True; agreed rows
+         go first in forward.json and the packs. Claude still confirms every row it uses.
+  check = Gemma 4 31B, then 26B: each dated row against the text around its quote; the row keeps check "ok" / "doubt: ...".
 Key: GEMINI_API_KEY (GitHub secret). Free-tier limits (owner's project, 19 Nov 2026): gemini-3.8-flash 5/min, 20/day;
 gemini-3.5-flash-lite 15/min, 500/day; 250K tokens a minute each; daily limits reset at midnight Pacific (~13:30 IST).
 """
@@ -35,11 +41,19 @@ from pathlib import Path
 import requests
 
 from narrativ import packs
+from narrativ.quota import USAGE, Quota, resolve, tokens
 from narrativ.verify import nums, quoted_in
 
 API = "https://generativelanguage.googleapis.com/v1beta"
 LITE, FLASH = "gemini-3.5-flash-lite", "gemini-3.8-flash"
-LITE_MAX, FLASH_MAX = 450, 18  # requests a day, under the free 500 and 20 (room for retries)
+LITE_MAX, FLASH_MAX = 450, 18  # requests a day, under the free 500 and 20 (room for retries); --test only
+# Lanes (owner, 26 Nov 2026): each lane walks its models in order; when one model's free allowance for the day is used (or it
+# is refused twice), the lane moves to the next. Ids are matched against the key's model list (quota.resolve).
+LITE_LANE = [r"^gemini-3\.5-flash-lite", r"^gemini-3\.1-flash-lite", r"^gemini-2\.5-flash-lite"]
+FLASH_LANE = [r"hydrogen", r"^gemini-3\.8-flash(?!-lite)", r"^gemini-3\.6-flash(?!-lite)", r"^gemini-3-flash(?!-lite)",
+              r"^gemini-2\.5-flash(?!-lite)"]
+CHECK_LANE = [r"^gemma-4-31b", r"^gemma-4-26b"]
+LANE_CAP = {"gemini-3.1-flash-lite": 400}  # leave ~100 of its 500 a day for the story job's fallback
 MINUTES = 170  # stop starting new documents after this (job limit 200)
 STORE, DOCS, STATS = Path("data/reader/store.json"), Path("data/reader/docs.json"), Path("data/reader/stats.jsonl")
 FORWARD = Path("docs/data/forward.json")
@@ -48,7 +62,7 @@ PACE = {"flash-lite": 4.5, "flash": 13.0}  # seconds between requests: under 15/
 OUT = Path("data/reader_test")
 MAX_DOC_CHARS = 400_000  # a long transcript is ~100K characters; anything far larger is not a call
 SAVE_EVERY = 20 * 60  # seconds between saves to main during a run (READER_SAVE=1, set by reader.yml)
-OWN = (STORE, STATS, FORWARD)  # files only the reader writes: a save puts these back on the latest main, never merges them
+OWN = (STORE, STATS, FORWARD, USAGE)  # files only the reader writes: a save puts these back on the latest main, never merges them
 _last_save = [time.time()]
 
 KINDS = ["guidance", "order", "capacity", "capex", "margin", "product", "demand", "risk", "other"]
@@ -103,9 +117,13 @@ def read(key: str, model: str, text: str) -> tuple[list[dict], dict]:
             err = f"{type(e).__name__}"
             time.sleep(20)
             continue
-        if r.status_code == 429 or r.status_code >= 500:
+        if r.status_code in (429, 404, 400, 403):  # refused or not available: the caller's quota decides (no blind retries)
+            return [], {"error": f"HTTP {r.status_code}"}
+        if r.status_code >= 500:
             err = f"HTTP {r.status_code}"
-            time.sleep(20 * (attempt + 1))
+            if attempt >= 1:
+                break
+            time.sleep(20)
             continue
         r.raise_for_status()
         js = r.json()
@@ -266,19 +284,21 @@ def _plan(docs: list[dict], store: dict, theses: dict) -> tuple[list[dict], list
     return lite, flash
 
 
-def _stage(*a):
+def _stage(fn, name: str, log: dict, *a):
     try:
-        _stage_run(*a)
-    except Exception as e:  # noqa: BLE001  a crash in one stage must not lose the other's work
-        a[-1][f"{a[0]}_crash"] += 1
-        print(f"[reader] {a[0]} stage stopped: {type(e).__name__}: {str(e)[:200]}")
+        fn(*a)
+    except Exception as e:  # noqa: BLE001  a crash in one lane must not lose the others' work
+        log[f"{name}_crash"] += 1
+        print(f"[reader] {name} lane stopped: {type(e).__name__}: {str(e)[:200]}")
 
 
-def _stage_run(name: str, model: str, todo: list[dict], cap: int, key: str, store: dict, lock, stop_at: float, ns_box: list, log: dict):
-    pace = PACE["flash-lite" if "lite" in model else "flash"]
-    n_req, errs_in_row = 0, 0
+def _stage_run(name: str, lane: list[str], todo: list[dict], key: str, store: dict, lock, stop_at: float, ns_box: list, log: dict,
+               quota: Quota, checks: list | None = None):
+    """One lane: documents in order, each read by the first model of the lane that still has today's allowance."""
+    pace = 1.0  # the quota paces by requests and tokens; this only spaces calls a little
+    errs: Counter = Counter()
     for d in todo:
-        if n_req >= cap or time.time() > stop_at or errs_in_row >= 3:  # 3 errors in a row: daily limit or model down
+        if time.time() > stop_at or not any(quota.left(m) for m in lane):
             break
         with lock:
             if ns_box[0] is None:
@@ -287,34 +307,120 @@ def _stage_run(name: str, model: str, todo: list[dict], cap: int, key: str, stor
             text, pages, _src = packs.doc_text(d["url"], ns_box[0], d.get("kind"))  # follows a cover letter to the real document
             e = store.setdefault(d["url"], {"s": d["s"], "kind": d["kind"], "date": d["date"]})
             if not text or len(text.strip()) < 500:
-                e[name] = {"model": model, "at": str(datetime.now(IST).date()), "fails": 3, "error": "no text layer or not reachable"}
+                e[name] = {"model": lane[0], "at": str(datetime.now(IST).date()), "fails": 3, "error": "no text layer or not reachable"}
                 log["no_text"] += 1
                 continue
-        t0 = time.time()
-        raw, meta = read(key, model, text)
-        n_req += 1
+        est = tokens(min(len(text), MAX_DOC_CHARS) + len(PROMPT))
+        raw = meta = model = None
+        for model in lane:
+            if not quota.take(model, est, stop_at, LANE_CAP.get(model)):
+                continue
+            t0 = time.time()
+            raw, meta = read(key, model, text)
+            if meta.get("error") == "HTTP 429" and quota.refused(model):  # first refusal: wait a minute, one more try
+                time.sleep(60)
+                if quota.take(model, est, stop_at, LANE_CAP.get(model)):
+                    raw, meta = read(key, model, text)
+            if meta.get("error") in ("HTTP 429",):
+                quota.refused(model)
+                continue  # next model in the lane
+            if meta.get("error") in ("HTTP 404", "HTTP 400", "HTTP 403"):
+                quota.gone(model)
+                log[f"{name}_gone"] += 1
+                continue
+            break
+        if raw is None and meta is None:
+            break  # every model of the lane is out for today
         if meta.get("error"):
-            errs_in_row += 1
+            errs[model] += 1
+            if errs[model] >= 3:
+                quota.gone(model)
             with lock:
                 prev = e.get(name) or {}
                 e[name] = {"model": model, "fails": (prev.get("fails") or 0) + 1, "error": meta["error"]}
             log[f"{name}_errors"] += 1
-            print(f"[reader] {name} {d['s']}: {meta['error']}")
-            time.sleep(pace)
+            print(f"[reader] {name} {d['s']} ({model}): {meta['error']}")
             continue
-        errs_in_row = 0
+        errs[model] = 0
         rows, drop = clean(raw, text)
         with lock:
             e[name] = {"model": model, "at": str(datetime.now(IST).date()), "secs": round(time.time() - t0, 1), "rows": rows,
                        "dropped": drop, "finish": meta.get("finish")}
             STORE.write_text(json.dumps(store, ensure_ascii=False, indent=0))
             if os.environ.get("READER_SAVE") == "1" and time.time() - _last_save[0] > SAVE_EVERY:
-                save(store)  # under the lock: the other stage waits a few seconds
+                save(store)  # under the lock: the other lanes wait a few seconds
+            if checks is not None:  # lane D: dated rows get a second look by Gemma, with the text around the quote
+                for i, r in enumerate(rows):
+                    if r.get("due") or r.get("value") is not None:
+                        checks.append((d["url"], name, i, context(text, r["quote"]), r))
         log[f"{name}_read"] += 1
         log[f"{name}_rows"] += len(rows)
+        log[f"{name}:{model}"] += 1
         log[f"{name}_dropped"] += sum(v for k, v in drop.items() if not k.startswith("flagged"))
-        print(f"[reader] {name} {d['s']} {d['kind']}: {len(rows)} kept, {drop or 'none dropped'}, {time.time() - t0:.0f}s")
+        print(f"[reader] {name} {d['s']} {d['kind']} ({model}): {len(rows)} kept, {drop or 'none dropped'}, {time.time() - t0:.0f}s")
         time.sleep(pace)
+
+
+def context(text: str, quote: str, around: int = 1500) -> str:
+    """The quote with the text around it (for the row check); the quote alone when its place is not found exactly."""
+    i = text.find(quote[:80])
+    if i < 0:
+        return quote
+    return text[max(0, i - around): i + len(quote) + around]
+
+
+CHECK_PROMPT = """You check one row extracted from an Indian company's filed document. Use only the text below.
+Extracted: value={value} unit={unit} due={due} (due = end of the period the statement refers to, YYYY-MM-DD)
+Quote: {quote}
+Text around the quote: {ctx}
+Is the value and unit what the quote states, and does the due date match the period it refers to (FY27 ends 2027-03-31,
+Q3 FY27 ends 2026-12-31)? Is it a management statement, not an analyst's question? Reply with JSON only:
+{{"ok": true or false, "why": "if not ok, the problem in at most 12 words"}}"""
+
+
+def check_rows(lane: list[str], checks: list, done_flag: threading.Event, key: str, store: dict, lock, stop_at: float,
+               log: dict, quota: Quota) -> None:
+    """Lane D: Gemma 4 checks each dated row against the text around its quote. The row keeps `check`: "ok" or "doubt: ...";
+    Claude sees it in the pack. A row not checked by the end of the run stays unchecked."""
+    while time.time() < stop_at:
+        if not checks:
+            if done_flag.is_set():
+                return
+            time.sleep(5)
+            continue
+        url, name, i, ctx, r = checks.pop(0)
+        p = CHECK_PROMPT.format(value=r.get("value"), unit=r.get("unit"), due=r.get("due"), quote=r.get("quote"), ctx=ctx[:6000])
+        model = next((m for m in lane if quota.take(m, tokens(len(p), 150), stop_at)), None)
+        if not model:
+            return
+        try:
+            res = requests.post(f"{API}/models/{model}:generateContent", headers={"x-goog-api-key": key}, timeout=(30, 120),
+                                json={"contents": [{"parts": [{"text": p}]}], "generationConfig": {"temperature": 0}})
+        except requests.RequestException:
+            log["check_errors"] += 1
+            continue
+        if res.status_code == 429:
+            if quota.refused(model):
+                time.sleep(60)
+            checks.insert(0, (url, name, i, ctx, r))
+            continue
+        if res.status_code != 200:
+            log["check_errors"] += 1
+            if res.status_code in (400, 403, 404):
+                quota.gone(model)
+            continue
+        try:
+            t = res.json()["candidates"][0]["content"]["parts"][0]["text"]
+            v = json.loads(t[t.find("{"): t.rfind("}") + 1])
+        except Exception:  # noqa: BLE001
+            log["check_errors"] += 1
+            continue
+        verdict = "ok" if v.get("ok") is True else "doubt: " + str(v.get("why") or "not confirmed")[:90]
+        with lock:
+            rows = ((store.get(url) or {}).get(name) or {}).get("rows") or []
+            if i < len(rows) and rows[i].get("quote") == r.get("quote"):
+                rows[i]["check"] = verdict
+        log["check_ok" if verdict == "ok" else "check_doubt"] += 1
 
 
 def agreement(store: dict, theses: dict) -> dict:
@@ -342,8 +448,25 @@ def agreement(store: dict, theses: dict) -> dict:
     return out
 
 
+def label_agreement(store: dict) -> int:
+    """Lane C: on a document both lanes read, each row is marked agree=True when the other lane's model found the same
+    statement (matches()), else False. Rows both found go first for Claude; a single-model row is still shown. Returns the
+    number of rows marked agreed."""
+    n = 0
+    for e in store.values():
+        a, b = (e.get("lite") or {}).get("rows"), (e.get("flash") or {}).get("rows")
+        if not a or not b:
+            continue
+        for x, other in ((a, b), (b, a)):
+            for r in x:
+                r["agree"] = any(matches(r, o) for o in other)
+                n += r["agree"]
+    return n
+
+
 def forward(store: dict) -> dict:
     """docs/data/forward.json: per stock, the latest document read and its rows (Flash over Flash-Lite)."""
+    label_agreement(store)
     st = {}
     for url, e in store.items():
         r = next((e[m] for m in ("flash", "lite") if "rows" in (e.get(m) or {})), None)
@@ -354,7 +477,8 @@ def forward(store: dict) -> dict:
             continue
         st[e["s"]] = {"date": e["date"], "kind": e["kind"], "url": url, "model": r.get("model"), "read": r.get("at"),
                       "rows": len(r["rows"]), "dated": sum(1 for x in r["rows"] if x.get("due") and x.get("kind") in DATED),
-                      "items": r["rows"]}
+                      "agreed": sum(1 for x in r["rows"] if x.get("agree")),
+                      "items": sorted(r["rows"], key=lambda x: not x.get("agree"))}
     doc = {"date": str(datetime.now(IST).date()),
            "note": "Found by free models; quotes verified verbatim by code. Not confirmed by Narrativ.ai unless the stock's review uses them.",
            "stocks": st}
@@ -383,6 +507,7 @@ def save(store: dict, tries: int = 5) -> bool:
     current packs. A rebase of the whole run's commit failed on 23 Nov 2026 (the daily run had rewritten packs meanwhile)
     and lost ~2 hours of reading and the day's free quota; saving every SAVE_EVERY also caps what a crash can lose."""
     _last_save[0] = time.time()
+    label_agreement(store)
     STORE.write_text(json.dumps(store, ensure_ascii=False, indent=0))
     forward(store)
     keep = {p: p.read_bytes() for p in OWN if p.exists()}
@@ -419,15 +544,27 @@ def daily() -> None:
     store = json.loads(STORE.read_text()) if STORE.exists() else {}
     theses = json.loads(Path("docs/data/theses.json").read_text())
     lite, flash = _plan(docs, store, theses)
-    print(f"[reader] {len(docs)} documents indexed; to read: Flash-Lite {len(lite)}, Flash {len(flash)}")
-    log, lock, ns_box = Counter(), threading.Lock(), [None]
+    try:
+        have = models(key)
+    except Exception as e:  # noqa: BLE001  the list call failing must not stop the run: use the known ids
+        print(f"[reader] model list failed ({type(e).__name__}); using known ids")
+        have = [LITE, "gemini-3.1-flash-lite", FLASH, "gemma-4-31b-it"]
+    lanes = {"lite": resolve(LITE_LANE, have), "flash": resolve(FLASH_LANE, have), "check": resolve(CHECK_LANE, have)}
+    print(f"[reader] {len(docs)} documents indexed; to read: lite lane {len(lite)}, flash lane {len(flash)}; lanes {lanes}")
+    log, lock, ns_box, quota = Counter(), threading.Lock(), [None], Quota()
     stop_at = t0 + MINUTES * 60
-    th = [threading.Thread(target=_stage, args=("lite", LITE, lite, LITE_MAX, key, store, lock, stop_at, ns_box, log)),
-          threading.Thread(target=_stage, args=("flash", FLASH, flash, FLASH_MAX, key, store, lock, stop_at, ns_box, log))]
+    checks, lanes_done = [], threading.Event()
+    th = [threading.Thread(target=_stage, args=(_stage_run, "lite", log, "lite", lanes["lite"], lite, key, store, lock, stop_at, ns_box, log, quota, checks)),
+          threading.Thread(target=_stage, args=(_stage_run, "flash", log, "flash", lanes["flash"], flash, key, store, lock, stop_at, ns_box, log, quota, checks))]
+    ck = threading.Thread(target=_stage, args=(check_rows, "check", log, lanes["check"], checks, lanes_done, key, store, lock, stop_at, log, quota))
     for t in th:
         t.start()
+    ck.start()
     for t in th:
         t.join()
+    lanes_done.set()
+    ck.join()
+    label_agreement(store)
     STORE.write_text(json.dumps(store, ensure_ascii=False, indent=0))
     fw = forward(store)
     n_packs = patch_packs(store)
@@ -435,7 +572,9 @@ def daily() -> None:
     line = {"date": str(datetime.now(IST).date()), "minutes": round((time.time() - t0) / 60), **dict(log),
             "lite_left": len(lite) - log["lite_read"], "flash_left": len(flash) - log["flash_read"],
             "docs_indexed": len(docs), "read_lite_total": read_all("lite"), "read_flash_total": read_all("flash"),
-            "stocks_with_rows": len(fw["stocks"]), "packs_patched": n_packs, "agreement": agreement(store, theses)}
+            "stocks_with_rows": len(fw["stocks"]), "packs_patched": n_packs, "agreement": agreement(store, theses),
+            "rows_agreed": sum(s.get("agreed") or 0 for s in fw["stocks"].values()), "checks_left": len(checks),
+            "lanes": lanes, "usage": quota.day()}
     with STATS.open("a") as f:
         f.write(json.dumps(line) + "\n")
     print("[reader] " + json.dumps(line))
