@@ -9,7 +9,9 @@ Who writes what (split agreed with the owner):
   (cash from operations / EBITDA over the full years; owner 26 Nov 2026, feedback #113).
 - Plans to grow: Claude's dated drivers, else the reader's quoted plans; the model's plain rewording when it has one.
 - What could go wrong: Claude's kill switches (researched stocks only in this version).
-- In one line: code, a phrase set from the stability / quality / valuation / momentum tiers.
+- In one line: the model's short label of what the company is ("A maker of motorcycles and scooters"), then code's phrase
+  from today's stability / quality / valuation / momentum tiers (owner, 26 Nov 2026). The label is stored; the phrase is
+  rebuilt every day, so the verdict never goes stale. Without a label, the phrase alone.
 Checks on model text: length caps (one screen), no number that is not in the facts, no banned jargon; a failed text is
 not stored. Store: data/story.json (committed, small). The daily run puts `narrativ` on each dossier.
 """
@@ -26,7 +28,7 @@ STORE = Path("data/story.json")
 # Order is the owner's pick after the side-by-side test (--compare); STORY_MODELS (comma list) overrides it for a run.
 MODELS = [m for m in os.environ.get("STORY_MODELS", "gemini-3.1-flash-lite,gemma-4-31b-it,gemma-4-26b-a4b-it,gemini-flash-lite-latest").split(",") if m]
 COMPARE = ["gemma-4-31b-it", "gemini-3.1-flash-lite"]  # the side-by-side test (owner, 26 Nov 2026)
-CAPS = {"what": 240, "money": 170, "plan": 80, "line": 120}
+CAPS = {"what": 240, "money": 170, "plan": 80, "line": 120, "label": 60}
 BANNED = re.compile(r"\b(AUM|capex|consolidated|EBITDA|PAT|YoY|QoQ|bps|basis points|guidance|guided|synerg\w*|leverag\w*|robust|"
                     r"diversified portfolio|value chain|end-to-end|solutions provider)\b", re.I)
 EXAMPLE = {"what": "A microfinance company. It lends small amounts to women in villages and small towns so they can run a shop, "
@@ -120,6 +122,27 @@ def check(out: dict, facts_text: str) -> list[str]:
     return bad
 
 
+def check_label(label, facts_text: str) -> list[str]:
+    """The model's label of what the company is (start of the one-line); a bad label is dropped, the phrase stays alone."""
+    s = str(label or "").strip().rstrip(".;:")
+    if not s:
+        return ["label empty"]
+    bad = [b.replace("line", "label") for b in check_line(s, facts_text) if "too long" not in b]
+    if len(s) > CAPS["label"]:
+        bad.append(f"label too long ({len(s)})")
+    if re.search(r"\b(strong|weak|cheap|rich|good|great|best|leading|undervalued)\b", s, re.I):
+        bad.append("label judges")
+    return bad
+
+
+def line_of(label: str | None, phrase: str | None) -> str | None:
+    """The one-line shown in the app: "A maker of motorcycles and scooters; a strong business at a cheap price, ..." """
+    if not phrase:
+        return None
+    lab = str(label or "").strip().rstrip(".;:")
+    return f"{lab}; {phrase[0].lower()}{phrase[1:]}" if lab else phrase
+
+
 def check_line(line, facts_text: str) -> list[str]:
     """The model's one-line story (kept apart: a bad line is dropped, the code phrase stays)."""
     s, have, bad = str(line or "").strip(), _nums(facts_text), []
@@ -149,7 +172,7 @@ Plans management stated: {json.dumps([p['text'] for p in plans], ensure_ascii=Fa
 Our verdict in words (do not change its judgement, do not add one): {verdict or 'none'}
 Return JSON only: {{"what": "max {CAPS['what']} characters", "money": "max {CAPS['money']} characters",
 "plans": ["each plan above reworded plainly, max {CAPS['plan']} characters, keep its numbers and dates, at most 2"],
-"line": "one sentence, max {CAPS['line']} characters: what the company is, in a few words, joined to our verdict above; no advice, no prediction"}}""" + (f"\nYour last answer broke these limits; rewrite shorter: {fix}" if fix else "")
+"label": "what the company is, 3 to 8 plain words starting with A or An, max {CAPS['label']} characters, e.g. 'A maker of motorcycles and scooters'; no judgement"}}""" + (f"\nYour last answer broke these limits; rewrite shorter: {fix}" if fix else "")
 
 
 def ask(key: str, model: str, text: str) -> tuple[dict | None, str | None]:
@@ -221,8 +244,9 @@ def compare(n: int = 30) -> None:
             t1 = time.time()
             a, bad, err = attempt(key, m, p, desc, plans, facts, verdict)
             row["by"][m] = {"secs": round(time.time() - t1, 1), "error": err, "held": bad,
-                            "line_held": check_line((a or {}).get("line"), facts) if a else None,
-                            **{k: (a or {}).get(k) for k in ("what", "money", "plans", "line")}}
+                            "label_held": check_label((a or {}).get("label"), facts) if a else None,
+                            "line": line_of((a or {}).get("label"), verdict),
+                            **{k: (a or {}).get(k) for k in ("what", "money", "plans", "label")}}
             time.sleep(4)
         out["stocks"].append(row)
         print(f"[story] compare {p['s']}: " + ", ".join(f"{m} {'ok' if not r['error'] and not r['held'] else (r['error'] or 'held')}" for m, r in row["by"].items()))
@@ -260,7 +284,8 @@ def write(max_minutes: float = 30, limit: int = 300) -> None:
         if len(desc) < 60:
             continue
         old = st["stocks"].get(sym) or {}
-        if old.get("desc_len") == len(desc) and str(old.get("date", "")) > str(int(today[:4]) - 1) + today[4:]:
+        # rewritten when the description changes, after a year, or once for sheets written before labels (26 Nov 2026)
+        if old.get("desc_len") == len(desc) and str(old.get("date", "")) > str(int(today[:4]) - 1) + today[4:] and "label_tried" in old:
             continue
         plans = plans_of(sym, theses, forward)
         facts = desc + " " + " ".join(f"{x['text']} {x.get('due') or ''}" for x in plans) + " " + (p.get("n") or "")  # due dates: "by March 2027"
@@ -278,9 +303,9 @@ def write(max_minutes: float = 30, limit: int = 300) -> None:
                 continue
             st["stocks"][sym] = {"what": out["what"].strip(), "money": out["money"].strip(),
                                  "plans": [str(x).strip() for x in (out.get("plans") or [])[:2]],
-                                 "model": m, "date": today, "desc_len": len(desc)}
-            if out.get("line") and not check_line(out["line"], facts):
-                st["stocks"][sym]["line"] = str(out["line"]).strip()  # stored only: the app shows the code phrase until the owner approves
+                                 "model": m, "date": today, "desc_len": len(desc), "label_tried": True}
+            if out.get("label") and not check_label(out["label"], facts):
+                st["stocks"][sym]["label"] = str(out["label"]).strip().rstrip(".;:")
             st.get("held", {}).pop(sym, None)
             done += 1
             break
@@ -306,7 +331,7 @@ def sheet(sym: str, row: dict, metrics: dict, summary: str | None, theses: dict,
     if not what and summary:
         what = re.split(r"(?<=[.!?])\s", summary.strip())[0][:CAPS["what"]]  # first sentence of the description until the model writes it
     out = {"what": what, "money": w.get("money"), "going": going(metrics), "plans": pl, "risks": risks_of(sym, theses),
-           "one_line": one_line(row.get("t")), "written": w.get("date"), "plain": bool(w)}
+           "one_line": line_of(w.get("label"), one_line(row.get("t"))), "written": w.get("date"), "plain": bool(w)}
     return out if any(out[k] for k in ("what", "going", "one_line")) else None
 
 

@@ -14,3 +14,13 @@ def test_line_checks():
     assert any("advice" in b for b in check_line("A lender you should buy now.", facts))
     assert any("number not in facts" in b for b in check_line("A lender growing 45% a year.", facts))
     assert any("too long" in b for b in check_line("x" * 130, facts))
+
+
+def test_label_and_line():
+    from narrativ.story import check_label, line_of
+    facts = "Hero makes motorcycles and scooters."
+    assert check_label("A maker of motorcycles and scooters", facts) == []
+    assert "label judges" in check_label("A strong motorcycle maker", facts)
+    assert line_of("A maker of motorcycles and scooters", "A strong business at a cheap price.") == \
+        "A maker of motorcycles and scooters; a strong business at a cheap price."
+    assert line_of(None, "A strong business.") == "A strong business."
