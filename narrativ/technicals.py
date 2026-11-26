@@ -152,3 +152,20 @@ def momentum_score(t: dict, rs_pct: float) -> float:
     if t["stage"] == "Downtrend":
         s -= 20
     return float(max(0, min(100, s)))
+
+
+def ma_cross(close: pd.Series, span: int = 260) -> tuple[int, int | None] | None:
+    """The 50-day vs 200-day average over the chart's year (feedback #170, owner 26 Nov 2026): (1 when the 50-day is above
+    the 200-day today else 0, trading days since the latest cross in that year or None when there was none). The same
+    reading as the app's cross card (PaperParts CrossCard): a golden cross when the 50-day rose above, a death cross when it fell
+    below. None without 200 days of prices."""
+    a = close.rolling(50).mean().iloc[-span:]
+    b = close.rolling(200).mean().iloc[-span:]
+    d = (a - b).to_numpy()
+    if len(d) < 30 or np.isnan(d[-1]):
+        return None
+    last = None
+    for i in range(1, len(d)):
+        if not (np.isnan(d[i]) or np.isnan(d[i - 1])) and d[i] * d[i - 1] < 0:
+            last = i
+    return (1 if d[-1] > 0 else 0), (None if last is None else len(d) - 1 - last)

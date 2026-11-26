@@ -12,7 +12,7 @@ Seven checks, each met or not, each with a one-line reason (like the Buy gates):
   C4 Story intact and no open integrity item (Claude's quoted story check)
   C5 Institutions adding: institutional holding up (D5) or mutual funds entering (T15 / D6), not falling, no selling run
   C6 Complete data: 3 full years of results, cash conversion known (lenders exempt), 8+ quarters, no open data issue
-  C7 Second read agrees: a free reader found one of Claude's dated statements in the same words (narrativ/reader.py)
+  C7 Quotes double-checked: a separate model reading the same filing before Claude (narrativ/reader.py) found one of Claude's dated statements in the same words (narrativ/reader.py)
 Level: High = 6 or 7 met, including C1 and C3 (the two the history replay shows raise the win rate among candidates);
 Low = 3 or fewer met; Medium otherwise.
 Tested and left out (narrativ/replay.py `conviction`): valuation Deep value / Undervalued lowered the win rate inside the
@@ -35,7 +35,7 @@ NAMES = {
     "C4": "Story intact, no open integrity item",
     "C5": "Institutions adding",
     "C6": "Complete data",
-    "C7": "Second read agrees",
+    "C7": "Quotes double-checked",
 }
 _DEBT = re.compile(r"debt|borrow|lease", re.I)
 _HOST = re.compile(r"^https?://[^/]+")
@@ -163,15 +163,18 @@ def _c6(Mx, lender, open_issues):
 
 
 def _c7(th, reader):
-    if not reader or not reader.get("items"):
-        return False, "not read by the free reader yet"
+    if not reader:
+        return False, "not checked yet"
+    if not reader.get("items"):  # read, but nothing dated found (owner, 26 Nov 2026: "not read yet" was wrong here)
+        doc = " ".join(x for x in (reader.get("kind"), f"of {reader['date']}" if reader.get("date") else None) if x) or "a document"
+        return False, f"nothing dated found in the {doc} to check against"
     rq = [_norm(i.get("quote")) for i in reader["items"] if i.get("due")]
     rq = [r for r in rq if len(r) >= 20]
     ours = [x for x in (th.get("drivers") or []) + (th.get("promises") or []) if x.get("due") and x.get("quote")]
     hit = [x for x in ours if len(_norm(x["quote"])) >= 20 and any(r in _norm(x["quote"]) or _norm(x["quote"]) in r for r in rq)]
     if not hit:
-        return False, f"reader found {len(rq)} dated row(s), none in the same words as Narrativ.ai's"
-    return True, f"{len(hit)} of Narrativ.ai's dated statements also found by the reader ({reader.get('model') or 'free model'})"
+        return False, f"{len(rq)} dated statement(s) found, none in the same words as Narrativ.ai's"
+    return True, f"{len(hit)} of Narrativ.ai's dated statements matched word for word"
 
 
 def assess(dec: dict, L: dict, setup: dict | None, th: dict | None, Mx: dict | None, today: date, *,

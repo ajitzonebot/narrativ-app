@@ -344,6 +344,7 @@ fun App(startRoute: String? = null, ci: Boolean = false) {
             startRoute == "feedback" -> st.openFeedback("Home")
             startRoute?.startsWith("stock:") == true -> st.go(Screen.Stock(startRoute.removePrefix("stock:")))
             startRoute?.startsWith("tab:") == true -> st.go(Screen.Stock(startRoute.removePrefix("tab:").substringBefore("@")))
+            startRoute?.startsWith("why:") == true -> startRoute.removePrefix("why:").let { s -> AppRef.openWhy = s; st.go(Screen.Stock(s)) }
         }
     }
     BackHandler(enabled = st.stack.size > 1) { st.back() }
@@ -474,4 +475,6 @@ fun startTab(route: String?, sym: String): Int =
     if (route?.startsWith("tab:$sym@") == true) route.substringAfter("@").toIntOrNull() ?: 0 else 0
 
 /** The running app's state for places that are not handed it (bottom sheets' feedback button). */
-object AppRef { var st: AppState? = null }
+object AppRef { var st: AppState? = null
+    /** CI screenshots: route "why:SYMBOL" opens that stock's Why sheet once. */
+    var openWhy: String? = null }

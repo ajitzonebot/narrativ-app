@@ -241,6 +241,7 @@ fun SummaryTab(st: AppState, sym: String, p: P?, det: Detail?, chart: Chart?, lo
     var formula by remember { mutableStateOf<Triple<String, String, Metric>?>(null) }
     val open: (String?) -> Unit = { k -> k?.let { key -> det?.m(key)?.let { formula = Triple(METRIC_NAMES[key] ?: key, key, it) } } }
     var sheet by rememberSaveable { mutableStateOf("") }  // "decision", "research", "ratios"
+    LaunchedEffect(sym) { if (AppRef.openWhy == sym) { AppRef.openWhy = null; sheet = "decision" } }
     val loading = det == null && !loaded  // the stock file is still loading: placeholders, not "missing"
     if (Look.paper) {
         // Paper: the Buy box, the 1-year chart, the plan (#139: before the checks), the seven checks, sector and industry (#140),
@@ -324,17 +325,31 @@ private fun PaperPlan(s: Setup, an: Analyst?, now: Double?) {
     val lo = s.lo; val hi = s.hi
     if (s.stop == null && lo == null) return
     val brk = s.type == "Breakout"
-    val marks = listOfNotNull(
+    val plan = listOfNotNull(
         s.stop?.let { PlanMark("Stop", it, TierC.red) },
         (now ?: s.price)?.let { PlanMark("Now", it, C.white) },
         lo?.let { PlanMark(if (brk) "Buy above" else "Buy from", it, TierC.darkGreen) },
         hi?.takeIf { it != lo }?.let { PlanMark(if (brk) "+5%" else "to", it, TierC.darkGreen) },
         // feedback #141: the target carries its upside from today's price
-        an?.mean?.takeIf { it > 0 }?.let { PlanMark("Analyst" + (an.n?.let { n -> " ($n)" } ?: ""), it, TierC.lime, upside(it, now ?: s.price)) },
-    ).sortedBy { it.value }
+    )
+    val an1 = an?.mean?.takeIf { it > 0 }?.let { PlanMark("Analyst" + (an.n?.let { n -> " ($n)" } ?: ""), it, TierC.lime, upside(it, now ?: s.price)) }
+    // feedback #164 (option A): when stop, price and buy zone sit within 10% of each other, the line zooms on them, labels
+    // alternate above and below, and the analyst target becomes a label with its upside (an arrow to its side)
+    val pMin = plan.minOfOrNull { it.value }; val pMax = plan.maxOfOrNull { it.value }
+    val zoom = an1 != null && pMin != null && pMax != null && pMin > 0 && (pMax - pMin) / pMin <= 0.10 &&
+        (an1.value > pMax + (pMax - pMin) || an1.value < pMin - (pMax - pMin))
+    val marks = (if (zoom) plan else plan + listOfNotNull(an1)).sortedBy { it.value }
     Column(Modifier.fillMaxWidth()) {
         PaperLabel("The plan", size = 11.sp)
-        PlanLine(marks, if (lo != null && hi != null) lo to hi else null, Modifier.fillMaxWidth().height(66.dp), zoneLabel = setupName(s.type).uppercase() + if (brk) " ↑" else "")
+        // labels always alternate above and below (screenshot 26 Nov: IIFL "BUY FROM" and "TO" touched at 520 / 546)
+        PlanLine(marks, if (lo != null && hi != null) lo to hi else null, Modifier.fillMaxWidth().height(96.dp),
+            zoneLabel = setupName(s.type).uppercase() + if (brk) " ↑" else "", stagger = marks.size > 2)
+        if (zoom && an1 != null) {
+            val up = an1.value > (pMax ?: 0.0)
+            androidx.compose.material3.Text((if (up) "" else "← ") + an1.label.uppercase() + " ₹" + fmt(an1.value, if (an1.value >= 100) 0 else 2) +
+                (an1.extra?.let { " · $it" } ?: "") + (if (up) " →" else ""), fontSize = 9.5.sp, color = TierC.lime, fontFamily = PaperFonts.label,
+                fontWeight = FontWeight.Bold, maxLines = 1, modifier = Modifier.align(if (up) Alignment.End else Alignment.Start))
+        }
     }
 }
 
@@ -771,23 +786,41 @@ fun DecisionDetailsSheet(st: AppState, sym: String, p: P?, det: Detail?, onDismi
     val audit = r?.audit
     val dn = dd?.d ?: "Not rated"
     BottomSheet(onDismiss, "Why " + if (dn == "Not rated") "not rated" else dn) {
-        FlowRow(Modifier.padding(bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            val vd = det?.verdict?.ifBlank { null } ?: p?.vd?.ifBlank { null }
-            vd?.let { DotChip(it, verdictColor(it)) }
-            p?.cp?.filter { (it.status == "open" || it.status == "due") && it.due != null }?.minByOrNull { it.due!! }?.let { c ->
-                ValChip("next check ${skDay(c.due)} · ${(c.type ?: "").replace('_', ' ')}")
+        // feedback #165 (owner, 26 Nov 2026): "How sure are we?" first: the rule-built conviction and its seven checks
+        val cv = det?.conviction
+        val cvLevel = cv?.level
+        if (cv != null && cvLevel != null) SheetSection("How sure are we?", cv.date?.let { skDay(it) }) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                T("$cvLevel conviction", 18.sp, if (cvLevel == "High") TierC.lightGreen else if (cvLevel == "Low") TierC.lightRed else TierC.yellow, FontWeight.Bold)
+                val oks = cv.checks.map { it.ok == true }
+                if (oks.isNotEmpty()) Meter(oks.size, oks.count { it }, colors = oks.map { if (it) TierC.lightGreen else C.line }, style = MeterStyle.Dot)
+                if (cv.met != null && cv.of != null) T("${cv.met} of ${cv.of}", 12.sp, C.dim)
             }
-            if (p?.mb == true) DotChip("Multibagger potential", TierC.yellow)
-        }
+            // every check as a row: a status circle and its name; a check not met adds its figure or reason (feedback #88, no bare codes)
+            cv.checks.forEach { c ->
+                val ok = c.ok == true
+                Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.Top) {
+                    T(if (ok) "✓" else "–", 13.sp, if (ok) TierC.lightGreen else C.dim, FontWeight.Bold, maxLines = 1, modifier = Modifier.width(18.dp))
+                    Text(buildAnnotatedString {
+                        append(c.n.ifBlank { "Check" })
+                        if (!ok) (c.v ?: c.why)?.takeIf { it.isNotBlank() }?.let { withStyle(SpanStyle(color = C.dim)) { append(" · $it") } }
+                    }, color = C.white, fontSize = 13.sp, lineHeight = 18.sp, modifier = Modifier.weight(1f))
+                }
+            }
+        } else p?.cv?.let { lv -> SheetSection("How sure are we?") { T("$lv conviction", 15.sp, weight = FontWeight.Bold) } }
         val why = dd?.why.orEmpty()
         val levelNames = LEVEL_SHORT.toSet()
         val lvl = why.filter { it.substringBefore(":") in levelNames }
         val valn = why.filter { it !in lvl && it.contains("valuation", ignoreCase = true) }
         val rev = why.filter { it.startsWith("Verified") || it.contains("review", ignoreCase = true) }
-        val fwd = why.filter { it !in lvl && it !in valn && it !in rev }
-        if (lvl.isNotEmpty()) SheetSection("Levels") {
+        // R1 / R2 lender notes are not shown (owner: "why do we need to show this")
+        val fwd = why.filter { it !in lvl && it !in valn && it !in rev && !it.startsWith("R1 and R2 not applied") }
+        @Composable
+        fun levelChips(keys: Set<String>) {
+            val mine = lvl.filter { it.substringBefore(":") in keys }
+            if (mine.isEmpty()) return
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                lvl.forEach { w ->
+                mine.forEach { w ->
                     val k = w.substringBefore(":"); val li = LEVEL_SHORT.indexOf(k); val lvd = det?.levels?.get(LEVELS[li])
                     // the same tier words as the level tab (a quality turnaround reads "Turnaround watch")
                     val nm = if (li == 1 && (lvd?.turn ?: p?.turn ?: false) && (lvd?.t ?: p?.tier(1) ?: 0) != 0) "Turnaround watch" else w.substringAfter(": ")
@@ -799,13 +832,19 @@ fun DecisionDetailsSheet(st: AppState, sym: String, p: P?, det: Detail?, onDismi
                 }
             }
         }
-        if (fwd.isNotEmpty()) SheetSection("Forward evidence", "${fwd.size} quoted") {
+        val bizKeys = setOf("Stability", "Quality", "Management", "Outlook"); val timeKeys = setOf("Momentum", "Discovery")
+        if (lvl.any { it.substringBefore(":") in bizKeys }) SheetSection("Is it a good business?") { levelChips(bizKeys) }
+        val vlv = det?.levels?.get("val")
+        if (vlv != null || valn.isNotEmpty()) SheetSection("Is the price right?") {
+            vlv?.let { v -> FlowRow { DotChip("Valuation · " + v.name, tierColor(v.t)) } }
+            valn.firstOrNull()?.substringBefore(";")?.let { T(it, 12.sp, C.dim, modifier = Modifier.padding(top = 6.dp)) }
+        }
+        if (lvl.any { it.substringBefore(":") in timeKeys }) SheetSection("Is now the time?") { levelChips(timeKeys) }
+        if (fwd.isNotEmpty()) SheetSection("Future guidance by management", "${fwd.size} quoted") {
             fwd.forEach { w ->
                 Row(Modifier.padding(vertical = 4.dp)) {
-                    Box(Modifier.padding(top = 6.dp).size(6.dp).clip(CircleShape).background(TierC.lightGreen)); Spacer(Modifier.width(8.dp))
-                    Text(buildAnnotatedString {
-                        if (w.contains(": ")) { withStyle(SpanStyle(color = C.dim)) { append(w.substringBefore(": ")) }; append(" · " + w.substringAfter(": ")) } else append(w)
-                    }, color = C.white, fontSize = 13.sp, lineHeight = 18.sp)
+                    if (w.contains(": ")) { T(w.substringBefore(": "), 13.sp, C.dim, modifier = Modifier.width(84.dp)); T(w.substringAfter(": "), 13.sp, lineHeight = 18.sp) }
+                    else T(w, 13.sp, lineHeight = 18.sp)
                 }
             }
         }
@@ -817,15 +856,8 @@ fun DecisionDetailsSheet(st: AppState, sym: String, p: P?, det: Detail?, onDismi
                 }
             }
         }
-        val vlv = det?.levels?.get("val")
-        if (vlv != null || valn.isNotEmpty()) SheetSection("Valuation") {
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                vlv?.let { DotChip(it.name, tierColor(it.t)) }
-                valn.firstOrNull()?.substringBefore(";")?.let { ValChip(it) }
-            }
-        }
         // Claude's review
-        SheetSection("Review · Narrativ.ai", audit?.date?.let { skDay(it) }) {
+        SheetSection("Checked by Narrativ.ai", audit?.date?.let { skDay(it) }) {
             if (audit == null) {
                 val rv = reviewState(st, sym)
                 T(when { rv.verdict != null -> "Narrativ.ai's review: ${reviewWord(rv.verdict)}"; rv.pos > 0 -> queueLabel(st, sym) ?: "In Narrativ.ai's review queue"; rv.pos != 0 -> "In Narrativ.ai's research queue"
@@ -855,26 +887,6 @@ fun DecisionDetailsSheet(st: AppState, sym: String, p: P?, det: Detail?, onDismi
                 }
             }
         }
-        // conviction (rule-built, verified Buys only)
-        val cv = det?.conviction
-        val cvLevel = cv?.level
-        if (cv != null && cvLevel != null) SheetSection("Conviction: $cvLevel" + (if (cv.met != null && cv.of != null) " · ${cv.met} of ${cv.of} met" else ""),
-            listOfNotNull(cv.rule?.let { "rule $it" }, cv.date?.let { skDay(it) }).joinToString(" · ").ifBlank { null }) {
-            // every check as a row: a status circle and its name; a check not met adds its figure or reason (feedback #88, no bare codes)
-            cv.checks.forEach { c ->
-                val ok = c.ok == true
-                Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.Top) {
-                    Box(Modifier.size(20.dp).clip(CircleShape).background(if (ok) TierC.lightGreen else C.line), contentAlignment = Alignment.Center) {
-                        T(if (ok) "✓" else "–", 12.sp, if (ok) C.lo else C.dim, FontWeight.Bold, maxLines = 1)
-                    }
-                    Spacer(Modifier.width(10.dp))
-                    Text(buildAnnotatedString {
-                        append(c.n.ifBlank { "Check" })
-                        if (!ok) (c.v ?: c.why)?.takeIf { it.isNotBlank() }?.let { withStyle(SpanStyle(color = C.dim)) { append(" · $it") } }
-                    }, color = C.white, fontSize = 13.sp, lineHeight = 18.sp, modifier = Modifier.weight(1f).padding(top = 1.dp))
-                }
-            }
-        } else p?.cv?.let { lv -> SheetSection("Conviction") { T(lv, 15.sp, weight = FontWeight.Bold) } }
         val flags = det?.auditFlags.orEmpty()
         SheetSection("Automatic consistency flags", "${flags.size}") {
             if (flags.isEmpty()) T("None raised", 12.sp, C.dim) else flags.forEach { T("• $it", 12.sp, C.amber, lineHeight = 17.sp) }

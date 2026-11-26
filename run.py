@@ -949,6 +949,11 @@ def main(limit: int | None) -> None:
             if s in px:
                 c = px[s]["Close"].iloc[-60:]
                 row["sp"] = [round(float(x), 2) for x in c.iloc[::2]]
+                mx = technicals.ma_cross(px[s]["Close"])
+                if mx:  # feedback #170: ma = 50-day above 200-day today; gx = trading days since the latest cross (golden when ma)
+                    row["ma"] = mx[0]
+                    if mx[1] is not None:
+                        row["gx"] = mx[1]
         if s in theses:
             row["r"] = True
         row["ss"] = scan_state(s, theses.get(s) or {}, today, queued, (mem.get(s) or {}).get("checkpoints", []))["state"]

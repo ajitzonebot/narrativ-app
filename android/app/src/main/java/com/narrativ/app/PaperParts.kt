@@ -142,14 +142,17 @@ data class PlanMark(val label: String, val value: Double, val color: Color, val 
 
 /** The trading plan as a number line: marks (stop, now, buy above, +5%, analyst) and a shaded buy zone. */
 @Composable
-fun PlanLine(marks: List<PlanMark>, zone: Pair<Double, Double>?, modifier: Modifier = Modifier.fillMaxWidth().height(50.dp), zoneLabel: String? = null) {
+fun PlanLine(marks: List<PlanMark>, zone: Pair<Double, Double>?, modifier: Modifier = Modifier.fillMaxWidth().height(50.dp), zoneLabel: String? = null,
+             stagger: Boolean = false) {
+    // stagger (feedback #164): marks close together alternate, label and value above the line, then below, so none overlap
     if (marks.isEmpty()) return
     val tm = rememberTextMeasurer()
     val ink = C.white; val zoneC = TierC.darkGreen.copy(alpha = 0.22f)
     Canvas(modifier) {
         val vals = marks.map { it.value } + listOfNotNull(zone?.first, zone?.second)
         val lo = vals.min(); val hi = vals.max(); val pad = (hi - lo) * 0.06 + 0.01
-        val x0 = 8.dp.toPx(); val x1 = size.width - 8.dp.toPx(); val y = if (zoneLabel != null && zone != null) size.height * 0.62f else size.height / 2f
+        val x0 = 8.dp.toPx(); val x1 = size.width - 8.dp.toPx()
+        val y = if (stagger) size.height * 0.56f else if (zoneLabel != null && zone != null) size.height * 0.62f else size.height / 2f
         fun x(v: Double) = (x0 + ((v - (lo - pad)) / ((hi + pad) - (lo - pad))) * (x1 - x0)).toFloat()
         drawLine(ink, Offset(0f, y), Offset(size.width, y), 1.dp.toPx())
         zone?.let { (a, b) ->
@@ -167,8 +170,16 @@ fun PlanLine(marks: List<PlanMark>, zone: Pair<Double, Double>?, modifier: Modif
             val top = tm.measure(m.label.uppercase(), TextStyle(fontSize = 8.5.sp, color = m.color, fontFamily = PaperFonts.label, fontWeight = FontWeight.Bold))
             val bot = tm.measure(fmt(m.value, if (m.value >= 100) 0 else 2) + (m.extra?.let { " · $it" } ?: ""), TextStyle(fontSize = 9.sp, color = m.color, fontFamily = PaperFonts.label))
             fun lx(w: Int) = when (i) { 0 -> (mx - 1f).coerceAtLeast(0f); marks.lastIndex -> (mx - w + 1f).coerceAtMost(size.width - w); else -> mx - w / 2f }
-            drawText(top, topLeft = Offset(lx(top.size.width), y - 10.dp.toPx() - top.size.height))
-            drawText(bot, topLeft = Offset(lx(bot.size.width), y + 10.dp.toPx()))
+            if (!stagger) {
+                drawText(top, topLeft = Offset(lx(top.size.width), y - 10.dp.toPx() - top.size.height))
+                drawText(bot, topLeft = Offset(lx(bot.size.width), y + 10.dp.toPx()))
+            } else if (i % 2 == 0) {  // above: label over value
+                drawText(bot, topLeft = Offset(lx(bot.size.width), y - 10.dp.toPx() - bot.size.height))
+                drawText(top, topLeft = Offset(lx(top.size.width), y - 10.dp.toPx() - bot.size.height - top.size.height))
+            } else {  // below: label, then value
+                drawText(top, topLeft = Offset(lx(top.size.width), y + 10.dp.toPx()))
+                drawText(bot, topLeft = Offset(lx(bot.size.width), y + 10.dp.toPx() + top.size.height))
+            }
         }
     }
 }

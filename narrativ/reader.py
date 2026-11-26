@@ -474,7 +474,9 @@ def forward(store: dict) -> dict:
         if r is None:
             continue
         cur = st.get(e["s"])
-        if cur and (cur["date"], cur["kind"] == "transcript") >= (e["date"], e["kind"] == "transcript"):
+        # a document with rows beats a newer one with none (owner, 26 Nov 2026: SATIN's 13 Nov slides gave 0 rows and hid
+        # the 3 Nov call transcript the reader had read, so conviction C7 said "not read" for 55 stocks)
+        if cur and (cur["rows"] > 0, cur["date"], cur["kind"] == "transcript") >= (len(r["rows"]) > 0, e["date"], e["kind"] == "transcript"):
             continue
         st[e["s"]] = {"date": e["date"], "kind": e["kind"], "url": url, "model": r.get("model"), "read": r.get("at"),
                       "rows": len(r["rows"]), "dated": sum(1 for x in r["rows"] if x.get("due") and x.get("kind") in DATED),

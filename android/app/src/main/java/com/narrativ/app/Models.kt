@@ -149,6 +149,8 @@ import kotlinx.serialization.json.JsonPrimitive
     val sp: List<Double> = emptyList(), val r: Boolean = false, val ss: String? = null, val cp: List<Cp2> = emptyList(),
     val tags: List<String> = emptyList(), val bq: Int? = null, val dc: String? = null, val ld: String? = null, val vf: String? = null, val af: Int? = null,
     val cand: String? = null, val rk: Int? = null, val mb: Boolean = false, val cv: String? = null, val tb: Int? = null,
+    /** 50-day above the 200-day today (1 / 0) and trading days since the latest cross in the chart's year (feedback #170). */
+    val ma: Int? = null, val gx: Int? = null,
 ) {
     fun tier(level: Int): Int = t.getOrElse(level) { 0 }
 }

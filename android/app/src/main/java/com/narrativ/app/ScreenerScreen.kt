@@ -54,10 +54,13 @@ data class Filt(
     val dc: String? = null, val syms: List<String> = emptyList(), val research: String = "Any",
     /** true for an industry opened from a list (ind: preset): exact name, so the count matches the list; the typed "Industry contains" field stays a substring. */
     val industryExact: Boolean = false,
+    /** 50-day vs 200-day average (feedback #170): one of [CROSSES]. */
+    val cross: String = "Any",
 ) {
     /** How many filters beyond the category are set (shown on the Filters button). */
     fun active(): Int = minTier.count { it != 0 } + (if (disc.isNotEmpty()) 1 else 0) + (if (setup != "Any") 1 else 0) + (if (mcap != "Any") 1 else 0) +
-        (if (industry.isNotBlank()) 1 else 0) + (if (includeGrey) 1 else 0) + (if (showRemoved) 1 else 0) + (if (turnaround) 1 else 0)
+        (if (industry.isNotBlank()) 1 else 0) + (if (includeGrey) 1 else 0) + (if (showRemoved) 1 else 0) + (if (turnaround) 1 else 0) +
+        (if (cross != "Any") 1 else 0)
 
     /** Same filter as [o] apart from name, sort, search text and the chips outside the sheet (preset highlight). */
     fun sameAs(o: Filt): Boolean = copy(name = "", sort = "Score", q = "", research = "Any", dc = null, syms = emptyList()) ==
@@ -75,6 +78,21 @@ val MCAP = listOf("Any", "< 1k cr", "1k–5k cr", "5k–20k cr", "> 20k cr")
 val SETUPS = listOf("Any", "Breakout", "Pullback", "Base", "No setup")
 val SORTS = listOf("Score", "Quality", "Momentum", "Change today", "Market cap")
 private val RESEARCH = listOf("Any", "Researched", "Verified")
+/** feedback #170: month = 21 trading days, 3 months = 63; golden = the 50-day rose above the 200-day, death = fell below */
+val CROSSES = listOf("Any", "Golden cross, last month", "Golden cross, last 3 months", "50-day above 200-day", "Death cross, last 3 months")
+fun crossMatch(p: P, c: String): Boolean = when (c) {
+    "Golden cross, last month" -> p.ma == 1 && (p.gx ?: 999) <= 21
+    "Golden cross, last 3 months" -> p.ma == 1 && (p.gx ?: 999) <= 63
+    "50-day above 200-day" -> p.ma == 1
+    "Death cross, last 3 months" -> p.ma == 0 && (p.gx ?: 999) <= 63
+    else -> true
+}
+/** Row note while a cross filter is on: "Golden cross today" / "… 3 trading days ago". */
+fun crossNote(p: P, c: String): String? {
+    if (c == "Any" || c == "50-day above 200-day") return null
+    val g = p.gx ?: return null
+    return (if (p.ma == 1) "Golden cross " else "Death cross ") + when (g) { 0 -> "today"; 1 -> "1 trading day ago"; else -> "$g trading days ago" }
+}
 
 /** [researched] tells whether Claude has research on a stock (AppState.researched); only the "Researched" filter uses it. */
 fun Filt.match(p: P, researched: (P) -> Boolean = { it.vf != null }): Boolean {
@@ -94,6 +112,7 @@ fun Filt.match(p: P, researched: (P) -> Boolean = { it.vf != null }): Boolean {
     }
     if (disc.isNotEmpty() && p.tier(5) !in disc) return false
     if (setup != "Any" && p.su != setup) return false
+    if (!crossMatch(p, cross)) return false
     val mc = p.mc
     if (mcap != "Any") {
         if (mc == null) return false
@@ -226,7 +245,7 @@ fun ScreenerScreen(st: AppState, preset: String?) {
             // Paper: rows sit on the paper under a rule (no panel), like the mock-up
             Column(Modifier.padding(horizontal = 16.dp).fillMaxWidth().then(if (Look.paper) Modifier else Modifier.clip(shape).background(C.card))) {
                 if (Look.paper && k == 0) Box(Modifier.fillMaxWidth().height(1.dp).background(C.white))
-                StockRow(st, p)
+                StockRow(st, p, crossNote(p, f.cross))
                 if (k < shown.lastIndex) HLineDivider(Modifier.padding(horizontal = S.cardPad))
             }
         }
@@ -252,8 +271,8 @@ private fun CtlButton(icon: androidx.compose.ui.graphics.vector.ImageVector, lab
 
 /** One stock in the list: code, Claude tick, decision; setup · industry (or why it was removed); seven level dots; sparkline, price, day move. */
 @Composable
-fun StockRow(st: AppState, p: P) {
-    if (Look.paper) return PaperStockRow(st, p)
+fun StockRow(st: AppState, p: P, note: String? = null) {
+    if (Look.paper) return PaperStockRow(st, p, note)
     Row(Modifier.fillMaxWidth().clickable { st.go(Screen.Stock(p.s)) }.padding(horizontal = S.cardPad, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -267,6 +286,7 @@ fun StockRow(st: AppState, p: P) {
                 pushStyle(androidx.compose.ui.text.SpanStyle(color = C.white)); append(setupName(p.su, p.tb == 1)); pop(); append(" · " + (p.i ?: p.n))
             }, fontSize = 13.sp, color = C.dim, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Box(Modifier.padding(top = 5.dp)) { LevelDots(p, 7.dp) }
+            note?.let { T(it, 11.sp, if (it.startsWith("Golden")) TierC.lightGreen else TierC.lightRed, maxLines = 1, modifier = Modifier.padding(top = 3.dp)) }
         }
         Sparkline(p.sp, Modifier.padding(horizontal = 8.dp).size(52.dp, 26.dp))
         Column(Modifier.widthIn(min = 76.dp), horizontalAlignment = Alignment.End) {
@@ -279,7 +299,7 @@ fun StockRow(st: AppState, p: P) {
 /** Paper look, one stock in the list (mock-up): code + verdict in its ink and the decision tag; seven dots, setup in capitals,
  *  conviction squares, industry; a 30-day line; price over the day's move with an arrow. Same facts as Classic's row. */
 @Composable
-fun PaperStockRow(st: AppState, p: P) {
+fun PaperStockRow(st: AppState, p: P, note: String? = null) {
     val col = if ((p.d1 ?: 0.0) >= 0) TierC.darkGreen else TierC.red
     Row(Modifier.fillMaxWidth().clickable { st.go(Screen.Stock(p.s)) }.padding(horizontal = S.cardPad, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -302,6 +322,7 @@ fun PaperStockRow(st: AppState, p: P) {
                     append(p.i ?: p.n)
                 }, fontSize = 11.sp, color = C.dim, maxLines = 1, modifier = Modifier.weight(1f, false).rowMarquee())
             }
+            note?.let { T(it, 10.5.sp, if (it.startsWith("Golden")) TierC.darkGreen else TierC.red, maxLines = 1) }  // feedback #170
         }
         InkSpark(p.sp, col, Modifier.padding(horizontal = 6.dp).size(54.dp, 22.dp))
         Column(Modifier.widthIn(min = 70.dp), horizontalAlignment = Alignment.End) {
@@ -373,6 +394,11 @@ fun FilterSheet(st: AppState, start: Filt, saved: List<Filt>, onDismiss: () -> U
         Label("Setup")
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             SETUPS.forEach { s -> ToggleChip(if (s == "Any") "Any" else setupLabel(s), d.setup == s, { d = d.copy(setup = s) }) }
+        }
+        Label("50-day vs 200-day average")
+        val nCross = remember(d, pf, st.research) { CROSSES.associateWith { c -> pf.picks.count { d.copy(cross = c).match(it) { p -> st.researched(p) } } } }
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            CROSSES.forEach { c -> ToggleChip(c, d.cross == c, { d = d.copy(cross = c) }, count = if (c == "Any") null else nCross[c]) }
         }
         Label("Market cap")
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {

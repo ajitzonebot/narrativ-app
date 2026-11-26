@@ -161,6 +161,13 @@ def main(before: str | None) -> None:
         touched.append(s)
         if was != nd["d"]:
             moved.append(f"{s} {was}->{nd['d']}")
+    # "stories studied" follows Claude's runs too, same count as the daily run (owner, 26 Nov 2026: it stayed at 162 all day
+    # while 199 stocks had been studied)
+    studied = sum(1 for x in th if x in rows)
+    if studied != (picks.get("funnel") or {}).get("researched"):
+        picks.setdefault("funnel", {})["researched"] = studied
+        if not touched:
+            (OUT / "picks.json").write_text(json.dumps(picks, separators=(",", ":"), ensure_ascii=False))
     if touched:
         dc = {}
         for p in picks["picks"]:

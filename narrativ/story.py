@@ -20,7 +20,7 @@ import os
 import re
 import sys
 import time
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 API = "https://generativelanguage.googleapis.com/v1beta"
@@ -38,7 +38,59 @@ EXAMPLE = {"what": "A microfinance company. It lends small amounts to women in v
 
 
 # ---------------------------------------------------------------- code-written sections
-def going(m: dict) -> dict | None:
+def cash_position(sym: str | None, root: Path = Path("data/financials")) -> str | None:
+    """One statement on the cash position (feedback #155, owner 26 Nov 2026): cash and bank balances on the latest balance
+    sheet filed, against the same date a year earlier, and borrowings beside them. Rule-built from the results filings
+    (data/financials/<SYM>.json, consolidated when filed, else standalone); None when the balance sheet has no cash line."""
+    if not sym:
+        return None
+    try:
+        q = json.loads((root / f"{sym}.json").read_text()).get("quarters") or {}
+    except (OSError, ValueError):
+        return None
+
+    def bs(k):
+        x = q.get(k) or {}
+        b = ((x.get("Consolidated") or {}).get("bs") or (x.get("Standalone") or {}).get("bs") or {})
+        return b if b.get("cash") is not None else None
+
+    dates = [k for k in sorted(q) if bs(k)]
+    if not dates:
+        return None
+    k = dates[-1]
+    b = bs(k)
+    prev = bs(f"{int(k[:4]) - 1}{k[4:]}")
+    cr = lambda x: (x or 0) / 1e7  # noqa: E731  rupees -> crore
+    cb, br = cr(b.get("cash")) + cr(b.get("bank_bal")), cr(b.get("borr_total"))
+    d = datetime.strptime(k, "%Y-%m-%d")
+    out = f"On {d.day} {d:%b %Y}, cash and bank balances were ₹{cb:,.0f} cr"
+
+    def chg(now, then):
+        if not then:
+            return None
+        x = (now / then - 1) * 100
+        return "about the same as" if abs(x) < 1 else f"{abs(x):.0f}% {'higher' if x > 0 else 'lower'} than"
+
+    if prev:
+        cb0, br0 = cr(prev.get("cash")) + cr(prev.get("bank_bal")), cr(prev.get("borr_total"))
+        c = chg(cb, cb0)
+        out += f", {c} a year earlier" if c else ""
+        if br >= 1 and br0 >= 1:
+            x = (br / br0 - 1) * 100
+            out += (f"; borrowings were about the same at ₹{br:,.0f} cr" if abs(x) < 1 else
+                    f"; borrowings {'rose' if x > 0 else 'fell'} {abs(x):.0f}% to ₹{br:,.0f} cr")
+            r, r0 = cb / br * 100, cb0 / br0 * 100
+            out += f", so cash covers {r:.0f}% of them" + ("" if round(r) == round(r0) else f", {'up' if r > r0 else 'down'} from {r0:.0f}%")
+        elif br >= 1:
+            out += f"; borrowings ₹{br:,.0f} cr"
+    elif br >= 1:
+        out += f"; borrowings ₹{br:,.0f} cr"
+    if br < 1 and b.get("borr_total") is not None:
+        out += "; no borrowings"
+    return out + "."
+
+
+def going(m: dict, sym: str | None = None) -> dict | None:
     def v(k):
         x = m.get(k)
         return x.get("v") if isinstance(x, dict) else None
@@ -53,7 +105,13 @@ def going(m: dict) -> dict | None:
     from narrativ.funnel import cash_conversion
     cc, yrs = cash_conversion(m)
     if cc is not None:
-        text += f" {cc:.0f}% of its operating profit came in as cash" + (f" over {yrs} years." if yrs else ".")
+        # feedback #155 (owner, 26 Nov 2026): say plainly whether profit turns into cash, with the cash conversion %
+        lead = ("Profits are turning into cash" if cc >= 80 else "Most of the profit turns into cash" if cc >= 50 else
+                "Only part of the profit turns into cash" if cc >= 0 else "Profits are not turning into cash: operations used cash")
+        text += f" {lead}: {cc:.0f}% cash conversion" + (f" over {yrs} years" if yrs else "") + " (cash from operations ÷ operating profit)."
+    cash = cash_position(sym)
+    if cash:
+        text += "\n" + cash
     return {"text": text, "tone": "good" if (pr if pr is not None else r) >= 0 else "bad"}
 
 
@@ -330,7 +388,7 @@ def sheet(sym: str, row: dict, metrics: dict, summary: str | None, theses: dict,
     what = w.get("what")
     if not what and summary:
         what = re.split(r"(?<=[.!?])\s", summary.strip())[0][:CAPS["what"]]  # first sentence of the description until the model writes it
-    out = {"what": what, "money": w.get("money"), "going": going(metrics), "plans": pl, "risks": risks_of(sym, theses),
+    out = {"what": what, "money": w.get("money"), "going": going(metrics, sym), "plans": pl, "risks": risks_of(sym, theses),
            "one_line": line_of(w.get("label"), one_line(row.get("t"))), "written": w.get("date"), "plain": bool(w)}
     return out if any(out[k] for k in ("what", "going", "one_line")) else None
 
