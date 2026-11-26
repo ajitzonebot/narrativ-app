@@ -13,6 +13,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Close
@@ -346,13 +347,22 @@ fun IconBtn(icon: ImageVector, description: String?, modifier: Modifier = Modifi
 fun FeedbackButton(st: AppState, context: String, modifier: Modifier = Modifier) =
     IconBtn(Icons.Rounded.Feedback, "Send feedback", modifier, C.blue) { st.openFeedback(context) }
 
+/** Small open-in-new icon after a link's text (the ↗ glyph is missing from the Paper fonts). */
+@Composable
+fun LinkIcon(size: androidx.compose.ui.unit.Dp = 14.dp) =
+    Icon(Icons.AutoMirrored.Rounded.OpenInNew, null, tint = C.blue, modifier = Modifier.padding(start = 4.dp).size(size))
+
 /**
  * Top bar of the redesign: optional back button, title (20 sp; 17 sp with a [subtitle], as the stock header),
  * [actions] (e.g. watch heart) and always the feedback button. [context] tags feedback with the screen name.
  */
 @Composable
 fun TopBar(st: AppState, title: String, context: String = title, subtitle: String? = null, back: Boolean = true,
-           big: Boolean = false, actions: @Composable RowScope.() -> Unit = {}) {
+           big: Boolean = false, link: String? = null, actions: @Composable RowScope.() -> Unit = {}) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    // feedback #168: the subtitle (the company name) with an open-in-new icon opens [link], the company's website
+    val sub = subtitle
+    val subMod = if (link != null) Modifier.clickable { openUrl(ctx, link) } else Modifier
     SideEffect { st.screenContext = context }
     Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 4.dp).heightIn(min = 48.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -362,11 +372,17 @@ fun TopBar(st: AppState, title: String, context: String = title, subtitle: Strin
                 // feedback #127: the name once, at the top and larger (stock page: code as the headline, company name in italic)
                 androidx.compose.material3.Text(title, fontSize = if (big) 28.sp else if (subtitle != null) 24.sp else 20.sp, lineHeight = 28.sp, color = C.white,
                     fontFamily = PaperFonts.headline, fontWeight = FontWeight.Black, maxLines = 1)
-                subtitle?.let { androidx.compose.material3.Text(it, fontSize = 13.sp, color = C.muted, fontFamily = PaperFonts.headline,
-                    fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) }
+                sub?.let { Row(subMod, verticalAlignment = Alignment.CenterVertically) {
+                    androidx.compose.material3.Text(it, fontSize = 13.sp, color = if (link != null) C.blue else C.muted, fontFamily = PaperFonts.headline,
+                        fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, false))
+                    if (link != null) LinkIcon()
+                } }
             } else {
                 T(title, if (big) 26.sp else if (subtitle != null) 17.sp else 20.sp, weight = FontWeight.Bold, maxLines = 1)
-                subtitle?.let { T(it, 12.sp, C.dim, maxLines = 1) }
+                sub?.let { Row(subMod, verticalAlignment = Alignment.CenterVertically) {
+                    T(it, 12.sp, if (link != null) C.blue else C.dim, maxLines = 1, modifier = Modifier.weight(1f, false)); if (link != null) LinkIcon()
+                } }
             }
         }
         actions()

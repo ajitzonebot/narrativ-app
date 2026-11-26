@@ -421,7 +421,7 @@ fun RatioRow(label: String, value: String, rule: KeyRule?, divider: Boolean = tr
         Row(Modifier.fillMaxWidth().padding(vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 T(label, 13.sp, C.muted, maxLines = 2)
-                T(rule?.rule ?: "no rule", LABEL, C.dim, maxLines = 2)
+                rule?.rule?.let { T(it, LABEL, C.dim, maxLines = 2) }  // feedback #166: no "no rule" line; the figure stays
             }
             Spacer(Modifier.width(10.dp))
             T(value, 13.sp, if (value == "n/m") C.white else ruleColor(rule), FontWeight.Bold, maxLines = 1)

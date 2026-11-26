@@ -41,13 +41,15 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 
 /**
- * Screener filter. minTier[i] = 0 means any; otherwise the stock's tier must be 1..minTier[i].
+ * Screener filter. minTier[i] = 0 means any; otherwise the stock's tier must be 1..minTier[i]. A stock not checked at a level
+ * the filter sets is left out unless includeGrey is on (feedback #171: Discovery top + Outlook top showed 880 stocks, 879 of
+ * them never checked at Outlook).
  * research: "Any" / "Researched" (in research.json or with a verification state) / "Verified" (verification passed).
  */
 @Serializable
 data class Filt(
     val name: String = "", val minTier: List<Int> = List(7) { 0 }, val disc: List<Int> = emptyList(), val setup: String = "Any",
-    val mcap: String = "Any", val industry: String = "", val includeGrey: Boolean = true, val showRemoved: Boolean = false,
+    val mcap: String = "Any", val industry: String = "", val includeGrey: Boolean = false, val showRemoved: Boolean = false,
     val verdict: String? = null, val turnaround: Boolean = false, val sort: String = "Score", val q: String = "", val bq: Boolean = false,
     val dc: String? = null, val syms: List<String> = emptyList(), val research: String = "Any",
     /** true for an industry opened from a list (ind: preset): exact name, so the count matches the list; the typed "Industry contains" field stays a substring. */
@@ -55,7 +57,7 @@ data class Filt(
 ) {
     /** How many filters beyond the category are set (shown on the Filters button). */
     fun active(): Int = minTier.count { it != 0 } + (if (disc.isNotEmpty()) 1 else 0) + (if (setup != "Any") 1 else 0) + (if (mcap != "Any") 1 else 0) +
-        (if (industry.isNotBlank()) 1 else 0) + (if (!includeGrey) 1 else 0) + (if (showRemoved) 1 else 0) + (if (turnaround) 1 else 0)
+        (if (industry.isNotBlank()) 1 else 0) + (if (includeGrey) 1 else 0) + (if (showRemoved) 1 else 0) + (if (turnaround) 1 else 0)
 
     /** Same filter as [o] apart from name, sort, search text and the chips outside the sheet (preset highlight). */
     fun sameAs(o: Filt): Boolean = copy(name = "", sort = "Score", q = "", research = "Any", dc = null, syms = emptyList()) ==
@@ -231,7 +233,6 @@ fun ScreenerScreen(st: AppState, preset: String?) {
         if (res.size > limit) item {
             MoreLink("Show more (${res.size - limit})", Modifier.padding(horizontal = 18.dp, vertical = 8.dp)) { limit += 60 }
         }
-        item { FunnelCard(pf.funnel) }
     }
     if (sheet) FilterSheet(st, f, saved, onDismiss = { sheet = false }, onApply = { f = it; limit = 60; sheet = false }) { nf ->
         saved = saved + nf
@@ -306,21 +307,6 @@ fun PaperStockRow(st: AppState, p: P) {
         Column(Modifier.widthIn(min = 70.dp), horizontalAlignment = Alignment.End) {
             T(priceStr(p.p), 13.sp, weight = FontWeight.SemiBold, maxLines = 1)
             T(arrowPct(p.d1), 11.sp, col, maxLines = 1)
-        }
-    }
-}
-
-/** Today's funnel as bars: listed, companies, then each level. */
-@Composable
-private fun FunnelCard(fn: FunnelV2) {
-    val listed = fn.listed ?: return
-    val vals = listOfNotNull(fn.listed, fn.companies).map { it.toDouble() } + fn.levels.map { it.toDouble() }
-    val labs = (listOf("Listed", "Companies").take(listOfNotNull(fn.listed, fn.companies).size) + LEVEL_SHORT.take(fn.levels.size))
-    SectionCard("Funnel today", "${fmt(listed.toDouble(), 0)} listed → ${fn.levels.lastOrNull()?.let { fmt(it.toDouble(), 0) } ?: "–"} pass all levels",
-        Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp)) {
-        // full level names need ~72dp a bar: scroll sideways on narrow screens
-        Box(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
-            Bars(vals, Modifier.width((72 * vals.size).dp).height(70.dp), labels = labs, color = C.grey, highlightLast = false, barFrac = 0.6f)
         }
     }
 }

@@ -61,7 +61,7 @@ fun StatusDot(color: Color, modifier: Modifier = Modifier, size: Dp = 8.dp) = Bo
 fun AccScreen(st: AppState, title: String, subtitle: String? = null, context: String = title, back: Boolean = true, big: Boolean = false,
               actions: @Composable RowScope.() -> Unit = {}, modifier: Modifier = Modifier, content: LazyListScope.() -> Unit) {
     LazyColumn(Modifier.fillMaxSize().pageBackground().then(modifier), contentPadding = PaddingValues(bottom = 110.dp)) {
-        item { TopBar(st, title, context, subtitle, back, big, actions) }
+        item { TopBar(st, title, context, subtitle, back, big, actions = actions) }
         content()
     }
 }

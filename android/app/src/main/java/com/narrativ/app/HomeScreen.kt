@@ -405,9 +405,10 @@ fun PaperFrontBox(pf: PicksFile, n200: Double?, onMood: () -> Unit) {
         Box(Modifier.width(1.dp).fillMaxHeight().background(C.line))
         Column(Modifier.weight(1f).padding(start = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             PaperLabel("Today's funnel", size = 10.sp)
-            fn.companies?.let { FunnelBar("${fmt(it.toDouble(), 0)} companies", 1f, C.white) }
-            fn.researched?.let { FunnelBar("$it stories studied", 0.62f, C.grey) }
-            fn.decisions["Buy"]?.let { FunnelBar("$it Buy", 0.32f, TierC.darkGreen) }
+            val g1 = rememberGrow(0); val g2 = rememberGrow(250); val g3 = rememberGrow(500)
+            fn.companies?.let { FunnelBar("${fmt(it.toDouble(), 0)} companies", 1f, C.white, g1) }
+            fn.researched?.let { FunnelBar("$it stories studied", 0.62f, C.grey, g2) }
+            fn.decisions["Buy"]?.let { FunnelBar("$it Buy", 0.32f, TierC.darkGreen, g3) }
             pf.regime.breadthPct?.let { b ->
                 PaperLabel("Above 200-day avg", size = 10.sp, modifier = Modifier.padding(top = 4.dp))
                 InkMeter(b, dotInk(3))

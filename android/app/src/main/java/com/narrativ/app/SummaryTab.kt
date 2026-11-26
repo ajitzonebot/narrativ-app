@@ -120,14 +120,19 @@ fun FormulaSheet(name: String, m: Metric, key: String? = null, det: Detail? = nu
     BottomSheet(onClose, name) {
         T((if (m.nm) "n/m (outside the meaningful range) · " else "") + skFx(m.v, 2) + (if (m.v != null) metricUnit(key, m) else ""), 28.sp,
             if (m.nm) C.white else ruleColor(rule), FontWeight.Bold)
-        if (det != null) T(rule?.rule ?: "no rule", LABEL, C.dim, maxLines = 2, modifier = Modifier.padding(top = 2.dp))
+        rule?.rule?.let { T(it, LABEL, C.dim, maxLines = 2, modifier = Modifier.padding(top = 2.dp)) }  // feedback #166
         T("Formula", 13.sp, C.dim, FontWeight.SemiBold, modifier = Modifier.padding(top = 14.dp, bottom = 2.dp)); T(m.f, 14.sp, lineHeight = 19.sp)
         if (m.inputs.isNotEmpty()) {
             T("Inputs", 13.sp, C.dim, FontWeight.SemiBold, modifier = Modifier.padding(top = 14.dp, bottom = 2.dp))
             m.inputs.forEach { (k, v) -> KV(inputLabel(k), inputValue(k, v.content)) }
         }
-        T("Source", 13.sp, C.dim, FontWeight.SemiBold, modifier = Modifier.padding(top = 14.dp, bottom = 2.dp)); T(m.src, 13.sp, C.grey)
-        m.url?.let { u -> T("Open the filing", 14.sp, C.blue, FontWeight.SemiBold, modifier = Modifier.padding(top = 10.dp).clickable { openUrl(ctx, u) }) }
+        T("Source", 13.sp, C.dim, FontWeight.SemiBold, modifier = Modifier.padding(top = 14.dp, bottom = 2.dp))
+        // feedback #167: the source itself opens the filing (no separate "Open the filing" line)
+        val u = m.url
+        if (u != null) Row(Modifier.clickable { openUrl(ctx, u) }, verticalAlignment = Alignment.CenterVertically) {
+            T(m.src, 13.sp, C.blue, FontWeight.SemiBold, modifier = Modifier.weight(1f, false)); LinkIcon()
+        }
+        else T(m.src, 13.sp, C.grey)
     }
 }
 

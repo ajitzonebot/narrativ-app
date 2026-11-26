@@ -1,5 +1,39 @@
 [
  {
+  "version": "2.31.3",
+  "date": "2026-11-26",
+  "changes": [
+   {
+    "type": "fixed",
+    "text": "Filters: a level filter leaves out stocks never checked at that level, unless 'Include stocks not checked' is on"
+   },
+   {
+    "type": "improved",
+    "text": "Top 10 and Stocks rows: the second line stays left beside the dots and rests at its start"
+   },
+   {
+    "type": "new",
+    "text": "Watchlist in Settings: the stocks saved with the heart"
+   },
+   {
+    "type": "new",
+    "text": "Stock page: the company name opens its website"
+   },
+   {
+    "type": "improved",
+    "text": "Today's funnel bars on Home grow left to right"
+   },
+   {
+    "type": "improved",
+    "text": "A figure's source opens the filing; rows with no rule show just the figure"
+   },
+   {
+    "type": "changed",
+    "text": "Funnel chart at the bottom of Stocks"
+   }
+  ]
+ },
+ {
   "version": "2.31.2",
   "date": "2026-11-26",
   "changes": [

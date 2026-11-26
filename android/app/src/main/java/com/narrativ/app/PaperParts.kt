@@ -118,6 +118,17 @@ fun rememberSwing(score: Int): Float {
     return a.value
 }
 
+/** 0 to 1 over 700 ms after [delayMs], once per screen (feedback #163: the Home funnel bars grow left to right, like the needle). */
+@Composable
+fun rememberGrow(delayMs: Int = 0): Float {
+    val played = androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+    val a = androidx.compose.runtime.remember { androidx.compose.animation.core.Animatable(if (played.value) 1f else 0f) }
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        if (!played.value) { a.animateTo(1f, androidx.compose.animation.core.tween(700, delayMs, androidx.compose.animation.core.FastOutSlowInEasing)); played.value = true }
+    }
+    return a.value
+}
+
 /** Five-step scale with the tier's step inked (1 = left, best). */
 @Composable
 fun FiveStep(tier: Int, modifier: Modifier = Modifier.width(110.dp)) {
@@ -195,8 +206,8 @@ fun DateStrip(marks: List<StripMark>, today: LocalDate, modifier: Modifier = Mod
 
 /** Funnel step: an ink bar holding its label (2,359 companies → 162 read → 15 Buy). */
 @Composable
-fun FunnelBar(label: String, fraction: Float, color: Color) {
-    Box(Modifier.fillMaxWidth(fraction).height(20.dp).background(color).padding(horizontal = 6.dp), contentAlignment = Alignment.CenterStart) {
+fun FunnelBar(label: String, fraction: Float, color: Color, grow: Float = 1f) {
+    Box(Modifier.fillMaxWidth(fraction * grow).height(20.dp).background(color).padding(horizontal = 6.dp), contentAlignment = Alignment.CenterStart) {
         // feedback #119: left-aligned, centred top to bottom (no font padding, line box trimmed)
         androidx.compose.material3.Text(label, fontSize = 11.sp, color = C.bg, fontFamily = PaperFonts.serif, maxLines = 1,
             style = TextStyle(platformStyle = androidx.compose.ui.text.PlatformTextStyle(includeFontPadding = false),
@@ -324,6 +335,8 @@ fun CrossCard(ch: Chart, dataDate: String?) {
 }
 
 /** A row's second line that does not fit scrolls slowly left after 2 s and loops, so the hidden end shows (owner, 26 Nov 2026).
- *  Text that fits stays still. */
+ *  Text that fits stays still. Feedback #158: a 20 dp gap between loops (the default third of the width left the text floating
+ *  mid-row) and a 2.5 s rest at the start of each loop, so the line reads left-aligned beside the dots. */
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-fun Modifier.rowMarquee(): Modifier = this.basicMarquee(iterations = Int.MAX_VALUE, initialDelayMillis = 2000, velocity = 28.dp)
+fun Modifier.rowMarquee(): Modifier = this.basicMarquee(iterations = Int.MAX_VALUE, initialDelayMillis = 2000, repeatDelayMillis = 2500,
+    spacing = androidx.compose.foundation.MarqueeSpacing(20.dp), velocity = 28.dp)
