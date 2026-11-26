@@ -5,7 +5,8 @@ Who writes what (split agreed with the owner):
   3.5 Flash-Lite and 3.8 Flash), from the company description and the plans already extracted. Written once per stock,
   rewritten yearly or when the description changes. `python -m narrativ.story --write` (story.yml, mornings IST when
   the free tier is least busy), resumable: stocks that matter first (Buys, candidates, the review queue, then rank).
-- How it's going: code, from the latest results (profit and revenue vs the same quarter a year ago).
+- How it's going: code, from the latest results (profit and revenue vs the same quarter a year ago) and cash conversion
+  (cash from operations / EBITDA over the full years; owner 26 Nov 2026, feedback #113).
 - Plans to grow: Claude's dated drivers, else the reader's quoted plans; the model's plain rewording when it has one.
 - What could go wrong: Claude's kill switches (researched stocks only in this version).
 - In one line: code, a phrase set from the stability / quality / valuation / momentum tiers.
@@ -42,8 +43,14 @@ def going(m: dict) -> dict | None:
         return None
     w = lambda x, what: f"{what} {'up' if x >= 0 else 'down'} {abs(x):.0f}%"  # noqa: E731
     parts = [w(pr, "Profit") if pr is not None else None, w(r, "revenue" if pr is not None else "Revenue") if r is not None else None]
-    return {"text": " and ".join(x for x in parts if x) + " on the same quarter last year.",
-            "tone": "good" if (pr if pr is not None else r) >= 0 else "bad"}
+    text = " and ".join(x for x in parts if x) + " on the same quarter last year."
+    # feedback #113 (owner, 26 Nov 2026): cash conversion too, the same figure as the Quality tab's check (cash from
+    # operations / EBITDA over the full years filed); not shown for lenders and insurers, where it does not apply
+    from narrativ.funnel import cash_conversion
+    cc, yrs = cash_conversion(m)
+    if cc is not None:
+        text += f" {cc:.0f}% of its operating profit came in as cash" + (f" over {yrs} years." if yrs else ".")
+    return {"text": text, "tone": "good" if (pr if pr is not None else r) >= 0 else "bad"}
 
 
 def one_line(t) -> str | None:

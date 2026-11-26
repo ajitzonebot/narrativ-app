@@ -301,16 +301,10 @@ private fun QualityBody(det: Detail, lv: Level, onAll: () -> Unit) {
     )
     KeyChecksCard(orGeneric(rows, lv), lv.items.size, onAll)
     val q = det.quarterly.zip(det.quarterNames).filter { (r, _) -> r.getOrNull(1) != null }.takeLast(8)
-    if (q.size >= 4) SectionCard("Revenue and margin", "${q.size} quarters · ₹ cr") {
+    // feedback #132: one chart: revenue bars, the profit kept from it inside each bar, the EBITDA margin as a line on top
+    if (q.size >= 4) SectionCard("Revenue, profit and margin", "${q.size} quarters · ₹ cr") {
         val withMargin = q.all { it.first.getOrNull(3) != null }
-        BarsWithLine(q.map { it.first[1]!! }, if (withMargin) q.map { it.first[3]!! } else emptyList(), q.map { shortMonth(it.second) }, barColor = C.muted,
-            lastBarLabel = "₹${fmt(q.last().first[1], 0)} cr", lineEndLabel = if (withMargin) "margin ${skFx(q.last().first[3], 1)}%" else null)
-        val prof = q.mapNotNull { it.first.getOrNull(2) }
-        if (prof.size == q.size) {
-            var open by remember { mutableStateOf(false) }
-            ToggleRow("Profit by quarter", "₹${fmt(prof.last(), 0)} cr latest", open, { open = !open }, Modifier.padding(top = 8.dp))
-            if (open) Bars(prof, Modifier.fillMaxWidth().height(96.dp), labels = q.map { shortMonth(it.second) }, valueFmt = { fmt(it, 0) }, colors = prof.map { if (it >= 0) TierC.lightGreen else TierC.lightRed })
-        }
+        RevenueProfitChart(q.map { it.first[1]!! }, q.map { it.first.getOrNull(2) }, if (withMargin) q.map { it.first[3] } else emptyList(), q.map { shortMonth(it.second) })
     }
     RoceCard(det, det.v("roce_pct")?.let { "last 4 quarters ${skFx(it, 1)}%" })
 }
@@ -525,6 +519,7 @@ private fun MomentumBody(st: AppState, p: P?, det: Detail, lv: Level, chart: Cha
         if (e1.size >= 2) KeyCheck(lv.status("E1"), "Growth trend", "${skFx(e1[0], 1)}% vs ${skFx(e1[1], 1)}%", "revenue YoY, faster") else null,
     )
     KeyChecksCard(orGeneric(rows, lv), lv.items.size, onAll)
+    chart?.let { CrossCard(it, p?.let { pk -> st.picks?.date } ) }  // feedback #133: golden / death cross, shown not scored
     if (s.rsPct != null || s.stage != null) Card(Modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             s.rsPct?.let { ArcGauge(it, "RS pct", color = C.muted) }

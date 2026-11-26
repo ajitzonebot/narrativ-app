@@ -170,7 +170,7 @@ fun BarCheckRow(r: KeyCheck, b: Bullet, divider: Boolean = true) {
             }
             FillBar(b.v, b.lo, b.hi, b.pass, col, Modifier.fillMaxWidth().padding(top = 8.dp), unit = b.unit)
             // extra context from the pass line ("pass ≥ 15% · avg 12.3%"): the part after the rule
-            r.pass?.split(" · ")?.filter { !it.startsWith("pass") }?.joinToString(" · ")?.takeIf { it.isNotBlank() }?.let { T(it, 12.sp, C.dim, maxLines = 1, modifier = Modifier.padding(top = 2.dp)) }
+            r.pass?.split(" · ")?.filter { !it.startsWith("pass") }?.joinToString(" · ")?.takeIf { it.isNotBlank() }?.let { T(cap(it), 12.sp, C.dim, maxLines = 1, modifier = Modifier.padding(top = 2.dp)) }
         }
         if (divider) HLineDivider()
     }

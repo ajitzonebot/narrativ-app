@@ -282,23 +282,24 @@ fun PaperStockRow(st: AppState, p: P) {
     val col = if ((p.d1 ?: 0.0) >= 0) TierC.darkGreen else TierC.red
     Row(Modifier.fillMaxWidth().clickable { st.go(Screen.Stock(p.s)) }.padding(horizontal = S.cardPad, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(p.c, fontSize = 15.sp, fontFamily = PaperFonts.headline, fontWeight = FontWeight.Bold, color = C.white, maxLines = 1,
-                    overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, false))
+            // feedback #120: two lines: code, tick, call, setup, conviction / dots, verdict · industry
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                // the code never shrinks; the setup word gives way first (screenshot 26 Nov: codes were cut to "ARRO…")
+                Text(p.c, fontSize = 15.sp, fontFamily = PaperFonts.headline, fontWeight = FontWeight.Bold, color = C.white, maxLines = 1, softWrap = false)
                 StockTick(st, p)
-                if (p.out != null) TierChip("Removed L${p.out.l}", TierC.red, 10.sp) else p.dc?.let { DecisionChip(it, 11.sp) }
+                if (p.out != null) TierChip("Removed L${p.out.l}", TierC.red, 10.sp) else p.dc?.let { DecisionChip(it, 10.sp) }
+                if (p.out == null) PaperLabel(setupName(p.su, p.tb == 1), if (p.tb == 1) TierC.lightRed else C.grey, 8.5.sp, bold = false, modifier = Modifier.weight(1f, false))
+                p.cv?.let { cv -> Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    (1..3).forEach { k -> Box(Modifier.size(6.dp).background(if (k <= (if (cv == "High") 3 else if (cv == "Medium") 2 else 1)) C.white else C.line)) }
+                } }
             }
             if (p.out != null) T(p.out.w ?: p.n, 12.sp, TierC.lightRed, maxLines = 1)
-            else {
-                if (p.vd.isNotBlank()) Text(p.vd, fontSize = 11.sp, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, color = verdictColor(p.vd), maxLines = 1)
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                    InkDots(p.t)
-                    PaperLabel(setupName(p.su, p.tb == 1), setupColor(p.su, p.tb == 1).takeIf { p.su != "Base" } ?: C.grey, 9.sp, bold = false)
-                    p.cv?.let { cv -> Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                        (1..3).forEach { k -> Box(Modifier.size(6.dp).background(if (k <= (if (cv == "High") 3 else if (cv == "Medium") 2 else 1)) C.white else C.line)) }
-                    } }
-                }
-                T(p.i ?: p.n, 11.sp, C.dim, maxLines = 1)
+            else Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                InkDots(p.t, 6.dp, 2.dp)
+                Text(androidx.compose.ui.text.buildAnnotatedString {
+                    if (p.vd.isNotBlank()) { pushStyle(androidx.compose.ui.text.SpanStyle(color = verdictColor(p.vd), fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)); append(p.vd); pop(); append(" · ") }
+                    append(p.i ?: p.n)
+                }, fontSize = 11.sp, color = C.dim, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
         InkSpark(p.sp, col, Modifier.padding(horizontal = 6.dp).size(54.dp, 22.dp))

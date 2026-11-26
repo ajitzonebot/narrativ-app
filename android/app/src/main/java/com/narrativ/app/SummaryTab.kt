@@ -8,6 +8,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Info
@@ -238,12 +239,11 @@ fun SummaryTab(st: AppState, sym: String, p: P?, det: Detail?, chart: Chart?, lo
     val loading = det == null && !loaded  // the stock file is still loading: placeholders, not "missing"
     if (Look.paper) {
         // Paper (mock-up order): tags and headline, the 1-year chart, the seven checks, the plan line, dates; the rest below
-        PaperStockFront(p, det)
+        DecisionCard(st, sym, p, det) { sheet = "decision" }   // feedback #128 + 26 Nov: the Buy box first, tags and lead inside
         PriceCard(p, det, chart, chartLoaded)
         p?.let { PaperChecks(st, it, openTab) }
         det?.let { PaperPlan(it.setup, it.analyst, p?.p) }
         p?.let { PaperDates(it) }
-        DecisionCard(st, sym, p, det) { sheet = "decision" }
         RotationCard(st, p, det)
     } else {
         DecisionCard(st, sym, p, det) { sheet = "decision" }
@@ -256,9 +256,9 @@ fun SummaryTab(st: AppState, sym: String, p: P?, det: Detail?, chart: Chart?, lo
             repeat(2) { Card(Modifier.weight(1f), radius = S.tile) { Skel(70.dp, 11.dp); Spacer(Modifier.height(8.dp)); Skel(50.dp, 16.dp) } }
         }
     }
-    det?.let { PlanCard(it.setup, it.analyst, it.exitHit) }
+    if (!Look.paper) det?.let { PlanCard(it.setup, it.analyst, it.exitHit) }  // Paper (#129): the plan line above is the plan
     det?.let { KeyTiles(it, open) }
-    WatchCard(st, sym, p, det)
+    if (!Look.paper) WatchCard(st, sym, p, det)  // Paper (#130): its dates are on the dates line
     Card(Modifier.fillMaxWidth(), pad = S.cardPad) {
         val log = det?.researchLog.orEmpty()
         if (loading) Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -327,7 +327,7 @@ private fun PaperPlan(s: Setup, an: Analyst?, now: Double?) {
     ).sortedBy { it.value }
     Column(Modifier.fillMaxWidth()) {
         PaperLabel("The plan", size = 11.sp)
-        PlanLine(marks, if (lo != null && hi != null) lo to hi else null, Modifier.fillMaxWidth().height(52.dp))
+        PlanLine(marks, if (lo != null && hi != null) lo to hi else null, Modifier.fillMaxWidth().height(66.dp), zoneLabel = setupName(s.type).uppercase() + if (brk) " ↑" else "")
     }
 }
 
@@ -360,9 +360,67 @@ private fun PaperDates(p: P) {
     }
 }
 
+// ---------------------------------------------------------------- Paper: the decision box (owner, 26 Nov 2026)
+/** A ruled box with a double top rule (no tint): decision, conviction and Top 10 rank, a ticked circle with the review date
+ *  (top right), the verdict and setup tags, the lead sentence, the reasons, and the link to all reasons and checks. */
+@Composable
+private fun PaperDecisionBox(st: AppState, sym: String, p: P?, det: Detail?, onOpen: () -> Unit) {
+    val dd = det?.decision ?: p?.dc?.let { Decision(it) }
+    val d = dd?.d ?: "Not rated"
+    val dcol = decisionColor(d)
+    val rv = reviewState(st, sym)
+    val ink = C.white
+    Column(Modifier.fillMaxWidth().border(1.dp, ink).drawBehind {
+            drawRect(ink, size = androidx.compose.ui.geometry.Size(size.width, 2.dp.toPx()))
+            drawRect(ink, topLeft = androidx.compose.ui.geometry.Offset(0f, 4.dp.toPx()), size = androidx.compose.ui.geometry.Size(size.width, 1.dp.toPx()))
+        }.clickable(onClick = onOpen).padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 10.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(d.uppercase(), fontSize = if (d.length <= 6) 40.sp else 26.sp, lineHeight = 42.sp, color = dcol, fontFamily = PaperFonts.headline, fontWeight = FontWeight.Black, maxLines = 1)
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                val cv = det?.conviction?.takeIf { it.level != null }
+                (cv?.level ?: p?.cv)?.let { lvl ->
+                    PaperLabel("$lvl conviction" + (if (cv?.met != null && cv.of != null) " · ${cv.met} of ${cv.of}" else ""), if (lvl == "High") TierC.darkGreen else TierC.yellow, 10.sp)
+                }
+                topTenRank(st, sym)?.let { PaperLabel("#$it in today's Top 10", C.grey, 10.sp, bold = false) }
+                when {
+                    rv.verdict != null && rv.verdict != "pass" -> PaperLabel("Review: ${reviewWord(rv.verdict)}", reviewColor(rv.verdict), 10.sp, bold = false)
+                    rv.verdict == null && rv.pos > 0 -> PaperLabel("Review #${rv.pos} of ${rv.of} in queue", C.dim, 10.sp, bold = false)
+                    rv.verdict == null && rv.pos != 0 -> PaperLabel("In the research queue", C.dim, 10.sp, bold = false)
+                    rv.verdict == null && rv.studied == null -> PaperLabel("Rules only, not studied", C.dim, 10.sp, bold = false)
+                }
+            }
+            if (rv.verdict == "pass") Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Box(Modifier.size(24.dp).border(1.5.dp, reviewColor("pass"), CircleShape), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Rounded.Check, "Verified by Narrativ.ai", tint = reviewColor("pass"), modifier = Modifier.size(15.dp))
+                }
+                rv.date?.let { PaperLabel(skDay(it), C.grey, 9.sp, bold = false) }
+            }
+        }
+        Box(Modifier.fillMaxWidth().height(1.dp).background(ink))
+        if (p != null) androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (p.vd.isNotBlank()) PaperTag(p.vd, verdictColor(p.vd))
+            p.su?.let { PaperTag(setupName(it, p.tb == 1), C.white) }
+        }
+        val lead = p?.why ?: dd?.why?.firstOrNull()
+        lead?.let { Text(it, fontSize = 15.sp, lineHeight = 20.sp, color = C.white, fontFamily = PaperFonts.headline, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic) }
+        val why = dd?.why.orEmpty(); val missing = dd?.missing.orEmpty()
+        val fwd = why.filter { it.substringBefore(":") in FORWARD_KEYS }.map { it.substringAfter(": ") }.take(3)
+        val reasons = (if (fwd.isNotEmpty()) fwd else why.filter { !it.startsWith("Verified") }.take(2)) + missing.take(1)
+        if (reasons.isNotEmpty()) {
+            HLineDivider()
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                reasons.forEach { r -> Row { T("▪", 12.sp, C.white, modifier = Modifier.width(14.dp)); T(r, 13.sp, if (r in missing) C.amber else C.white, lineHeight = 18.sp) } }
+            }
+        }
+        MoreLink("All reasons and checks", onClick = onOpen)
+    }
+}
+
 // ---------------------------------------------------------------- decision card
 @Composable
 private fun DecisionCard(st: AppState, sym: String, p: P?, det: Detail?, onOpen: () -> Unit) {
+    if (Look.paper) { PaperDecisionBox(st, sym, p, det, onOpen); return }
     val dd = det?.decision ?: p?.dc?.let { Decision(it) }
     val d = dd?.d ?: "Not rated"
     val dcol = decisionColor(d)
@@ -482,7 +540,7 @@ private fun PriceCard(p: P?, det: Detail?, chart: Chart?, chartLoaded: Boolean =
             val base = vals + lines.map { it.value } + bands.flatMap { listOf(it.lo, it.hi) }
             val bLo = base.minOrNull() ?: an.mean; val bHi = base.maxOrNull() ?: an.mean
             if (an.mean >= bLo && an.mean <= bHi + 0.15 * (bHi - bLo).coerceAtLeast(bHi * 0.02))
-                lines += HLine(an.mean, C.white, "Analyst target ${skRs(an.mean)}" + (an.n?.let { " · $it analyst" + (if (it == 1) "" else "s") } ?: ""))
+                lines += HLine(an.mean, TierC.lime.takeIf { Look.paper } ?: C.white, "Analyst target ${skRs(an.mean)}" + (an.n?.let { " · $it analyst" + (if (it == 1) "" else "s") } ?: ""), labelRight = true)
         }
         // feedback #105: "H" / "L" dots at the highest and lowest close of the last 250 sessions, only when the shown window includes them
         val marks = hiLoMarks(all, vals.size)

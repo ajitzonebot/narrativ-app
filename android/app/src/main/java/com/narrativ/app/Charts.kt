@@ -51,11 +51,14 @@ import kotlin.math.sin
 // ---------------------------------------------------------------- shared drawing helpers
 enum class Anchor { Start, Middle, End }
 
+/** Sentence case for every label a chart draws ("expensive ≥ 25×" → "Expensive ≥ 25×"; owner, 26 Nov 2026, feedback #131). */
+fun cap(s: String): String = s.replaceFirstChar { if (it.isLowerCase()) it.titlecase(java.util.Locale.ENGLISH) else it.toString() }
+
 /** Draw one line of text with its baseline at [y]; tabular digits. Optional pill background (chart tags). */
 fun DrawScope.chartText(tm: TextMeasurer, s: String, x: Float, y: Float, color: Color, size: TextUnit = 10.sp,
                         weight: FontWeight = FontWeight.Normal, anchor: Anchor = Anchor.Start, bg: Color? = null) {
     if (s.isEmpty()) return
-    val r = tm.measure(AnnotatedString(s), TextStyle(color = color, fontSize = size, fontWeight = weight, fontFeatureSettings = "tnum"),
+    val r = tm.measure(AnnotatedString(cap(s)), TextStyle(color = color, fontSize = size, fontWeight = weight, fontFeatureSettings = "tnum"),
         overflow = TextOverflow.Clip, softWrap = false, maxLines = 1)
     val w = r.size.width.toFloat()
     val left = when (anchor) { Anchor.Start -> x; Anchor.Middle -> x - w / 2; Anchor.End -> x - w }
@@ -81,7 +84,8 @@ private val KNOB_RING get() = C.card2
 
 // ---------------------------------------------------------------- AreaLine
 /** Horizontal level on a line chart (exit, buy-rest, pass line), dashed by default, label as a dark tag at the left. */
-data class HLine(val value: Double, val color: Color, val label: String? = null, val dashed: Boolean = true, val labelBelow: Boolean = false)
+data class HLine(val value: Double, val color: Color, val label: String? = null, val dashed: Boolean = true, val labelBelow: Boolean = false,
+                 val labelRight: Boolean = false)
 /** Shaded horizontal band between two values (buy zone, analyst range), optional tag label at its top. */
 /** A labelled dot on the line at [index] (the 52-week "H" / "L" closes); the label sits above or below the dot. */
 data class PointMark(val index: Int, val label: String, val above: Boolean)
@@ -158,7 +162,17 @@ fun AreaLine(
 
         // level tags drawn over the line so they stay readable
         bands.forEach { b -> b.label?.let { chartText(tm, it, 7.dp.toPx(), y(b.hi) - 5.dp.toPx(), b.color, 10.sp, FontWeight.SemiBold, bg = C.lo.copy(alpha = 0.8f)) } }
-        lines.forEach { l -> l.label?.let { chartText(tm, it, 7.dp.toPx(), y(l.value) + (if (l.labelBelow) 14 else -4).dp.toPx(), l.color, 10.sp, FontWeight.SemiBold, bg = C.lo.copy(alpha = 0.8f)) } }
+        // left: our own levels (buy, exit); right: outside views (analyst target), so their labels do not sit on each other
+        // (owner, 26 Nov 2026); a left label within 13 dp of the one above it moves below its line
+        var lastLeft = Float.NEGATIVE_INFINITY
+        lines.sortedBy { -it.value }.forEach { l -> l.label?.let {
+            if (l.labelRight) chartText(tm, it, size.width - 7.dp.toPx(), y(l.value) - 4.dp.toPx(), l.color, 10.sp, FontWeight.SemiBold, Anchor.End, bg = C.lo.copy(alpha = 0.8f))
+            else {
+                var ly = y(l.value) + (if (l.labelBelow) 14 else -4).dp.toPx()
+                if (ly - lastLeft < 13.dp.toPx()) ly = y(l.value) + 14.dp.toPx()
+                chartText(tm, it, 7.dp.toPx(), ly, l.color, 10.sp, FontWeight.SemiBold, bg = C.lo.copy(alpha = 0.8f)); lastLeft = ly
+            }
+        } }
 
         marks.forEach { m ->
             val o = pts.getOrNull(m.index) ?: return@forEach

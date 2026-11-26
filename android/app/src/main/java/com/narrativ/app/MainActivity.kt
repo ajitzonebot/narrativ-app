@@ -22,6 +22,8 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -347,7 +349,19 @@ fun App(startRoute: String? = null, ci: Boolean = false) {
         KeyScreen(onDone = { scope.launch { st.load() } })
         return
     }
-    Box(Modifier.fillMaxSize().background(C.bg)) {
+    // feedback #125: on a bottom-bar tab (nothing opened on top), a horizontal swipe moves to the next / previous tab;
+    // rows and pagers that scroll sideways take the swipe first
+    val roots = listOf<Screen>(Screen.Home, Screen.Screener(), Screen.Portfolio, Screen.Settings)
+    fun rootIndex(s: Screen) = when (s) { is Screen.Screener -> 1; Screen.Portfolio -> 2; Screen.Settings -> 3; else -> 0 }
+    val swipeTabs = Modifier.pointerInput(st.stack.size, st.stack.firstOrNull()) {
+        if (st.stack.size != 1) return@pointerInput
+        var dx = 0f
+        detectHorizontalDragGestures(onDragStart = { dx = 0f }, onDragEnd = {
+            val i = rootIndex(st.stack.first())
+            if (dx < -160f && i < roots.lastIndex) st.tab(roots[i + 1]) else if (dx > 160f && i > 0) st.tab(roots[i - 1])
+        }) { _, d -> dx += d }
+    }
+    Box(Modifier.fillMaxSize().background(C.bg).then(swipeTabs)) {
         if (st.picks == null) {
             Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
                 if (st.error != null) {

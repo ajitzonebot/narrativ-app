@@ -24,6 +24,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.material3.Text
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -57,8 +59,8 @@ fun StatusDot(color: Color, modifier: Modifier = Modifier, size: Dp = 8.dp) = Bo
 /** Screen scaffold: gradient background, top bar (back arrow unless [back] is false) and the rows in [content]. */
 @Composable
 fun AccScreen(st: AppState, title: String, subtitle: String? = null, context: String = title, back: Boolean = true, big: Boolean = false,
-              actions: @Composable RowScope.() -> Unit = {}, content: LazyListScope.() -> Unit) {
-    LazyColumn(Modifier.fillMaxSize().pageBackground(), contentPadding = PaddingValues(bottom = 110.dp)) {
+              actions: @Composable RowScope.() -> Unit = {}, modifier: Modifier = Modifier, content: LazyListScope.() -> Unit) {
+    LazyColumn(Modifier.fillMaxSize().pageBackground().then(modifier), contentPadding = PaddingValues(bottom = 110.dp)) {
         item { TopBar(st, title, context, subtitle, back, big, actions) }
         content()
     }
@@ -573,11 +575,21 @@ fun queueTaskName(task: String?): String = (QUEUE_TASKS[task] ?: QUEUE_TASKS.get
 @Composable
 fun ResearchQueueScreen(st: AppState) {
     val q = st.queue
-    var all by remember { mutableStateOf(false) }
     var tab by remember { mutableStateOf("waiting") }
+    var info by remember { mutableStateOf(false) }
+    var filter by remember { mutableStateOf("All") }
     val done by produceState<DoneFile?>(null) { value = st.repo.get<DoneFile>("data/research_done.json") }
     val nDone = done?.runs.orEmpty().sumOf { r -> r.items.size }
-    AccScreen(st, "Research queue", q?.let { "${it.items.size} waiting · queue of ${shortDate(it.date)}" }, "Queue") {
+    if (info) QueueInfoSheet { info = false }
+    // feedback #116: swipe left / right switches Waiting and Completed
+    val swipe = Modifier.pointerInput(Unit) {
+        var dx = 0f
+        detectHorizontalDragGestures(onDragStart = { dx = 0f }, onDragEnd = {
+            if (dx < -120f) tab = "completed" else if (dx > 120f) tab = "waiting"
+        }) { _, d -> dx += d }
+    }
+    AccScreen(st, "Research queue", q?.let { "${it.items.size} waiting · queue of ${shortDate(it.date)}" }, "Queue",
+        actions = { InfoButton { info = true } }, modifier = swipe) {
         item {
             Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf("waiting" to "Waiting ${q?.items?.size ?: 0}", "completed" to "Completed $nDone").forEach { (k, lab) ->
@@ -586,8 +598,19 @@ fun ResearchQueueScreen(st: AppState) {
                 }
             }
         }
-        if (tab == "completed") { completedList(st, done); return@AccScreen }
+        if (tab == "completed") { completedList(st, done, filter) { filter = it }; return@AccScreen }
         if (q == null || q.items.isEmpty()) { item { Empty("The queue appears after the next daily run.") }; return@AccScreen }
+        // feedback #118: when the data is expected, for the whole queue and each row
+        val etas = queueEtas(q.items.map { it.task })
+        etas.maxByOrNull { it.first }?.let { last -> item {
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                val nRev = q.items.count { it.task in REVIEW_TASKS }; val nCat = q.items.size - nRev
+                Text("All ${q.items.size} done by about ${etaWords(last.first)}", fontSize = 20.sp, lineHeight = 24.sp, color = C.white,
+                    fontFamily = if (Look.paper) PaperFonts.headline else null, fontWeight = FontWeight.Black)
+                T(listOfNotNull(nRev.takeIf { it > 0 }?.let { "$it reviews at $REVIEW_PER_RUN a run" }, nCat.takeIf { it > 0 }?.let { "$it rechecks and catalysts at $CATALYST_PER_RUN a run" })
+                    .joinToString(" · "), 11.sp, C.dim, lineHeight = 15.sp)
+            }
+        } }
         item {
             val mix = q.items.groupingBy { it.task ?: "scan" }.eachCount().entries.sortedByDescending { it.value }
             Card(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth(), pad = 14.dp) {
@@ -596,7 +619,7 @@ fun ResearchQueueScreen(st: AppState) {
             }
         }
         item {
-            val shown = if (all) q.items else q.items.take(12)
+            val shown = q.items  // feedback #117: the whole list, no cap
             Card(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth(), pad = 0.dp) {
                 shown.forEachIndexed { n, it ->
                     val p = st.pick(it.symbol); val col = queueTaskColor(it.task)
@@ -608,26 +631,66 @@ fun ResearchQueueScreen(st: AppState) {
                         Box(Modifier.padding(end = 12.dp).size(3.dp, 30.dp).clip(rr(2.dp)).background(col))
                         Column(Modifier.weight(1f)) {
                             T(it.symbol.substringBeforeLast("."), 15.sp, weight = FontWeight.SemiBold, maxLines = 1)
-                            T((it.reason ?: p?.n ?: "").substringBefore(":"), 12.sp, C.dim, maxLines = 1)
+                            T(label, 12.sp, col, FontWeight.SemiBold, maxLines = 1)  // #117: no "rules say Buy" line; meanings behind (i)
                         }
-                        T(label, 12.sp, col, FontWeight.SemiBold, maxLines = 1, modifier = Modifier.padding(start = 8.dp))
+                        etas.getOrNull(n)?.let { e -> T(etaWords(e.first), 12.sp, C.blue.takeIf { Look.paper } ?: C.muted, maxLines = 1, modifier = Modifier.padding(start = 8.dp)) }
                     }
                     if (n < shown.lastIndex) HLineDivider(Modifier.padding(horizontal = 14.dp))
                 }
-                if (q.items.size > 12) Box(Modifier.padding(start = 14.dp, end = 14.dp, bottom = 10.dp)) {
-                    MoreLink(if (all) "Show first 12" else "${q.items.size - 12} more stocks") { all = !all }
-                }
             }
         }
-        item {
-            CollapseCard("What the tasks mean", "") {
-                QUEUE_TASKS.forEach { (k, v) ->
-                    Row(Modifier.padding(vertical = 4.dp)) {
-                        T(v.first, 12.sp, queueTaskColor(k), FontWeight.SemiBold, modifier = Modifier.width(100.dp)); T(v.second, 12.sp, C.dim, lineHeight = 16.sp)
-                    }
-                }
-            }
+    }
+}
+
+// Research runs (RESEARCH.md / KNOWLEDGE.md): full reviews and flags in the 5 review slots, at most 8 a run; rechecks and
+// catalysts in the 3 catalyst slots (07:05 12:05 16:05 IST), at most 15 a run. The estimate assumes every run does its maximum.
+val REVIEW_TASKS = setOf("review", "review_flag", "audit")
+const val REVIEW_PER_RUN = 8
+const val CATALYST_PER_RUN = 15
+val CATALYST_SLOTS = listOf(7 * 60 + 5, 12 * 60 + 5, 16 * 60 + 5)
+
+/** The run each queued item is expected in, in queue order: (date-time of the run, slot minutes). */
+fun queueEtas(tasks: List<String?>): List<Pair<java.time.LocalDateTime, Int>> {
+    val now = java.time.LocalDateTime.now(java.time.ZoneId.of("Asia/Kolkata"))
+    fun runAt(k: Int, slots: List<Int>): java.time.LocalDateTime {
+        val m = now.hour * 60 + now.minute
+        val first = slots.indexOfFirst { it > m }.let { if (it < 0) slots.size else it }
+        val idx = first + k; val slot = slots[idx % slots.size]
+        return now.toLocalDate().plusDays((idx / slots.size).toLong()).atTime(slot / 60, slot % 60)
+    }
+    var r = 0; var c = 0
+    return tasks.map { t ->
+        if (t in REVIEW_TASKS) runAt(r++ / REVIEW_PER_RUN, RESEARCH_SLOTS).let { it to 0 } else runAt(c++ / CATALYST_PER_RUN, CATALYST_SLOTS).let { it to 1 }
+    }
+}
+
+/** "today 14:05", "tomorrow 04:05", "Fri 27 Nov 04:05". */
+fun etaWords(t: java.time.LocalDateTime): String {
+    val today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kolkata"))
+    val hm = "%02d:%02d".format(t.hour, t.minute)
+    return when (t.toLocalDate()) {
+        today -> "today $hm"; today.plusDays(1) -> "tomorrow $hm"
+        else -> t.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.ENGLISH) + " " + skDay(t.toLocalDate().toString()) + " " + hm
+    }
+}
+
+/** (i) on the Research queue (feedback #117): what each task and each result means. */
+@Composable
+fun QueueInfoSheet(onDismiss: () -> Unit) {
+    BottomSheet(onDismiss, "What the queue means") {
+        PaperLabel("Waiting", size = 11.sp, modifier = Modifier.padding(bottom = 4.dp))
+        QUEUE_TASKS.filterKeys { it in setOf("review", "recheck", "enrich", "review_flag") }.forEach { (k, v) ->
+            Column(Modifier.padding(vertical = 4.dp)) { T(v.first, 13.sp, queueTaskColor(k), FontWeight.SemiBold); T(v.second, 12.sp, C.muted, lineHeight = 16.sp) }
         }
+        PaperLabel("Completed · results", size = 11.sp, modifier = Modifier.padding(top = 10.dp, bottom = 4.dp))
+        listOf(Triple("Pass", TierC.darkGreen, "Numbers confirmed, no issue that changes the case."),
+            Triple("Caution", C.amber, "The case holds, but an issue needs watching."),
+            Triple("Fail", C.red, "A number is materially wrong or an issue breaks the case."),
+            Triple("Flags checked", C.white, "Red flags from filings looked at: dismissed or confirmed.")).forEach { (n, c, d) ->
+            Row(Modifier.padding(vertical = 3.dp)) { T(n, 12.sp, c, FontWeight.SemiBold, modifier = Modifier.width(96.dp)); T(d, 12.sp, C.muted, lineHeight = 16.sp) }
+        }
+        T("Times are estimates: full reviews at most $REVIEW_PER_RUN a run (04:05 09:05 14:05 18:05 23:05), rechecks and catalysts at most $CATALYST_PER_RUN a run (07:05 12:05 16:05).",
+            11.sp, C.dim, lineHeight = 15.sp, modifier = Modifier.padding(top = 10.dp))
     }
 }
 
@@ -781,22 +844,38 @@ fun FeedbackScreen(st: AppState) {
 
 
 /** Research queue > Completed: what each research run finished (docs/data/research_done.json, last 7 days, newest first). */
-fun LazyListScope.completedList(st: AppState, d: DoneFile?) {
+/** The filter group of a completed item (feedback #115). */
+fun doneGroup(r: String?): String {
+    val x = r ?: ""
+    return when {
+        x == "pass" -> "Pass"; x == "caution" -> "Caution"; x == "fail" -> "Fail"
+        x.startsWith("review_flag") || "flag" in x -> "Flags checked"
+        x.startsWith("enrich") || x.startsWith("fund_use") -> "Catalyst"
+        x.startsWith("recheck") || x.startsWith("skipped") || "no change" in x -> "Recheck"
+        else -> "Other"
+    }
+}
+fun doneGroupColor(g: String): Color = when (g) {
+    "Pass" -> TierC.darkGreen; "Caution" -> C.amber; "Fail" -> C.red; "Recheck" -> C.grey; "Catalyst" -> TierC.lime; "Flags checked" -> C.white; else -> C.dim
+}
+
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+fun LazyListScope.completedList(st: AppState, d: DoneFile?, filter: String = "All", onFilter: (String) -> Unit = {}) {
     if (d == null) { item { LoadingCard(3) }; return }
     if (d.runs.isEmpty()) { item { Empty("Nothing completed in the last ${d.days} days.") }; return }
     val all = d.runs.flatMap { it.items }
-    val cnt = all.mapNotNull { it.r }.groupingBy { it }.eachCount()
+    val cnt = all.groupingBy { doneGroup(it.r) }.eachCount()
     item {
-        Card(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth(), pad = 12.dp) {
-            val parts = listOfNotNull(cnt["pass"]?.let { "$it pass" to TierC.darkGreen }, cnt["caution"]?.let { "$it caution" to C.amber },
-                cnt["fail"]?.let { "$it fail" to C.red }, (all.size - (cnt["pass"] ?: 0) - (cnt["caution"] ?: 0) - (cnt["fail"] ?: 0)).takeIf { it > 0 }?.let { "$it other" to C.dim })
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                T("Last ${d.days} days: ", 12.sp, C.dim)
-                parts.forEachIndexed { i, (t, c) -> T((if (i > 0) " · " else "") + t, 12.sp, c, FontWeight.SemiBold) }
+        // feedback #115: name and count of each result as a filter, in its colour (was a "Last 7 days: …" line)
+        androidx.compose.foundation.layout.FlowRow(Modifier.padding(horizontal = 16.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            ToggleChip("All", filter == "All", { onFilter("All") }, count = all.size)
+            listOf("Pass", "Caution", "Fail", "Flags checked", "Recheck", "Catalyst", "Other").forEach { g ->
+                cnt[g]?.let { n -> ToggleChip(g, filter == g, { onFilter(g) }, count = n, dot = doneGroupColor(g)) }
             }
         }
     }
-    d.runs.forEach { r ->
+    d.runs.map { r -> r.copy(items = r.items.filter { filter == "All" || doneGroup(it.r) == filter }) }.filter { it.items.isNotEmpty() }.forEach { r ->
         val t = runCatching { java.time.OffsetDateTime.parse(r.start.replace("+00:00", "Z").let { if (it.length == 17) it.dropLast(1) + ":00Z" else it })
             .atZoneSameInstant(java.time.ZoneId.of("Asia/Kolkata")) }.getOrNull()
         val head = (t?.let { "${skDay(it.toLocalDate().toString())} ${it.toLocalTime().toString().take(5)}" } ?: r.start.take(16)) +

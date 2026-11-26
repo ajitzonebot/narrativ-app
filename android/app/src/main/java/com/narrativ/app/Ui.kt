@@ -134,7 +134,7 @@ fun CheckRow(status: String, name: String, figure: String, passLine: String? = n
                 T(figure, 15.sp, weight = FontWeight.Bold, maxLines = 1)
                 if (bullet != null || passLine != null) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     bullet?.invoke()
-                    passLine?.let { T(it, 11.sp, C.dim, maxLines = 1) }
+                    passLine?.let { T(cap(it), 11.sp, C.dim, maxLines = 1) }
                 }
             }
         }
@@ -355,8 +355,16 @@ fun TopBar(st: AppState, title: String, context: String = title, subtitle: Strin
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         if (back) IconBtn(Icons.AutoMirrored.Rounded.ArrowBack, "Back") { st.back() }
         Column(Modifier.weight(1f)) {
-            T(title, if (big) 26.sp else if (subtitle != null) 17.sp else 20.sp, weight = FontWeight.Bold, maxLines = 1)
-            subtitle?.let { T(it, 12.sp, C.dim, maxLines = 1) }
+            if (Look.paper) {
+                // feedback #127: the name once, at the top and larger (stock page: code as the headline, company name in italic)
+                androidx.compose.material3.Text(title, fontSize = if (big) 28.sp else if (subtitle != null) 24.sp else 20.sp, lineHeight = 28.sp, color = C.white,
+                    fontFamily = PaperFonts.headline, fontWeight = FontWeight.Black, maxLines = 1)
+                subtitle?.let { androidx.compose.material3.Text(it, fontSize = 13.sp, color = C.muted, fontFamily = PaperFonts.headline,
+                    fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) }
+            } else {
+                T(title, if (big) 26.sp else if (subtitle != null) 17.sp else 20.sp, weight = FontWeight.Bold, maxLines = 1)
+                subtitle?.let { T(it, 12.sp, C.dim, maxLines = 1) }
+            }
         }
         actions()
         FeedbackButton(st, context)

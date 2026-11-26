@@ -56,8 +56,10 @@ fun MoneyScreen(st: AppState) {
         val lead = rot?.industries.orEmpty().filter { it.value.q == "Leading" }.keys
         pf.picks.filter { p -> p.out == null && (p.i ?: "") in lead && isBuy(p) }.sortedByDescending { it.pr }
     }
+    var moodInfo by remember { mutableStateOf(false) }
+    if (moodInfo) MoodInfoSheet { moodInfo = false }
     LazyColumn(Modifier.fillMaxSize().pageBackground(), contentPadding = PaddingValues(bottom = 110.dp)) {
-        item { TopBar(st, "Market", back = st.stack.size > 1, big = st.stack.size == 1) }
+        item { TopBar(st, "Market", back = st.stack.size > 1, big = st.stack.size == 1) { InfoButton { moodInfo = true } } }
         item {
             Card(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth()) {
                 if (md?.score == null) {
@@ -241,5 +243,22 @@ fun PaperMoodTop(md: Mood, series: List<Pair<String, Double>>) {
         }
         Row(Modifier.fillMaxWidth()) { T(shortDate(series.first().first), 10.sp, C.dim, modifier = Modifier.weight(1f)); T(shortDate(series.last().first), 10.sp, C.dim) }
         Box(Modifier.padding(top = 6.dp).fillMaxWidth().height(1.dp).background(C.white))
+    }
+}
+
+
+/** (i) on Market (feedback #134): how our mood score is built and why it can differ from Tickertape's Market Mood Index. */
+@androidx.compose.runtime.Composable
+fun MoodInfoSheet(onDismiss: () -> Unit) {
+    BottomSheet(onDismiss, "How the mood score works") {
+        T("Each input (India VIX, Nifty vs its 200-day average, stocks above their 200-day average, 52-week highs minus lows, " +
+            "advance/decline, put-call ratio, FII buying) is ranked against its own last 3 years, from 0 to 100. VIX and the put-call ratio " +
+            "count inverted. The score is their average. Under 25 is extreme fear, 25 to 45 fear, 45 to 55 neutral, 55 to 75 greed, above 75 extreme greed.",
+            13.sp, lineHeight = 19.sp)
+        PaperLabel("Why Tickertape can say something else", size = 11.sp, modifier = Modifier.padding(top = 12.dp, bottom = 4.dp))
+        T("Tickertape's Market Mood Index uses partly different inputs (FII activity, volatility and skew, market breadth, price strength) " +
+            "and, by public descriptions, compares them with recent weeks rather than years. After a short rally it can read greed while ours, " +
+            "measured against 3 years, still reads fear. Ours suits a 3 to 12-month horizon; the change over the last month (shown with the score) " +
+            "is the short-term swing.", 13.sp, C.muted, lineHeight = 19.sp)
     }
 }

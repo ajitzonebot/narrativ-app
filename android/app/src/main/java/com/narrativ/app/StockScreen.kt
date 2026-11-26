@@ -116,10 +116,11 @@ private fun PriceBlock(p: P, onNarrativ: (() -> Unit)? = null) {
         Row(verticalAlignment = Alignment.Bottom) {
             T("₹${skFx(p.p, 2)}", 30.sp, weight = FontWeight.Bold, maxLines = 1)
             Spacer(Modifier.width(8.dp))
-            T(skSgn(p.d1, 2), 15.sp, gainColor(p.d1), modifier = Modifier.padding(bottom = 5.dp), maxLines = 1)
+            T(if (Look.paper) arrowPct(p.d1) else skSgn(p.d1, 2), 15.sp, gainColor(p.d1), modifier = Modifier.padding(bottom = 5.dp), maxLines = 1)
             T(" today", 15.sp, C.muted, modifier = Modifier.padding(bottom = 5.dp), maxLines = 1)
         }
-        T(listOfNotNull(p.i, p.mc?.let { "₹${fmt(it, 0)} cr" }).joinToString(" · "), 12.sp, C.dim, maxLines = 1)
+        // feedback #126: industry, business type and market cap once, here (Paper adds the type: "Finance · NBFC · ₹2,785 cr")
+        T(listOfNotNull(p.i, p.bt.takeIf { Look.paper }, p.mc?.let { "₹${fmt(it, 0)} cr" }).joinToString(" · "), 12.sp, C.dim, maxLines = 1)
     }
     if (onNarrativ != null) {
         Spacer(Modifier.width(S.s))

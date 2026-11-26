@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
@@ -57,6 +58,7 @@ fun HomeScreen(st: AppState) {
     val scope = rememberCoroutineScope()
     var refreshing by remember { mutableStateOf(false) }
     var showEvidence by remember { mutableStateOf(false) }
+    var showTopInfo by remember { mutableStateOf(false) }
     // Explore chip counts: one pass over all picks per picks.json, not on every recomposition
     // feedback #81: same Outlook tier the stock's Outlook tab shows (p.t[6]: 1 Very strong, 2 Strong)
     val chips = remember(pf) {
@@ -101,9 +103,17 @@ fun HomeScreen(st: AppState) {
                     Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 18.dp))
             }
             item {
-                Row(Modifier.fillMaxWidth().padding(start = 18.dp, end = 16.dp, bottom = 10.dp), verticalAlignment = Alignment.Bottom) {
+                if (Look.paper) Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 10.dp, top = 6.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    // feedback #121 #122: a headline, an (i) holding the evidence and the dates, and a bare chevron
+                    androidx.compose.material3.Text("Today's Top 10", fontSize = 24.sp, color = C.white, fontFamily = PaperFonts.headline,
+                        fontWeight = FontWeight.Black, modifier = Modifier.weight(1f))
+                    InfoButton { showTopInfo = true }
+                    if (stockTop.isNotEmpty()) IconBtn(Icons.Rounded.ChevronRight, "All ${stockTop.size}", tint = C.blue) {
+                        st.go(Screen.Screener("syms:Today's Top 10|" + stockTop.joinToString(",") { it.s }))
+                    }
+                } else Row(Modifier.fillMaxWidth().padding(start = 18.dp, end = 16.dp, bottom = 10.dp), verticalAlignment = Alignment.Bottom) {
                     Column(Modifier.weight(1f)) {
-                        if (Look.paper) PaperLabel("Today's Top 10", size = 13.sp) else T("Today's Top 10", 21.sp, weight = FontWeight.Bold)
+                        T("Today's Top 10", 21.sp, weight = FontWeight.Bold)
                         // counts what the card shows: the verified Buys listed plus any IPO rated into the Top 10
                         val ns = stockTop.size; val ni = ipoTop.size
                         T("$ns verified Buy${if (ns == 1) "" else "s"}" + (if (ni > 0) " + $ni IPO${if (ni == 1) "" else "s"}" else "") + " · max 2 per industry" +
@@ -121,8 +131,7 @@ fun HomeScreen(st: AppState) {
                 if (stockTop.isEmpty() && ipoTop.isEmpty()) Empty(if (pending > 0) "$pending Buy-rated stocks are queued for Narrativ.ai's review; verified ones appear here." else "No verified Buy today.")
                 else Top10Card(st, stockTop, ipoTop)
             }
-            if (Look.paper && stockTop.any { it.cp.isNotEmpty() }) item { DatesEntry(st, stockTop) }
-            rp?.let { r ->
+            if (!Look.paper) rp?.let { r ->  // Paper (#122): behind the (i) beside "Today's Top 10"
                 val cur = r.variants["current rules"]; val any = r.baselines["every stock scored"]
                 if (cur != null && cur.m6.n > 0 && cur.m6.winPct != null) item { TrackBars(cur, any) { showEvidence = true } }
             }
@@ -130,17 +139,22 @@ fun HomeScreen(st: AppState) {
             item {
                 // Explore: counts open Stocks with the matching preset (chips, computed once per picks.json above)
                 Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-                    if (Look.paper) PaperLabel("Explore", size = 13.sp, modifier = Modifier.padding(start = 2.dp, top = 18.dp, bottom = 10.dp))
-                    else T("Explore", 21.sp, weight = FontWeight.Bold, modifier = Modifier.padding(start = 2.dp, top = 18.dp, bottom = 10.dp))
+                    if (Look.paper) {  // feedback #124: a headline, not a label; "Quality, priced in" left out
+                        Box(Modifier.padding(top = 14.dp).fillMaxWidth().height(1.dp).background(C.white))
+                        androidx.compose.material3.Text("Where to dig next", fontSize = 20.sp, color = C.white, fontFamily = PaperFonts.headline,
+                            fontWeight = FontWeight.Black, modifier = Modifier.padding(start = 2.dp, top = 8.dp, bottom = 10.dp))
+                    } else T("Explore", 21.sp, weight = FontWeight.Bold, modifier = Modifier.padding(start = 2.dp, top = 18.dp, bottom = 10.dp))
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        chips.filter { it.second > 0 }.forEach { (name, n, preset) -> ToggleChip(name, false, { st.go(Screen.Screener(preset)) }, count = n) }
+                        chips.filter { it.second > 0 && !(Look.paper && it.first == "Quality, priced in") }
+                            .forEach { (name, n, preset) -> ToggleChip(name, false, { st.go(Screen.Screener(preset)) }, count = n) }
                     }
                 }
             }
-            item { DataLine(st) }
+            if (!Look.paper) item { DataLine(st) }  // Paper (#124): no closing data line; the masthead flags old data
         }
     }
     if (showEvidence) rp?.let { HowWeKnowSheet(st, it, cf) { showEvidence = false } }
+    if (showTopInfo) TopTenInfoSheet(st, stockTop, rp, { showTopInfo = false; showEvidence = true }) { showTopInfo = false }
 }
 
 /** Time of day in IST (HH:mm) of an ISO timestamp; null when it cannot be read. */
@@ -242,7 +256,14 @@ private fun IpoRow(st: AppState, open: List<IpoOpen>) {
     }) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                T("${open.size} IPO${if (open.size == 1) "" else "s"} open", 17.sp, weight = FontWeight.Bold)
+                if (Look.paper) {
+                    val n = open.size; val words = listOf("No", "One", "Two", "Three", "Four", "Five", "Six")
+                    val head = (words.getOrNull(n) ?: "$n") + " IPO" + (if (n == 1) "" else "s") + " open, " + when {
+                        pick != null -> "apply for ${pick.name}"
+                        n == 1 -> "not worth applying for yet"; n == 2 -> "neither worth applying for yet"; else -> "none worth applying for yet"
+                    }
+                    androidx.compose.material3.Text(head, fontSize = 20.sp, lineHeight = 24.sp, color = C.white, fontFamily = PaperFonts.headline, fontWeight = FontWeight.Black)
+                } else T("${open.size} IPO${if (open.size == 1) "" else "s"} open", 17.sp, weight = FontWeight.Bold)
                 T(pick?.let { "${it.name}: ${sentence(it.action)} · ${ipoCloses(it.lastDate).first}" } ?: "None to apply", 13.sp, C.dim, maxLines = 1)
             }
             Icon(if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ChevronRight, null, tint = C.dim, modifier = Modifier.size(18.dp))
@@ -438,6 +459,59 @@ fun DatesEntry(st: AppState, top: List<P>) {
     }
 }
 
+/** The date the newest data should carry now: today after the evening run (22:30 IST) on a weekday, else the weekday before.
+ *  Exchange holidays are not known here, so a holiday can show "Data of" one day early. */
+fun expectedDataDate(): java.time.LocalDate {
+    val now = java.time.ZonedDateTime.now(java.time.ZoneId.of("Asia/Kolkata"))
+    var d = now.toLocalDate()
+    if (now.hour * 60 + now.minute < 22 * 60 + 30) d = d.minusDays(1)
+    while (d.dayOfWeek.value >= 6) d = d.minusDays(1)
+    return d
+}
+
+/** Small round (i) button: explanations live behind it, not under the content (owner, 25 Nov 2026). */
+@Composable
+fun InfoButton(onClick: () -> Unit) {
+    Box(Modifier.size(40.dp).clip(CircleShape).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+        Box(Modifier.size(22.dp).border(1.5.dp, C.blue, CircleShape), contentAlignment = Alignment.Center) {
+            androidx.compose.material3.Text("i", fontSize = 13.sp, color = C.blue, fontWeight = FontWeight.Bold, fontFamily = PaperFonts.serif)
+        }
+    }
+}
+
+/** Paper, Home (#122): what the Top 10 is, how past Top 10s did against the Nifty, and the dates to watch. */
+@Composable
+fun TopTenInfoSheet(st: AppState, top: List<P>, rp: ReplayFile?, onEvidence: () -> Unit, onDismiss: () -> Unit) {
+    BottomSheet(onDismiss, "About today's Top 10") {
+        T("Verified Buys only, at most 2 per industry, ranked by readiness. ${top.size} verified Buy${if (top.size == 1) "" else "s"} today.", 13.sp, lineHeight = 18.sp)
+        rp?.let { r ->
+            val cur = r.variants["current rules"]; val any = r.baselines["every stock scored"]
+            if (cur != null && cur.m6.n > 0 && cur.m6.winPct != null) Box(Modifier.padding(top = 10.dp)) { TrackBars(cur, any, onEvidence) }
+        }
+        val today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kolkata"))
+        val byDate = top.flatMap { p -> p.cp.filter { it.status != "closed" }.mapNotNull { c ->
+            runCatching { java.time.LocalDate.parse(c.due) }.getOrNull()?.takeIf { !it.isBefore(today) }?.let { it to (p.c to c) } } }
+            .groupBy({ it.first }, { it.second }).toSortedMap().entries.take(5)
+        if (byDate.isNotEmpty()) {
+            PaperLabel("Dates to watch", size = 11.sp, modifier = Modifier.padding(top = 14.dp, bottom = 4.dp))
+            byDate.forEach { (d, l) ->
+                val kills = l.filter { it.second.type == "kill_switch" }.map { it.first }
+                Row(Modifier.padding(vertical = 2.dp)) {
+                    T(skDay(d.toString()), 12.sp, weight = FontWeight.Bold, modifier = Modifier.width(56.dp))
+                    T(buildString {
+                        if (kills.isNotEmpty()) append(kills.joinToString(", ") + " exit check" + (if (kills.size > 1) "s" else ""))
+                        l.filter { it.second.type != "kill_switch" }.groupBy { it.second.type }.forEach { (t, g) ->
+                            if (isNotEmpty()) append(" · ")
+                            append(if (g.size == top.size && top.size > 2) "All ${g.size} ${cpWord(t)}" else if (g.size > 2) "${g.size} ${cpWord(t)}" else g.joinToString(", ") { it.first } + " " + cpWord(t))
+                        }
+                    }, 12.sp, if (kills.isNotEmpty()) TierC.red else C.white, lineHeight = 16.sp)
+                }
+            }
+            MoreLink("Open the calendar", Modifier.padding(top = 6.dp)) { onDismiss(); st.go(Screen.Dates) }
+        }
+    }
+}
+
 /** Plain word for a checkpoint type. */
 fun cpWord(t: String?): String = when (t) {
     "results" -> "results"; "shareholding" -> "shareholding"; "kill_switch" -> "kill switch"; "must_go_right" -> "must go right"
@@ -452,12 +526,16 @@ fun PaperMasthead(pf: PicksFile) {
         androidx.compose.material3.Text("THE NARRATIV", fontSize = 54.sp, lineHeight = 58.sp, color = C.white, fontFamily = PaperFonts.masthead,
             maxLines = 1, modifier = Modifier.padding(vertical = 2.dp))
         DoubleRule(thickFirst = false)
-        val d = runCatching { java.time.LocalDate.parse(pf.date) }.getOrNull()
+        // feedback #114: today's date; the data's date only when it is older than the last session's data
+        val d = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kolkata"))
+        val dataDate = runCatching { java.time.LocalDate.parse(pf.date) }.getOrNull()
         Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), horizontalArrangement = Arrangement.SpaceBetween) {
             PaperLabel(d?.dayOfWeek?.getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.ENGLISH) ?: "", size = 11.sp)
             PaperLabel("✱", size = 11.sp); PaperLabel("NARRATIV.AI", size = 11.sp); PaperLabel("✱", size = 11.sp)
             PaperLabel(d?.let { "${it.dayOfMonth} ${it.month.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.ENGLISH)} ${it.year}" } ?: "", size = 11.sp)
         }
+        if (dataDate != null && dataDate.isBefore(expectedDataDate())) T("Data of ${skDay(dataDate.toString())}", 10.sp, C.amber,
+            modifier = Modifier.align(Alignment.End).padding(bottom = 4.dp))
         Box(Modifier.fillMaxWidth().height(1.dp).background(C.white))
         val zone = pf.mood?.zone; val score = pf.mood?.score; val buys = pf.funnel.decisions["Buy"]
         if (zone != null || buys != null) {
