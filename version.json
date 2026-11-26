@@ -1,11 +1,53 @@
 {
- "versionCode": 91,
- "versionName": "2.32.0",
+ "versionCode": 93,
+ "versionName": "2.32.1",
  "date": "2026-11-26",
- "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.32.0-b91/narrativ-v2.32.0-b91.apk",
+ "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.32.1-b93/narrativ-v2.32.1-b93.apk",
  "sizeMb": 12.2,
- "sha256": "0327df478cec268bb2ae53dd15a97abc98241c2c6f48199e0f61fb408b8a5418",
+ "sha256": "0d96d419dfa7e617f600adfbee5f3ba897b9af60d8347bc93df0cccc90ccf9ff",
  "changelog": [
+  {
+   "version": "2.32.1",
+   "date": "2026-11-26",
+   "changes": [
+    {
+     "type": "fix",
+     "text": "Stability key checks show the real pass and miss limits (interest cover pass 3x, net debt pass 3x, current ratio pass 1.0, pledge pass 10%)"
+    },
+    {
+     "type": "fix",
+     "text": "Valuation: the own-history chart is back for cyclical businesses"
+    },
+    {
+     "type": "fix",
+     "text": "Institutional holding reads NSE's shareholding filing; the figure and its verdict now agree"
+    },
+    {
+     "type": "fix",
+     "text": "Why sheet: review notes and signals are no longer dropped; guidance raised or cut shows under management guidance"
+    },
+    {
+     "type": "fix",
+     "text": "Plan: the exit-level line says when a new call is possible; 'Watch zone' when the price is below the zone; Paper shows the zone and the 50-day line"
+    },
+    {
+     "type": "fix",
+     "text": "Counts agree across screens: verified Buys in the Top 10 sheet, industry stock counts, verified calls, corrected data issues"
+    },
+    {
+     "type": "fix",
+     "text": "Track record: the portfolio is weighted by conviction, as the text now says"
+    },
+    {
+     "type": "fix",
+     "text": "Market strip: Gift Nifty shows the near-month contract; Nifty and Sensex change is measured from the last close"
+    },
+    {
+     "type": "improved",
+     "text": "Faster start: stock pages are not downloaded again when the data has not changed"
+    }
+   ]
+  },
   {
    "version": "2.32.0",
    "date": "2026-11-26",
@@ -84,7 +126,7 @@
     },
     {
      "type": "changed",
-     "text": "Funnel chart at the bottom of Stocks"
+     "text": "Removed the funnel chart from the bottom of Stocks (it stays on Home)"
     }
    ]
   },
