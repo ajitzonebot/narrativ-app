@@ -22,9 +22,11 @@
  *                         (NSE unless the symbol carries .BO); one Yahoo call per symbol, inside the Free plan's 50 subrequests
  *  GET  /ticker        -> Home strip: Nifty 50, Sensex (Yahoo), Gift Nifty near-month future (NSE IX), gold 22K (Abharan)
  *  GET  /health        -> "ok" (the only route without the key)
- *  cron (wrangler.toml [triggers]) -> dispatches daily.yml (17:10 IST), ipo.yml, republish.yml and story.yml in RUN_REPO on
- *                         time (GitHub's own schedules often start hours late). Only the exact cron strings below dispatch;
- *                         an unknown string is logged and does nothing.
+ *  cron (wrangler.toml [triggers], one trigger every 10 minutes) -> the scheduler: each tick starts the jobs of SCHEDULE
+ *                         due in that 10-minute slot in RUN_REPO (GitHub's own schedules often start hours late or not at
+ *                         all; they stay in the workflows as a backup). A job already queued or running is not started
+ *                         again. Once a day (WATCHDOG_AT) the watchdog opens a "watchdog" issue in REPO for any job that
+ *                         has not run within its window or whose last run failed.
  * Secrets (wrangler secret): GH_TOKEN (fine-grained narrativ-runner: Narrativ contents + issues, narrativ-app actions);
  *  APP_KEY (sent by the app in X-App-Key, compared in constant time). The key is the only gate on the private data behind
  *  /data, so it is a secret, not a var; a missing APP_KEY refuses every keyed route.
@@ -41,24 +43,112 @@
  *    number with duplicate:true instead of creating another.
  */
 const JSON_HDR = { "content-type": "application/json; charset=utf-8" };
-// Must equal the IPO entries of wrangler.toml crons. Cloudflare numbers day-of-week 1 = Sunday, so the schedules use MON-FRI names.
-const IPO_CRONS = ["0 3 * * MON-FRI", "0 10 * * MON-FRI"];
-// Every 30 minutes: "Publish research" (republish.yml), which exits at once when no research run pushed since the last
-// publish. GitHub's own */30 schedule fired only every 4-9 hours on 23-26 Nov 2026, so finished research reached the app
-// hours late (owner feedback #144).
-const REPUBLISH_CRON = "*/30 * * * *";
-// 01:00 and 04:00 UTC = 06:30 and 09:30 IST: story.yml (Narrativ sheets). GitHub's own schedule for it skipped both runs on
-// 26 Nov 2026, so the Worker starts it too (one cron string: the free plan allows few cron triggers).
-const STORY_CRON = "0 1,4 * * *";
-// 11:40 UTC = 17:10 IST, after the NSE close: daily.yml
-const DAILY_CRON = "40 11 * * MON-FRI";
-// Cron strings compared after normalising (spaces, case), so "mon-fri" or a trailing space still matches its job; anything
-// else does nothing (audit 26 Nov 2026: every unknown string used to start a full daily run).
-const normCron = (c) => String(c || "").trim().replace(/\s+/g, " ").toUpperCase();
-const CRON_JOBS = new Map([
-  [normCron(DAILY_CRON), "daily.yml"], [normCron(REPUBLISH_CRON), "republish.yml"], [normCron(STORY_CRON), "story.yml"],
-  ...IPO_CRONS.map((c) => [normCron(c), "ipo.yml"]),
-]);
+// Scheduler (owner, 27 Nov 2026): the free plan allows 5 cron triggers per account, and GitHub's own schedules started the
+// 20:10 IST daily retry and the history backfill late or never (27 Nov 2026). One trigger every 10 minutes runs this table.
+// Times are UTC (IST - 5:30) in 10-minute slots; days are UTC weekdays (0 = Sunday). `every` / `offset` in minutes of the
+// UTC day. `maxH`: the watchdog flags the job when its newest run is older (checked on `watchDays`, default every day).
+const TICK_MIN = 10;
+const WEEKDAYS = [1, 2, 3, 4, 5];
+const SCHEDULE = [
+  // 17:10 IST after the NSE close; 20:10 and 22:10 IST retries (NSE's closing file is often late); each run skips in about a
+  // minute when the day is already built
+  { wf: "daily.yml", at: ["11:40", "14:40", "16:40"], days: WEEKDAYS, maxH: 26, watchDays: [2, 3, 4, 5, 6] },
+  { wf: "republish.yml", every: 30, maxH: 2 },                       // publish finished research (exits when nothing new)
+  { wf: "filings.yml", at: ["15:20"], maxH: 26 },                    // 20:50 IST: quarterly results beyond the daily top 300
+  { wf: "news.yml", every: 120, offset: 20, maxH: 6 },               // every 2 hours: feeds hold only their latest items
+  { wf: "reader.yml", at: ["09:20"], days: [0, 6] },                 // 14:50 IST Sat / Sun: backlog (weekdays: after the daily run)
+  { wf: "histfin.yml", every: 120, offset: 40 },                     // benchmark history backfill, resumable; exits when done
+  { wf: "story.yml", at: ["01:00", "04:00"], maxH: 26 },             // 06:30 and 09:30 IST
+  { wf: "factors.yml", at: ["06:50"], days: [6], maxH: 8 * 24 },     // 12:20 IST Saturday, before the Sunday review
+  { wf: "replay.yml", at: ["07:20"], monthDay: 1, maxH: 32 * 24 },   // 12:50 IST on the 1st
+  { wf: "mirror.yml", at: ["14:30"] },                               // 20:00 IST code copy (also run by hand on each release)
+  { wf: "ipo.yml", at: ["03:00", "10:00"], days: WEEKDAYS },         // 08:30 and 15:30 IST (not critical)
+];
+const WATCHDOG_AT = "03:30"; // 09:00 IST
+const ACTIVE = new Set(["queued", "in_progress", "waiting", "requested", "pending"]);
+const hm = (m) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+
+/** The jobs due in the 10-minute slot of `ms` (UTC). Pure: tested in worker/scheduler.test.mjs. */
+export function dueJobs(ms, schedule = SCHEDULE) {
+  const d = new Date(Math.round(ms / (TICK_MIN * 60000)) * TICK_MIN * 60000);
+  const min = d.getUTCHours() * 60 + d.getUTCMinutes(), day = d.getUTCDay(), slot = hm(min);
+  return schedule.filter((j) => {
+    if (j.days && !j.days.includes(day)) return false;
+    if (j.monthDay && d.getUTCDate() !== j.monthDay) return false;
+    if (j.every) return min >= (j.offset || 0) && (min - (j.offset || 0)) % j.every === 0;
+    return (j.at || []).includes(slot);
+  }).map((j) => j.wf);
+}
+
+async function lastRuns(env, wf, n = 3) {
+  const r = await gh(env, `/actions/workflows/${wf}/runs?per_page=${n}`, { headers: { accept: "application/vnd.github+json" } },
+    env.RUN_REPO || env.REPO);
+  if (!r.ok) throw new Error(`runs of ${wf}: ${r.status}`);
+  return (await r.json()).workflow_runs || [];
+}
+
+/** Start one workflow unless a run of it is already queued or running. Returns "started", "busy" or throws. */
+async function startJob(env, wf) {
+  let runs = [];
+  try { runs = await lastRuns(env, wf); } catch (e) { console.error(String(e)); } // cannot tell: start anyway (concurrency groups queue it)
+  if (runs.some((x) => ACTIVE.has(x.status))) return "busy";
+  let status = 0, detail = "";
+  for (let i = 1; i <= 3; i++) {  // 204 = started; retry transient failures (5xx, network)
+    try {
+      // The runs live in the public repo (RUN_REPO); the data stays in REPO.
+      const r = await gh(env, `/actions/workflows/${wf}/dispatches`, {
+        method: "POST",
+        headers: { "content-type": "application/json", accept: "application/vnd.github+json" },
+        body: JSON.stringify({ ref: "main" }),
+      }, env.RUN_REPO || env.REPO);
+      status = r.status;
+      if (status === 204) return "started";
+      detail = (await r.text().catch(() => "")).slice(0, 200);
+    } catch (e) {
+      status = 0;
+      detail = String(e).slice(0, 200);
+    }
+    if (status >= 400 && status < 500) break;  // bad token / missing workflow: retrying will not help
+    if (i < 3) await new Promise((res) => setTimeout(res, 3000 * i));
+  }
+  throw new Error(`${wf} dispatch failed: ${status} ${detail}`);
+}
+
+/** Jobs that missed their window or whose newest finished run failed: [{wf, why}]. Pure: tested. */
+export function overdue(rowsByWf, nowMs, schedule = SCHEDULE) {
+  const day = new Date(nowMs).getUTCDay(), out = [];
+  for (const j of schedule) {
+    if (!j.maxH || (j.watchDays && !j.watchDays.includes(day)) || !(j.wf in rowsByWf)) continue;
+    const runs = rowsByWf[j.wf] || [];
+    const newest = runs[0];
+    const ageH = newest ? (nowMs - Date.parse(newest.created_at)) / 3600000 : Infinity;
+    const done = runs.find((x) => x.status === "completed");
+    if (ageH > j.maxH) out.push({ wf: j.wf, why: newest ? `no run for ${Math.floor(ageH)} hours (window ${j.maxH} h)` : "no run on record" });
+    else if (done && ["failure", "timed_out", "startup_failure"].includes(done.conclusion))
+      out.push({ wf: j.wf, why: `last run ${done.conclusion} (${String(done.created_at).slice(0, 16).replace("T", " ")} UTC): ${done.html_url}` });
+  }
+  return out;
+}
+
+async function watchdog(env, nowMs) {
+  const rows = {};
+  for (const j of SCHEDULE.filter((x) => x.maxH)) {
+    try { rows[j.wf] = await lastRuns(env, j.wf); } catch (e) { console.error(String(e)); }
+  }
+  const bad = overdue(rows, nowMs);
+  if (!bad.length) return 0;
+  const r = await gh(env, "/issues?labels=watchdog&state=open&per_page=100");
+  const open = r.ok ? new Set((await r.json()).map((x) => x.title)) : new Set();
+  let n = 0;
+  for (const b of bad) {
+    const title = `watchdog: ${b.wf}`;
+    if (open.has(title)) continue;  // one open issue per job; close it once the job runs again
+    await issue(env, title, `${b.why}\n\nOpened by the Worker's daily watchdog (worker/worker.js SCHEDULE).`, ["watchdog"]);
+    n++;
+  }
+  return n;
+}
+
 const MAX_BODY = 8 * 1024;
 const IP_DAILY_CAP = 10;      // feedback + scan posts per IP per UTC day (best-effort, per isolate)
 const GLOBAL_DAILY_CAP = 100; // feedback + scan issues per rolling 24 h, counted from GitHub
@@ -443,39 +533,24 @@ async function recentScan(env, sym) {
 
 export default {
   async scheduled(event, env, ctx) {
-    // 03:00 / 10:00 UTC = 08:30 / 15:30 IST -> IPO check; 11:40 UTC = 17:10 IST -> daily run; see CRON_JOBS
-    const wf = CRON_JOBS.get(normCron(event.cron));
-    if (!wf) {
-      console.error(`cron ${JSON.stringify(event.cron)}: not a known schedule, nothing dispatched (update CRON_JOBS with wrangler.toml)`);
-      return;
-    }
-    let status = 0, detail = "";
-    for (let i = 1; i <= 3; i++) {  // 204 = started; retry transient failures (5xx, network)
+    // one trigger every 10 minutes (wrangler.toml): start the jobs due in this slot, and once a day run the watchdog
+    const ms = event.scheduledTime || Date.now();
+    const due = dueJobs(ms);
+    const failed = [];
+    for (const wf of due) {
       try {
-        // The runs live in the public repo (RUN_REPO); the data stays in REPO.
-        const r = await gh(env, `/actions/workflows/${wf}/dispatches`, {
-          method: "POST",
-          headers: { "content-type": "application/json", accept: "application/vnd.github+json" },
-          body: JSON.stringify({ ref: "main" }),
-        }, env.RUN_REPO || env.REPO);
-        status = r.status;
-        if (status === 204) break;
-        detail = (await r.text().catch(() => "")).slice(0, 200);
+        console.log(`tick ${new Date(ms).toISOString()}: ${wf} ${await startJob(env, wf)}`);
       } catch (e) {
-        status = 0;
-        detail = String(e).slice(0, 200);
+        console.error(String(e));
+        failed.push(wf);
       }
-      if (status >= 400 && status < 500) break;  // bad token / missing workflow: retrying will not help
-      if (i < 3) await new Promise((res) => setTimeout(res, 3000 * i));
     }
-    if (status === 204) {
-      console.log(`cron ${event.cron}: ${wf} dispatch -> 204`);
-      return;
+    if (dueJobs(ms, [{ wf: "watchdog", at: [WATCHDOG_AT] }]).length) {
+      try { console.log(`watchdog: ${await watchdog(env, ms)} issue(s) opened`); } catch (e) { console.error(`watchdog: ${e}`); }
     }
-    // Throwing marks this cron invocation as failed (Cloudflare dashboard: Workers > narrativ > Observability / Cron Events)
-    // instead of a console.log nobody reads. The GitHub backup schedule in daily.yml still starts the run later.
-    console.error(`cron ${event.cron}: ${wf} dispatch FAILED -> ${status} ${detail}`);
-    throw new Error(`cron dispatch of ${wf} failed: ${status} ${detail}`);
+    // Throwing marks this invocation failed in the Cloudflare dashboard (Workers > narrativ > Observability / Cron Events);
+    // GitHub's backup schedules still start the jobs later.
+    if (failed.length) throw new Error(`dispatch failed: ${failed.join(", ")}`);
   },
 
   async fetch(req, env, ctx) {
