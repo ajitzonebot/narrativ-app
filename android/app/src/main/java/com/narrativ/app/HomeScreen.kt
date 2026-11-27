@@ -70,6 +70,13 @@ fun HomeScreen(st: AppState) {
         listOf(Triple("Strong outlook", good.size, "syms:Strong outlook|" + good.joinToString(",") { it.s }), Triple("Beaten-up quality", bq, "bq")) +
             listOf("Prime candidate", "Early story", "Undervalued quality", "Momentum play", "Value watch", "Quality, priced in").map { Triple(it, vc[it] ?: 0, "v:$it") }
     }
+    // feedback #213 (owner, 27 Nov 2026): the Stocks screen's quick-filter chips, same pattern and counts, each opening Stocks with
+    // that filter: Verified only, High conviction Buy, then the decisions
+    val quick = remember(pf) {
+        val live = pf.picks.filter { Filt().match(it) }
+        Triple(live.count { it.verified() }, live.count { Filt(cv = "High").match(it) },
+            DECISION_ORDER.associateWith { d -> live.count { (it.dc ?: "Not rated") == d } })
+    }
     // one Top 10 for Home and the stock page rank (Look.kt topTen): open IPOs first, then verified Buys in the pipeline's order
     val tt = topTen(st)
     val ipoTop = tt?.ipos.orEmpty()
@@ -145,6 +152,16 @@ fun HomeScreen(st: AppState) {
                         androidx.compose.material3.Text("Where to dig next", fontSize = 20.sp, color = C.white, fontFamily = PaperFonts.headline,
                             fontWeight = FontWeight.Black, modifier = Modifier.padding(start = 2.dp, top = 8.dp, bottom = 10.dp))
                     } else T("Explore", 21.sp, weight = FontWeight.Bold, modifier = Modifier.padding(start = 2.dp, top = 18.dp, bottom = 10.dp))
+                    Row(Modifier.horizontalScroll(rememberScrollState()).padding(bottom = 10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        ToggleChip("Verified only", false, { st.go(Screen.Screener("vf")) }, count = quick.first, accent = TierC.lightGreen, icon = Icons.Rounded.Check)
+                        if (quick.second > 0) ToggleChip("High conviction Buy", false, { st.go(Screen.Screener("hcb")) }, count = quick.second,
+                            accent = TierC.darkGreen, solidOn = true)
+                        Box(Modifier.padding(horizontal = 2.dp).size(1.dp, 22.dp).background(C.line))
+                        DECISION_ORDER.filter { (quick.third[it] ?: 0) > 0 && !it.endsWith("Sell") }.forEach { d ->
+                            ToggleChip(d, false, { st.go(Screen.Screener("d:$d")) }, count = quick.third[d], dot = decisionColor(d), accent = decisionColor(d))
+                        }
+                    }
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         chips.filter { it.second > 0 && !(Look.paper && it.first == "Quality, priced in") }
                             .forEach { (name, n, preset) -> ToggleChip(name, false, { st.go(Screen.Screener(preset)) }, count = n) }
@@ -425,11 +442,11 @@ fun PaperFrontBox(pf: PicksFile, n200: Double?, onMood: () -> Unit) {
 fun androidx.compose.foundation.layout.RowScope.PaperTopRow(p: P, price: Double?, d1: Double?, rank: Int) {
     androidx.compose.material3.Text("$rank", fontSize = 13.sp, fontFamily = PaperFonts.headline, fontWeight = FontWeight.Bold, color = C.dim, modifier = Modifier.width(22.dp))
     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        // feedback #213 (owner, 27 Nov 2026): the same tags as the Stocks rows (seal, decision, conviction), the code never shrinks
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
             androidx.compose.material3.Text(p.c, fontSize = 15.sp, fontFamily = PaperFonts.headline, fontWeight = FontWeight.Bold, color = C.white, maxLines = 1,
-                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f, false))
-            if (p.mb) MbTag()
-            p.cv?.let { T(it, 11.sp, if (it == "High") TierC.darkGreen else if (it == "Low") TierC.red else TierC.yellow, FontWeight.SemiBold) }
+                softWrap = false)
+            CallTags(p)
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             InkDots(p.t)

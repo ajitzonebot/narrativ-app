@@ -1,5 +1,31 @@
 [
  {
+  "version": "2.32.4",
+  "date": "2026-11-27",
+  "changes": [
+   {
+    "type": "new",
+    "text": "Home: the Stocks quick-filter chips (Verified only, High conviction Buy, Buy, Hold) with their counts, each opening Stocks with that filter"
+   },
+   {
+    "type": "improved",
+    "text": "Home Top 10 rows carry the same tags as the Stocks list: verified seal, Buy tag and conviction"
+   },
+   {
+    "type": "new",
+    "text": "IPO page: swipe left or right for the next or previous IPO"
+   },
+   {
+    "type": "improved",
+    "text": "Pop-ups (Why Buy and others) on the same paper as the pages"
+   },
+   {
+    "type": "fixed",
+    "text": "Research queue › Completed says a dated driver was found only when the stock has one on record"
+   }
+  ]
+ },
+ {
   "version": "2.32.3",
   "date": "2026-11-27",
   "changes": [

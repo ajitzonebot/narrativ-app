@@ -97,11 +97,14 @@ def summary(runs: list[dict] | None = None) -> dict:
 DONE = Path("docs/data/research_done.json")
 
 
-def completed(days: int = 7, now: datetime | None = None, path: Path | None = None, out_path: Path | None = None) -> dict:
+def completed(days: int = 7, now: datetime | None = None, path: Path | None = None, out_path: Path | None = None,
+              theses: dict | None = None) -> dict:
     """docs/data/research_done.json for the app's Research queue > Completed: every item a research run finished in the last
     `days` days, newest run first. Each `done` entry "SYMBOL:result" becomes {"s", "r"} (r: pass / caution / fail for a full
     review, else the task, e.g. enrich, recheck, dismissed); "industries:..." stays a text line. `task` is review / catalyst
-    (older lines have none)."""
+    (older lines have none). With `theses` (the verified research) each stock row carries `dated`: its drivers whose due date
+    the verifier confirmed, now (feedback #219, 27 Nov 2026: the app said "Dated driver found" for enrich runs that found
+    none, e.g. WINDLAS, DSSL, VENKEYS, or had no call to read)."""
     now = now or datetime.now(timezone.utc)
     cut = now - timedelta(days=days)
     runs = []
@@ -120,7 +123,11 @@ def completed(days: int = 7, now: datetime | None = None, path: Path | None = No
                 for one in re.split(r"\s*/\s*|\s*,\s*|\s+(?:and|&|\+)\s+", k):  # "&" only with spaces: J&KBANK and M&M are symbols (review 26 Nov 2026)
                     one = one.strip()
                     if one:
-                        items.append({"s": one if "." in one else f"{one}.NS", "r": (v or "done").strip()})
+                        sym = one if "." in one else f"{one}.NS"
+                        it = {"s": sym, "r": (v or "done").strip()}
+                        if theses is not None:
+                            it["dated"] = sum(1 for x in (theses.get(sym) or {}).get("drivers") or [] if x.get("due_verified"))
+                        items.append(it)
         runs.append({"task": r.get("task"), "start": t, "approx": r.get("approx", False), "items": items})
     runs.sort(key=lambda x: x["start"], reverse=True)
     out = {"since": cut.date().isoformat(), "days": days, "runs": runs}

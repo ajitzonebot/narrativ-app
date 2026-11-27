@@ -23,6 +23,8 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -347,8 +349,19 @@ fun IpoDetailScreen(st: AppState, name: String) {
         ?: u?.let { IpoOpen(name = it.name, board = it.board, priceLow = it.priceLow, priceHigh = it.priceHigh, openDate = it.openDate ?: "", lastDate = it.lastDate ?: "",
             upcoming = true, sources = listOfNotNull(it.source)) }
     val uri = LocalUriHandler.current
-    LazyColumn(Modifier.fillMaxSize().pageBackground(), contentPadding = PaddingValues(bottom = 110.dp)) {
-        item { TopBar(st, name, context = "IPO $name", subtitle = listOfNotNull(i?.board?.ifBlank { null }, i?.symbol).joinToString(" · ")) }
+    // feedback #210 (owner, 27 Nov 2026): swipe left / right moves to the next / previous IPO, in the Home list's order
+    val all = (x?.actionable.orEmpty().map { it.name } + x?.laterToday.orEmpty().map { it.name } + x?.upcoming.orEmpty().map { it.name }).distinct()
+    val at = all.indexOf(name)
+    val swipe = Modifier.pointerInput(name, all) {
+        var dx = 0f
+        detectHorizontalDragGestures(onDragStart = { dx = 0f }, onDragEnd = {
+            val to = if (dx < -120f) at + 1 else if (dx > 120f) at - 1 else at
+            if (at >= 0 && to != at && to in all.indices) st.stack[st.stack.lastIndex] = Screen.Ipo(all[to])
+        }) { _, d -> dx += d }
+    }
+    LazyColumn(Modifier.fillMaxSize().pageBackground().then(swipe), contentPadding = PaddingValues(bottom = 110.dp)) {
+        item { TopBar(st, name, context = "IPO $name", subtitle = listOfNotNull(i?.board?.ifBlank { null }, i?.symbol,
+            if (all.size > 1 && at >= 0) "${at + 1} of ${all.size} · swipe for the next" else null).joinToString(" · ")) }
         if (i == null) { item { Spacer(Modifier.height(8.dp)); Empty("Not in today's IPO list") }; return@LazyColumn }
         val acol = if (i.upcoming) C.dim else ipoActionColor(i.action)
         val gp = i.gmpPct ?: i.gmpPctHigh

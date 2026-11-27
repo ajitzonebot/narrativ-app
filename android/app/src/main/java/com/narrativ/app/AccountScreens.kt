@@ -1027,14 +1027,16 @@ private fun doneOutcome(it: DoneItem): DoneOutcome {
                 out.joinToString("; ").ifEmpty { "checked" }, if (confirmed.isNotEmpty()) C.red else TierC.darkGreen)
         }
         "recheck" -> DoneOutcome("Research refreshed", when {
-            raw.contains("+driver") -> "new dated driver found"
+            raw.contains("+driver") && it.dated != 0 -> "new dated driver found"
             rest.isNotEmpty() -> rest.trimStart('+', ' ')
             else -> ""
         }, C.blue)
+        // feedback #219: say "found" only when the stock has a verified dated driver on record (it.dated, from the pipeline)
         "enrich" -> when {
-            raw.contains("none found") -> DoneOutcome("Looked for a dated driver", "none found", C.dim)
+            raw.contains("no_concall") -> DoneOutcome("Looked for a dated driver", "no earnings call to read", C.dim)
+            raw.contains("none found") || it.dated == 0 -> DoneOutcome("Looked for a dated driver", "none with a confirmed date", C.dim)
             raw.contains("already had") -> DoneOutcome("Dated driver", "already on record", C.blue)
-            else -> DoneOutcome("Dated driver found", "", TierC.darkGreen)
+            else -> DoneOutcome("Dated driver found", it.dated?.let { n -> "$n on record" } ?: "", TierC.darkGreen)
         }
         else -> DoneOutcome(QUEUE_TASKS[word]?.first ?: "Research done", rest, C.blue)
     }

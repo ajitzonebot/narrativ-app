@@ -1200,7 +1200,7 @@ def main(limit: int | None) -> None:
         print(f"[rules] failed: {e}")
     try:
         from narrativ import runlog
-        runlog.completed()  # docs/data/research_done.json: Research queue > Completed
+        runlog.completed(theses=theses)  # docs/data/research_done.json: Research queue > Completed
     except Exception as e:  # noqa: BLE001
         print(f"[run] research_done.json failed: {e}")
     H.write(today, details, {"universe": len(syms), "in_funnel": len(infunnel), "decisions": funnel.get("decisions")})

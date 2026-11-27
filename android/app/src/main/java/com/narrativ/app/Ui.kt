@@ -323,9 +323,12 @@ fun ToggleChip(label: String, selected: Boolean, onClick: () -> Unit, modifier: 
 @Composable
 fun BottomSheet(onDismiss: () -> Unit, title: String? = null, aside: String? = null, titleExtra: (@Composable () -> Unit)? = null,
                 feedback: Boolean = true, content: @Composable ColumnScope.() -> Unit) {
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), containerColor = C.card,
+    // feedback #212 (owner, 27 Nov 2026): sheets on the same paper as the pages (paper colour and grain), not a flat card colour
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = if (Look.paper) C.bg else C.card,
         dragHandle = { Box(Modifier.padding(top = 10.dp, bottom = 12.dp).size(36.dp, 4.dp).clip(rr(2.dp)).background(C.hi.copy(alpha = 0.25f))) }) {
-        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, bottom = 24.dp).navigationBarsPadding()) {
+        Column(Modifier.fillMaxWidth().then(if (Look.paper) Modifier.pageBackground() else Modifier).verticalScroll(rememberScrollState())
+            .padding(start = 16.dp, end = 16.dp, bottom = 24.dp).navigationBarsPadding()) {
             if (title != null) Row(Modifier.fillMaxWidth().padding(bottom = 12.dp), verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 T(title, 19.sp, weight = FontWeight.Bold, modifier = Modifier.weight(1f), maxLines = 2)

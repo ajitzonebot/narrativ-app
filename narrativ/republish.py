@@ -118,7 +118,8 @@ def prune_queue(done: dict, built_at: str | None, queue: dict) -> int:
 def main(before: str | None) -> None:
     try:  # Research queue > Completed in the app, also after runs that changed no research
         from narrativ import runlog
-        done = runlog.completed()
+        rp = OUT / "research.json"
+        done = runlog.completed(theses=json.loads(rp.read_text()) if rp.exists() else None)
         qp, pp = OUT / "queue.json", OUT / "picks.json"
         if qp.exists() and pp.exists():
             q = json.loads(qp.read_text())

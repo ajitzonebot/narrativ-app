@@ -141,6 +141,9 @@ fun presetFilt(preset: String?, pf: PicksFile): Filt = when {
     preset.startsWith("ind:") -> Filt(industry = preset.removePrefix("ind:"), industryExact = true)
     preset.startsWith("q:") -> Filt(q = preset.removePrefix("q:"))
     preset == "bq" -> Filt(bq = true)
+    // feedback #213: Home's quick-filter chips open Stocks with the same chip on
+    preset == "vf" -> Filt(research = "Verified")
+    preset == "hcb" -> Filt(cv = "High")
     // Watchlist (Settings): every saved stock, removed ones too, so the list matches the count (review 26 Nov 2026)
     preset.startsWith("wl:") -> Filt(name = "Watchlist", syms = preset.removePrefix("wl:").split(",").filter { it.isNotBlank() }.ifEmpty { listOf("-") }, showRemoved = true)
     preset.startsWith("syms:") -> preset.removePrefix("syms:").let { s ->  // "syms:Title|A,B" or "syms:A,B"
@@ -306,6 +309,19 @@ fun StockRow(st: AppState, p: P, note: String? = null) {
     }
 }
 
+/** The call's tags, the same on every list (feedback #205, #213; owner, 27 Nov 2026): the green seal when Narrativ.ai verified
+ *  it (no mark otherwise), the solid decision tag, and the conviction word for Buys (High green, Medium amber, Low grey). */
+@Composable
+fun androidx.compose.foundation.layout.RowScope.CallTags(p: P) {
+    if (p.verified()) VerifiedSeal(17.dp)
+    if (p.out != null) TierChip("Removed L${p.out.l}", TierC.red, 10.sp) else p.dc?.let { DecisionChip(it, 10.sp) }
+    if (p.out == null && p.dc in setOf("Buy", "Strong Buy")) p.cv?.let { cv ->
+        // owner, 27 Nov 2026: when a long code leaves too little room, the word scrolls right to left instead of being cut
+        Text(cv, fontSize = 10.5.sp, fontFamily = PaperFonts.label, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false,
+            color = when (cv) { "High" -> TierC.darkGreen; "Medium" -> C.amber; else -> C.grey }, modifier = Modifier.weight(1f, false).rowMarquee())
+    }
+}
+
 /** Paper look, one stock in the list (mock-up): code + verdict in its ink and the decision tag; seven dots, setup in capitals,
  *  conviction squares, industry; a 30-day line; price over the day's move with an arrow. Same facts as Classic's row. */
 @Composable
@@ -317,14 +333,7 @@ fun PaperStockRow(st: AppState, p: P, note: String? = null) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                 // the code never shrinks; the setup word gives way first (screenshot 26 Nov: codes were cut to "ARRO…")
                 Text(p.c, fontSize = 15.sp, fontFamily = PaperFonts.headline, fontWeight = FontWeight.Bold, color = C.white, maxLines = 1, softWrap = false)
-                // feedback #205 (owner, 27 Nov 2026): verified = the green seal (no mark otherwise); a solid decision tag; conviction
-                // as a word for Buys; the setup words are no longer on the row
-                if (p.verified()) VerifiedSeal(17.dp)
-                if (p.out != null) TierChip("Removed L${p.out.l}", TierC.red, 10.sp) else p.dc?.let { DecisionChip(it, 10.sp) }
-                if (p.out == null && p.dc in setOf("Buy", "Strong Buy")) p.cv?.let { cv ->
-                    Text(cv, fontSize = 10.5.sp, fontFamily = PaperFonts.label, fontWeight = FontWeight.Bold, maxLines = 1,
-                        color = when (cv) { "High" -> TierC.darkGreen; "Medium" -> C.amber; else -> C.grey })
-                }
+                CallTags(p)
             }
             if (p.out != null) T(p.out.w ?: p.n, 12.sp, TierC.lightRed, maxLines = 1)
             else Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {

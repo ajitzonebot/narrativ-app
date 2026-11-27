@@ -9502,6 +9502,30 @@
 },
 "url": "https://www.bseindia.com/corporates/results.aspx?Code=543241&Company=Veer-Global-Infraconstruction-Ltd&qtr=131.00&RType="
 },
+"VGL.BO": {
+"checked": "2026-11-26",
+"code": "514274",
+"fy": {
+"2026-03-31": {
+"eps": -8.32,
+"pat": 12.45,
+"rev": 62.8
+}
+},
+"q": {
+"2026-06-30": {
+"eps": -1.27,
+"pat": -6.56,
+"rev": 8.26
+},
+"2026-09-30": {
+"eps": 1.32,
+"pat": 6.79,
+"rev": 19.61
+}
+},
+"url": "https://www.bseindia.com/corporates/results.aspx?Code=514274&Company=Varvee-Global-Ltd&qtr=131.00&RType="
+},
 "VIJSOLX.NS": {
 "checked": "2026-11-16",
 "code": "531069",

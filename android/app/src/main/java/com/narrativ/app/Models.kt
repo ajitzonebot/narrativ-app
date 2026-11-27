@@ -326,7 +326,9 @@ import kotlinx.serialization.json.JsonPrimitive
                                        @SerialName("days_ahead_pct") val daysAheadPct: Double? = null, val sharpe: Double? = null,
                                        @SerialName("nifty_sharpe") val niftySharpe: Double? = null,
                                        val curve: List<List<kotlinx.serialization.json.JsonPrimitive>> = emptyList())
-@Serializable data class DoneItem(val s: String? = null, val r: String? = null, val industries: String? = null)
+@Serializable data class DoneItem(val s: String? = null, val r: String? = null, val industries: String? = null,
+                                  /** Verified dated drivers on record for the stock now (feedback #219); null in older files. */
+                                  val dated: Int? = null)
 @Serializable data class DoneRun(val task: String? = null, val start: String = "", val items: List<DoneItem> = emptyList())
 @Serializable data class DoneFile(val since: String? = null, val days: Int = 7, val runs: List<DoneRun> = emptyList())
 @Serializable data class ReplayStat(val n: Int = 0, val months: Int? = null, @SerialName("win_pct") val winPct: Int? = null,
