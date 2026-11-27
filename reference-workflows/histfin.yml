@@ -1,0 +1,54 @@
+# Benchmark history backfill (narrativ/histfin.py): NSE quarterly results filed before the daily store's 16 quarters,
+# read with the declared-period fallback. Research only; nothing the app reads changes. Resumable: each run does up to
+# 100 minutes and commits; the schedule repeats every 2 hours and does nothing once every stock is done.
+name: histfin
+
+on:
+  schedule:
+    - cron: '41 */2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: histfin
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Data files from the data branch (stage 3+; does nothing before)
+        env:
+          GIT_PUSH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 -m narrativ.databranch checkout --force
+      - name: Anything left?
+        id: left
+        run: |
+          n=$(python3 -c "import json,pathlib as P;s=[r['s'] for r in json.loads(P.Path('docs/data/picks.json').read_text())['picks'] if r['s'].endswith('.NS')];f=lambda x:P.Path('data/financials_hist/'+x+'.json');print(sum(1 for x in s if not f(x).exists() or json.loads(f(x).read_text()).get('done')!=1))")
+          echo "n=$n" >> $GITHUB_OUTPUT
+      - uses: actions/setup-python@v5
+        if: steps.left.outputs.n != '0'
+        with:
+          python-version: "3.12"
+          cache: pip
+      - if: steps.left.outputs.n != '0'
+        run: pip install -r requirements.txt
+      - name: Backfill
+        if: steps.left.outputs.n != '0'
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: python -m narrativ.histfin --minutes 100
+      - name: Commit
+        if: steps.left.outputs.n != '0'
+        env:
+          GIT_PUSH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          bash scripts/publish.sh -m "data: history backfill $(TZ=Asia/Kolkata date '+%F %H:%M') IST" -- data/financials_hist

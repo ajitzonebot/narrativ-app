@@ -1,0 +1,103 @@
+# Generated from the private repo by .github/mirror/public_workflows.py: edit it there.
+# Benchmark history backfill (narrativ/histfin.py): NSE quarterly results filed before the daily store's 16 quarters,
+# read with the declared-period fallback. Research only; nothing the app reads changes. Resumable: each run does up to
+# 100 minutes and commits; the schedule repeats every 2 hours and does nothing once every stock is done.
+name: histfin
+
+on:
+  schedule:
+    - cron: '41 */2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: histfin
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Quiet logs (public repo)
+        shell: bash
+        run: |
+          cat > /home/runner/q.sh <<'EOF'
+          bash --noprofile --norc -eo pipefail "$1" >> "$RUNNER_TEMP/narrativ.log" 2>&1 && exit 0
+          echo "Step failed. The full log is saved in the private repo (logs/)."
+          exit 1
+          EOF
+      - uses: actions/checkout@v4
+        with:
+          repository: ajitzonebot/Narrativ
+          token: ${{ secrets.NARRATIV_RW_TOKEN }}
+          persist-credentials: false
+          ref: main
+      - name: Data files from the data branch (stage 3+; does nothing before)
+        env:
+          GIT_PUSH_TOKEN: ${{ secrets.NARRATIV_RW_TOKEN }}
+        run: python3 -m narrativ.databranch checkout --force
+      - name: Anything left?
+        id: left
+        run: |
+          n=$(python3 -c "import json,pathlib as P;s=[r['s'] for r in json.loads(P.Path('docs/data/picks.json').read_text())['picks'] if r['s'].endswith('.NS')];f=lambda x:P.Path('data/financials_hist/'+x+'.json');print(sum(1 for x in s if not f(x).exists() or json.loads(f(x).read_text()).get('done')!=1))")
+          echo "n=$n" >> $GITHUB_OUTPUT
+      - uses: actions/setup-python@v5
+        if: steps.left.outputs.n != '0'
+        with:
+          python-version: "3.12"
+          cache: pip
+      - if: steps.left.outputs.n != '0'
+        run: pip install -r requirements.txt
+      - name: Backfill
+        if: steps.left.outputs.n != '0'
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: python -m narrativ.histfin --minutes 100
+      - name: Commit
+        if: steps.left.outputs.n != '0'
+        env:
+          GIT_PUSH_TOKEN: ${{ secrets.NARRATIV_RW_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          bash scripts/publish.sh -m "data: history backfill $(TZ=Asia/Kolkata date '+%F %H:%M') IST" -- data/financials_hist
+      - name: Save the log in the private repo
+        if: failure()
+        shell: bash
+        env:
+          GIT_PUSH_TOKEN: ${{ secrets.NARRATIV_RW_TOKEN }}
+        run: |
+          set +e
+          [ -d .git ] && [ -f "$RUNNER_TEMP/narrativ.log" ] || exit 0
+          mkdir -p logs
+          cp "$RUNNER_TEMP/narrativ.log" "logs/$GITHUB_WORKFLOW-$(date -u +%Y%m%d-%H%M).log"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add logs && git commit -qm "logs: $GITHUB_WORKFLOW failed" -- logs
+          git stash -u -q
+          auth=()
+          [ -z "$(git config --get-all http.https://github.com/.extraheader)" ] && auth=(-c "http.https://github.com/.extraheader=AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GIT_PUSH_TOKEN" | base64 | tr -d '\n')")
+          ok=0
+          for i in 1 2 3; do git "${auth[@]}" pull -q --rebase origin main && git "${auth[@]}" push -q origin HEAD:main && { ok=1; break; }; sleep 5; done
+          # a branch build (android-test with ref) cannot rebase its own commits onto main: put the log alone on top of main
+          if [ "$ok" = 0 ]; then
+            git rebase --abort 2>/dev/null; f=$(git show --name-only --format= HEAD -- logs | head -1)
+            for i in 1 2 3; do
+              git "${auth[@]}" fetch -q origin main && git checkout -q -f FETCH_HEAD && mkdir -p logs && cp "$RUNNER_TEMP/narrativ.log" "${f:-logs/$GITHUB_WORKFLOW-$(date -u +%Y%m%d-%H%M).log}" &&
+                git add logs && git commit -qm "logs: $GITHUB_WORKFLOW failed" -- logs && git "${auth[@]}" push -q origin HEAD:main && break
+              sleep 5
+            done
+          fi
+          exit 0
+
+env:
+  NARRATIV_REPO: ajitzonebot/Narrativ
+  DATA_STAGE: ${{ vars.DATA_STAGE || '0' }}   # narrativ/databranch.py: 0 main only, 1-2 + data branch, 3+ data branch
+  APP_REF: ${{ vars.APP_REF || 'main' }}      # the branch the app reads (appsync and the Worker follow it)
+
+defaults:
+  run:
+    shell: bash /home/runner/q.sh {0}

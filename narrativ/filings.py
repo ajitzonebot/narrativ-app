@@ -148,9 +148,28 @@ def _num(v: str):
         return None
 
 
-def parse_xbrl(txt: str) -> dict:
-    """Return {"q": {...}, "ytd": {...}, "bs": {...}, "period": (start, end), "ytd_period": (start, end)} or {}."""
+_PERIOD_END = re.compile(r'<[\w-]+:DateOfEndOfReportingPeriod\b[^>]*contextRef="([^"]+)"[^>]*>([^<]+)<')
+
+
+def _declared_contexts(txt: str) -> dict:
+    """Contexts from the filing's own period facts, for NSE's pre-2022 "_WEB" XBRL files: their facts point at OneD /
+    FourD / OneI but the file defines none of them (probe 27 Nov 2026: 56 of 56 sampled 2017-2021 files). The periods
+    come from DateOfStartOfReportingPeriod / DateOfEndOfReportingPeriod facts in the same file; OneI = OneD's end."""
+    st = {c: _iso(v) for c, v in _PERIOD_START.findall(txt)}
+    en = {c: _iso(v) for c, v in _PERIOD_END.findall(txt)}
+    out = {c: ("D", st[c], en[c]) for c in ("OneD", "FourD") if st.get(c) and en.get(c) and st[c] < en[c]}
+    if "OneD" in out:
+        out["OneI"] = ("I", out["OneD"][2])
+    return out
+
+
+def parse_xbrl(txt: str, declared: bool = False) -> dict:
+    """Return {"q": {...}, "ytd": {...}, "bs": {...}, "period": (start, end), "ytd_period": (start, end)} or {}.
+    `declared`: when the file defines no OneD context, take the periods from its own period facts (_declared_contexts).
+    Off in the daily pipeline; used by the history backfill (narrativ/histfin.py) for the benchmark."""
     ctx, dim = {}, set()
+    if declared and not re.search(r'<xbrli:context id="OneD"', txt):
+        ctx.update(_declared_contexts(txt))
     for cid, body in _CTX.findall(txt):
         if "<xbrldi:explicitMember" in body or "<xbrldi:typedMember" in body:
             dim.add(cid)  # dimensional contexts (segments, line-item breakdowns) are not company totals
