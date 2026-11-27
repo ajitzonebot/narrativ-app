@@ -2,6 +2,8 @@ package com.narrativ.app
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.horizontalScroll
@@ -381,17 +383,26 @@ fun DataPipelineScreen(st: AppState) {
     val hh = hhF?.v; val ii = iiF?.v; val sched = schedF?.v; val runs = runsF?.v
     val scope = rememberCoroutineScope()
     val today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kolkata")).toString()
+    // feedback #208 (owner, 27 Nov 2026): one screen: a status card (state, last and next run, the run chart shrunk into it),
+    // the sources as a 2-column grid of numbers, one tab row for the four lists (one open at a time)
+    var tab by rememberSaveable { mutableStateOf("Problems") }
     AccScreen(st, "Data and pipeline", null, "Data") {
         val h = hh?.first
         val next = nextDailyRun()
+        val nProb = h?.problems?.size ?: 0
         item {
-            Card(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth(), pad = 16.dp) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        T("Last run", LABEL, C.dim)
-                        if (hhF == null) Skel(130.dp, 22.dp, Modifier.padding(top = 2.dp))
-                        else T(if (h != null) "${istTime(h.finished)} IST" else "Data of ${shortDate(st.picks?.date)}", 20.sp, weight = FontWeight.Bold, maxLines = 1)
-                    }
+            Card(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth(), pad = 14.dp) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    StatusDot(if (h == null) C.grey else if (nProb > 0) C.amber else TierC.lightGreen, size = 9.dp)
+                    if (hhF == null) Skel(130.dp, 22.dp, Modifier.weight(1f))
+                    else T(if (h == null) "Data of ${shortDate(st.picks?.date)}" else if (nProb == 0) "No problems" else "$nProb problem${if (nProb > 1) "s" else ""}",
+                        18.sp, weight = FontWeight.Bold, maxLines = 1, modifier = Modifier.weight(1f))
+                    runs?.takeIf { it.size >= 2 }?.let { MiniRuns(it.reversed().takeLast(30), 120.dp, 22.dp) }
+                }
+                T(listOfNotNull(h?.let { "Last run ${istTime(it.finished)} IST" }, h?.minutes?.let { "${fmt(it, 1)} min" },
+                    "next daily run ${next.removePrefix("today ")}").joinToString(" · "),
+                    12.5.sp, C.dim, lineHeight = 17.sp, modifier = Modifier.padding(top = 4.dp))
+                Row(Modifier.padding(top = 10.dp)) {
                     HeaderPill(Icons.Rounded.Refresh, "Check for data") {
                         scope.launch {
                             val before = st.picks?.updated
@@ -401,75 +412,55 @@ fun DataPipelineScreen(st: AppState) {
                         }
                     }
                 }
-                Row(Modifier.padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Cell("Duration", h?.minutes?.let { "${fmt(it, 1)} min" } ?: "–", Modifier.weight(1f))
-                    Column(Modifier.weight(1f).clip(rr(12.dp)).background(C.sheet).padding(horizontal = 12.dp, vertical = 10.dp)) {
-                        T("Problems", 11.sp, C.dim)
-                        val n = h?.problems?.size ?: 0
-                        Box(Modifier.padding(top = 2.dp).defaultMinSize(minWidth = 24.dp, minHeight = 24.dp).clip(CircleShape).background((if (n > 0) C.amber else TierC.darkGreen).copy(alpha = 0.22f)),
-                            contentAlignment = Alignment.Center) { T(if (h == null) "–" else "$n", 14.sp, if (n > 0) C.amber else TierC.lightGreen, FontWeight.Bold) }
+            }
+        }
+        item { SecHead("Sources", "coverage of the universe") }
+        item {
+            val rows = if (hh == null) emptyList() else sourceRows(hh.first, hh.second)
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (hhF == null) SkelLines(4)
+                else if (rows.isEmpty()) T("Source coverage appears after the next daily run.", 13.sp, C.dim)
+                rows.chunked(2).forEach { pair ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        pair.forEach { r ->
+                            Column(Modifier.weight(1f).clip(rr(6.dp)).background(C.card).border(1.dp, C.line, rr(6.dp)).padding(horizontal = 10.dp, vertical = 7.dp)) {
+                                T(r.name, 12.sp, C.dim, maxLines = 1)
+                                Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    if (r.pct != null) T("${fmt(r.pct * 100, 1)}%", 17.sp, coverageColor(r.pct), FontWeight.Bold, maxLines = 1)
+                                    else T("✓", 17.sp, TierC.lightGreen, FontWeight.Bold, maxLines = 1)
+                                    T(r.figure, 11.sp, C.dim, maxLines = 1, modifier = Modifier.padding(bottom = 2.dp))
+                                }
+                            }
+                        }
+                        if (pair.size == 1) Spacer(Modifier.weight(1f))
                     }
-                    Cell(if (next.startsWith("today")) "Next daily run" else "Next · ${next.substringBefore(" 17:10")}", "17:10", Modifier.weight(1f))
-                }
-                val rs = runs.orEmpty().reversed()
-                if (rs.size >= 2) {
-                    Row(Modifier.padding(top = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                        T("Minutes per run, last ${rs.size}", 12.sp, C.dim, modifier = Modifier.weight(1f))
-                        StatusDot(C.amber, size = 8.dp); T("  2+ problems", 12.sp, C.dim)
-                    }
-                    val mins = rs.map { it.minutes ?: 0.0 }
-                    Bars(mins, Modifier.padding(top = 6.dp).fillMaxWidth().height(92.dp),
-                        labels = rs.mapIndexed { i, r -> if (i == 0) shortDate(r.date) else if (i == rs.lastIndex) "latest" else "" },
-                        valueFmt = { x -> if (x == mins.last()) fmt(x, 1) else "" },
-                        colors = rs.map { if (it.problems >= 2) C.amber else C.grey }, highlightLast = true, base = 0.0)
                 }
             }
         }
         val s = sched
         item {
-            CollapseCard("Today's schedule", if (s == null) "" else "${s.jobs.size} jobs · next 17:10") {
-                if (schedF == null) SkelLines(4)
-                else if (s == null) T("The schedule appears after the next daily run.", 13.sp, C.dim) else {
-                    s.note?.let { T(it, 11.sp, C.dim, lineHeight = 15.sp, modifier = Modifier.padding(bottom = 6.dp)) }
-                    val reviewsToday = st.research.values.count { it.updated == today }
-                    s.jobs.forEach { j ->
-                        val status = when {
-                            j.name.startsWith("Daily run") && st.picks?.date == today -> "done" to TierC.lightGreen
-                            (j.by == "Claude" || j.by == "Narrativ.ai") && j.name.startsWith("Research") && reviewsToday > 0 -> "$reviewsToday stocks" to TierC.lightGreen
-                            else -> null
-                        }
-                        Row(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
-                            Column(Modifier.width(118.dp)) { T(j.time, 12.sp, weight = FontWeight.SemiBold); T(j.days, 11.sp, C.dim) }
-                            T(j.name, 12.sp, modifier = Modifier.weight(1f).padding(horizontal = 6.dp), lineHeight = 15.sp)
-                            if (status != null) T(status.first, 11.sp, status.second, FontWeight.SemiBold) else T(if (j.by == "Claude") "Narrativ.ai" else j.by, 11.sp, C.dim)
-                        }
+            Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth().clip(rr(6.dp)).border(1.dp, C.line, rr(6.dp))) {
+                listOf("Problems" to (h?.let { "$nProb" } ?: ""), "Schedule" to (s?.let { "${it.jobs.size}" } ?: ""), "Runs" to (runs?.let { "${it.size}" } ?: ""),
+                    "Details" to "").forEach { (k, n) ->
+                    val on = tab == k
+                    Box(Modifier.weight(1f).background(if (on) C.white else Color.Transparent).clickable { tab = k }.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                        T(if (n.isEmpty()) k else "$k $n", 12.sp, if (on) C.bg else C.dim, FontWeight.SemiBold, maxLines = 1)
                     }
                 }
             }
         }
-        item { SecHead("Sources", "coverage of the universe") }
         item {
-            Card(Modifier.padding(horizontal = 16.dp, vertical = 4.dp).fillMaxWidth(), pad = 0.dp) {
-                val rows = if (hh == null) emptyList() else sourceRows(hh.first, hh.second)
-                if (hhF == null) Box(Modifier.padding(14.dp)) { SkelLines(5) }
-                else if (rows.isEmpty()) Box(Modifier.padding(14.dp)) { T("Source coverage appears after the next daily run.", 13.sp, C.dim) }
-                rows.forEachIndexed { i, r ->
-                    Row(Modifier.fillMaxWidth().defaultMinSize(minHeight = 44.dp).padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                        T(r.name, 14.sp, maxLines = 1, modifier = Modifier.width(112.dp))
-                        if (r.pct != null) ProgBar(r.pct.toFloat(), coverageColor(r.pct), Modifier.weight(1f))
-                        else ProgBar(1f, TierC.darkGreen.copy(alpha = 0.5f), Modifier.weight(1f), track = TierC.darkGreen.copy(alpha = 0.2f))
-                        T(r.figure, 11.sp, C.dim, maxLines = 1, align = TextAlign.End, modifier = Modifier.width(88.dp).padding(start = 8.dp))
-                        Box(Modifier.width(46.dp), contentAlignment = Alignment.CenterEnd) {
-                            if (r.pct != null) T("${fmt(r.pct * 100, 1)}%", 12.sp, coverageColor(r.pct), FontWeight.Bold, maxLines = 1) else StatusDot(TierC.lightGreen)
-                        }
-                    }
-                    if (i < rows.lastIndex) HLineDivider(Modifier.padding(horizontal = 14.dp))
+            Card(Modifier.padding(horizontal = 16.dp, vertical = 4.dp).fillMaxWidth(), pad = 14.dp) {
+              when (tab) {
+              "Problems" -> {
+                if (hhF == null) SkelLines(3)
+                else if (h != null) {
+                    T(if (h.problems.isEmpty()) "No problems in the last run" else "Lines flagged in the last run", LABEL, C.dim, FontWeight.SemiBold)
+                    h.problems.take(40).forEach { T(it, 12.sp, C.amber, lineHeight = 16.sp, modifier = Modifier.padding(vertical = 3.dp)) }
                 }
-            }
-        }
-        item {
-            val iss = ii
-            CollapseCard("Data issues", if (iss == null) "" else "${iss.first.open} open · ${iss.second.corrected} corrected") {
+                val iss = ii
+                T("Data issues", LABEL, C.dim, FontWeight.SemiBold,
+                    Modifier.padding(top = 12.dp))
                 if (iiF == null) SkelLines(3)
                 else if (iss == null || iss.first.issues.isEmpty()) T("No data issue logged yet. Audits add them as they find wrong numbers.", 13.sp, C.dim)
                 else {
@@ -487,10 +478,27 @@ fun DataPipelineScreen(st: AppState) {
                         }
                     }
                 }
-            }
-        }
-        item {
-            CollapseCard("Last runs", if (runsF == null) "" else "${runs?.size ?: 0} runs") {
+              }
+              "Schedule" -> {
+                if (schedF == null) SkelLines(4)
+                else if (s == null) T("The schedule appears after the next daily run.", 13.sp, C.dim) else {
+                    s.note?.let { T(it, 11.sp, C.dim, lineHeight = 15.sp, modifier = Modifier.padding(bottom = 6.dp)) }
+                    val reviewsToday = st.research.values.count { it.updated == today }
+                    s.jobs.forEach { j ->
+                        val status = when {
+                            j.name.startsWith("Daily run") && st.picks?.date == today -> "done" to TierC.lightGreen
+                            (j.by == "Claude" || j.by == "Narrativ.ai") && j.name.startsWith("Research") && reviewsToday > 0 -> "$reviewsToday stocks" to TierC.lightGreen
+                            else -> null
+                        }
+                        Row(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
+                            Column(Modifier.width(118.dp)) { T(j.time, 12.sp, weight = FontWeight.SemiBold); T(j.days, 11.sp, C.dim) }
+                            T(j.name, 12.sp, modifier = Modifier.weight(1f).padding(horizontal = 6.dp), lineHeight = 15.sp)
+                            if (status != null) T(status.first, 11.sp, status.second, FontWeight.SemiBold) else T(if (j.by == "Claude") "Narrativ.ai" else j.by, 11.sp, C.dim)
+                        }
+                    }
+                }
+              }
+              "Runs" -> {
                 val rs = runs
                 if (runsF == null) SkelLines(4)
                 else if (rs.isNullOrEmpty()) T("Run history appears after the next daily run.", 13.sp, C.dim)
@@ -501,12 +509,11 @@ fun DataPipelineScreen(st: AppState) {
                         T(if (x.problems == 0) "OK" else "${x.problems} problem${if (x.problems > 1) "s" else ""}", 13.sp, if (x.problems == 0) TierC.lightGreen else C.amber)
                     }
                 }
-            }
-        }
-        item {
-            CollapseCard("Details", "Stages · log · coverage") {
-                if (hhF == null) { SkelLines(4); return@CollapseCard }
-                if (h == null) { T("Pipeline health appears after the next daily run.", 13.sp, C.dim); return@CollapseCard }
+              }
+              else -> {
+                if (hhF == null) SkelLines(4)
+                else if (h == null) T("Pipeline health appears after the next daily run.", 13.sp, C.dim)
+                else {
                 T("Stages · minutes in the last run", LABEL, C.dim, FontWeight.SemiBold)
                 val total = h.stages.sumOf { it.getOrNull(1)?.content?.toDoubleOrNull() ?: 0.0 }.coerceAtLeast(1.0)
                 h.stages.forEach { sg0 ->
@@ -516,8 +523,6 @@ fun DataPipelineScreen(st: AppState) {
                         ProgBar((sec / total).toFloat(), C.grey, Modifier.padding(top = 3.dp).fillMaxWidth(), height = 4.dp)
                     }
                 }
-                T("Log · ${if (h.problems.isEmpty()) "no problems in the last run" else "lines flagged in the last run"}", LABEL, C.dim, FontWeight.SemiBold, Modifier.padding(top = 12.dp))
-                h.problems.take(40).forEach { T(it, 12.sp, C.amber, lineHeight = 16.sp, modifier = Modifier.padding(vertical = 3.dp)) }
                 T("Stores after the last run", LABEL, C.dim, FontWeight.SemiBold, Modifier.padding(top = 12.dp))
                 h.sources.forEach { (k, m) ->
                     Column(Modifier.padding(vertical = 4.dp)) {
@@ -556,6 +561,9 @@ fun DataPipelineScreen(st: AppState) {
                         }
                     }
                 }
+                }
+              }
+              }
             }
         }
     }

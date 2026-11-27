@@ -83,8 +83,9 @@ fun setupLabel(su: String?): String = setupName(su)
 /** Verified by Claude: the verification of the rating passed. */
 fun P.verified(): Boolean = vf == "pass"
 
-/** Researched by Claude: in research.json, or carries a verification state. */
-fun AppState.researched(p: P): Boolean = p.s in research || p.vf != null
+/** Researched by Claude: in research.json, or carries a review verdict. "pending" alone is not research: every scored stock
+ *  without a review carries it (557 of 789 "Researched" stocks on 27 Nov 2026 had no research). */
+fun AppState.researched(p: P): Boolean = p.s in research || p.vf in setOf("pass", "caution", "fail")
 
 fun isBuy(p: P) = p.dc == "Buy" || p.dc == "Strong Buy"
 

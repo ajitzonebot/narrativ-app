@@ -5,6 +5,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.layout.layout
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -106,3 +108,40 @@ fun PrimaryButton(text: String, modifier: Modifier = Modifier, enabled: Boolean 
 /** Section title inside a card / screen section (15, semibold, sentence case); screen titles stay 21. */
 val SECTION_TITLE = 15.sp
 val LABEL = 12.sp
+
+/** The verified mark (owner, 27 Nov 2026, #199 #205): a solid green zig-zag seal (12 points) with a white tick. Same
+ *  shape on the stock page header and the Stocks rows; shown only when Narrativ.ai verified the call. */
+@Composable
+fun VerifiedSeal(size: androidx.compose.ui.unit.Dp, modifier: Modifier = Modifier) {
+    val green = TierC.darkGreen
+    androidx.compose.foundation.Canvas(modifier.size(size)) {
+        val k = this.size.minDimension / 26f
+        val seal = androidx.compose.ui.graphics.Path()
+        for (i in 0 until 24) {
+            val r = (if (i % 2 == 0) 12.4f else 10.9f) * k
+            val a = Math.PI * i / 12 - Math.PI / 2
+            val x = 13f * k + r * kotlin.math.cos(a).toFloat(); val y = 13f * k + r * kotlin.math.sin(a).toFloat()
+            if (i == 0) seal.moveTo(x, y) else seal.lineTo(x, y)
+        }
+        seal.close()
+        drawPath(seal, green)
+        drawPath(seal, green, style = androidx.compose.ui.graphics.drawscope.Stroke(1.2f * k, join = androidx.compose.ui.graphics.StrokeJoin.Round))
+        val tick = androidx.compose.ui.graphics.Path().apply { moveTo(8f * k, 13.4f * k); lineTo(11.3f * k, 16.6f * k); lineTo(17.9f * k, 9.6f * k) }
+        drawPath(tick, Color.White, style = androidx.compose.ui.graphics.drawscope.Stroke(2.6f * k, cap = androidx.compose.ui.graphics.StrokeCap.Round,
+            join = androidx.compose.ui.graphics.StrokeJoin.Round))
+    }
+}
+
+/** Cap height over em (from the font files): Playfair Display Black 708, Archivo 686. */
+const val CAP_PLAYFAIR = 0.708f
+const val CAP_ARCHIVO = 0.686f
+
+/** Lays a one-line Text out as exactly its capital letters, top of the caps to the baseline (CSS text-box: cap
+ *  alphabetic), so a word and the lines beside it can share the same top and bottom edge. Ink is not clipped. */
+fun Modifier.capBand(capRatio: Float, fontSize: androidx.compose.ui.unit.TextUnit) = this.then(
+    androidx.compose.ui.Modifier.layout { m, c ->
+        val p = m.measure(c.copy(minHeight = 0, maxHeight = androidx.compose.ui.unit.Constraints.Infinity))
+        val base = p[androidx.compose.ui.layout.FirstBaseline]
+        val cap = kotlin.math.round(capRatio * fontSize.toPx()).toInt()
+        layout(p.width, cap) { p.place(0, cap - base) }
+    })

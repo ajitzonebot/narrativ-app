@@ -56,15 +56,17 @@ data class Filt(
     val industryExact: Boolean = false,
     /** 50-day vs 200-day average (feedback #170): one of [CROSSES]. */
     val cross: String = "Any",
+    /** Conviction of Buys (feedback #205): Any / High / Medium / Low; anything but Any keeps Buys only. */
+    val cv: String = "Any",
 ) {
     /** How many filters beyond the category are set (shown on the Filters button). */
     fun active(): Int = minTier.count { it != 0 } + (if (disc.isNotEmpty()) 1 else 0) + (if (setup != "Any") 1 else 0) + (if (mcap != "Any") 1 else 0) +
         (if (industry.isNotBlank()) 1 else 0) + (if (includeGrey) 1 else 0) + (if (showRemoved) 1 else 0) + (if (turnaround) 1 else 0) +
-        (if (cross != "Any") 1 else 0)
+        (if (cross != "Any") 1 else 0) + (if (cv != "Any") 1 else 0)
 
     /** Same filter as [o] apart from name, sort, search text and the chips outside the sheet (preset highlight). */
-    fun sameAs(o: Filt): Boolean = copy(name = "", sort = "Score", q = "", research = "Any", dc = null, syms = emptyList()) ==
-        o.copy(name = "", sort = "Score", q = "", research = "Any", dc = null, syms = emptyList())
+    fun sameAs(o: Filt): Boolean = copy(name = "", sort = "Score", q = "", research = "Any", dc = null, syms = emptyList(), cv = "Any") ==
+        o.copy(name = "", sort = "Score", q = "", research = "Any", dc = null, syms = emptyList(), cv = "Any")
 }
 
 val PRESETS = listOf(
@@ -95,7 +97,7 @@ fun crossNote(p: P, c: String): String? {
 }
 
 /** [researched] tells whether Claude has research on a stock (AppState.researched); only the "Researched" filter uses it. */
-fun Filt.match(p: P, researched: (P) -> Boolean = { it.vf != null }): Boolean {
+fun Filt.match(p: P, researched: (P) -> Boolean = { it.vf in setOf("pass", "caution", "fail") }): Boolean {
     if (p.out != null && !showRemoved) return false
     if (q.isNotBlank() && !"${p.c} ${p.n} ${p.i ?: ""}".contains(q.trim(), true)) return false
     if (research == "Verified" && !p.verified()) return false
@@ -113,6 +115,7 @@ fun Filt.match(p: P, researched: (P) -> Boolean = { it.vf != null }): Boolean {
     if (disc.isNotEmpty() && p.tier(5) !in disc) return false
     if (setup != "Any" && p.su != setup) return false
     if (!crossMatch(p, cross)) return false
+    if (cv != "Any" && (p.dc !in setOf("Buy", "Strong Buy") || p.cv != cv)) return false
     val mc = p.mc
     if (mcap != "Any") {
         if (mc == null) return false
@@ -176,6 +179,7 @@ fun ScreenerScreen(st: AppState, preset: String?) {
         DECISION_ORDER.associateWith { d -> (if (d.endsWith("Sell")) withRemoved else base).count { (it.dc ?: "Not rated") == d } }
     }
     val nVerList = remember(f, pf, st.research) { pf.picks.count { it.verified() && f.copy(research = "Any").match(it, researched) } }
+    val nHighBuy = remember(f, pf, st.research) { pf.picks.count { f.copy(cv = "High").match(it, researched) } }
     val nLive = remember(pf) { pf.picks.count { it.out == null } }
     LazyColumn(Modifier.fillMaxSize().pageBackground(), contentPadding = PaddingValues(bottom = 110.dp)) {
         item { TopBar(st, "Stocks", back = st.stack.size > 1, big = st.stack.size == 1) }
@@ -194,6 +198,10 @@ fun ScreenerScreen(st: AppState, preset: String?) {
                 verticalAlignment = Alignment.CenterVertically) {
                 val on = f.research == "Verified"
                 ToggleChip("Verified only", on, { f = f.copy(research = if (on) "Any" else "Verified"); limit = 60 }, count = nVerList, accent = TierC.lightGreen, icon = Icons.Rounded.Check)
+                // feedback #205 (owner, 27 Nov 2026): one tap for Buys with High conviction
+                val hc = f.cv == "High"
+                if (nHighBuy > 0 || hc) ToggleChip("High conviction Buy", hc, { f = f.copy(cv = if (hc) "Any" else "High"); limit = 60 }, count = nHighBuy,
+                    accent = TierC.darkGreen, solidOn = true)
                 Box(Modifier.padding(horizontal = 2.dp).size(1.dp, 22.dp).background(C.line))
                 DECISION_ORDER.filter { (dec[it] ?: 0) > 0 || f.dc == it }.forEach { d ->
                     ToggleChip(d, f.dc == d, { f = f.copy(dc = if (f.dc == d) null else d, showRemoved = if (f.dc == d) (if (d.endsWith("Sell")) false else f.showRemoved) else d.endsWith("Sell") || f.showRemoved); limit = 60 },
@@ -309,12 +317,14 @@ fun PaperStockRow(st: AppState, p: P, note: String? = null) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                 // the code never shrinks; the setup word gives way first (screenshot 26 Nov: codes were cut to "ARRO…")
                 Text(p.c, fontSize = 15.sp, fontFamily = PaperFonts.headline, fontWeight = FontWeight.Bold, color = C.white, maxLines = 1, softWrap = false)
-                StockTick(st, p)
+                // feedback #205 (owner, 27 Nov 2026): verified = the green seal (no mark otherwise); a solid decision tag; conviction
+                // as a word for Buys; the setup words are no longer on the row
+                if (p.verified()) VerifiedSeal(17.dp)
                 if (p.out != null) TierChip("Removed L${p.out.l}", TierC.red, 10.sp) else p.dc?.let { DecisionChip(it, 10.sp) }
-                if (p.out == null) PaperLabel(setupName(p.su, p.tb == 1), if (p.tb == 1) TierC.lightRed else C.grey, 8.5.sp, bold = false, modifier = Modifier.weight(1f, false))
-                p.cv?.let { cv -> Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                    (1..3).forEach { k -> Box(Modifier.size(6.dp).background(if (k <= (if (cv == "High") 3 else if (cv == "Medium") 2 else 1)) C.white else C.line)) }
-                } }
+                if (p.out == null && p.dc in setOf("Buy", "Strong Buy")) p.cv?.let { cv ->
+                    Text(cv, fontSize = 10.5.sp, fontFamily = PaperFonts.label, fontWeight = FontWeight.Bold, maxLines = 1,
+                        color = when (cv) { "High" -> TierC.darkGreen; "Medium" -> C.amber; else -> C.grey })
+                }
             }
             if (p.out != null) T(p.out.w ?: p.n, 12.sp, TierC.lightRed, maxLines = 1)
             else Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -401,6 +411,11 @@ fun FilterSheet(st: AppState, start: Filt, saved: List<Filt>, onDismiss: () -> U
         val nCross = remember(d, pf, st.research) { CROSSES.associateWith { c -> pf.picks.count { d.copy(cross = c).match(it) { p -> st.researched(p) } } } }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             CROSSES.forEach { c -> ToggleChip(c, d.cross == c, { d = d.copy(cross = c) }, count = if (c == "Any") null else nCross[c]) }
+        }
+        Label("Conviction (Buys only)")
+        val nCv = remember(d, pf, st.research) { listOf("High", "Medium", "Low").associateWith { c -> pf.picks.count { d.copy(cv = c).match(it) { p -> st.researched(p) } } } }
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf("Any", "High", "Medium", "Low").forEach { c -> ToggleChip(c, d.cv == c, { d = d.copy(cv = c) }, count = nCv[c]) }
         }
         Label("Market cap")
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {

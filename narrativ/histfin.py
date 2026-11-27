@@ -89,10 +89,16 @@ def merged(sym: str) -> dict:
     return {**hist, **live, "quarters": dict(sorted(q.items(), reverse=True))}
 
 
+def _done(rec: dict) -> bool:
+    """Closed for this version. A "no NSE filings" record without a try count came from the first run (27 Nov 2026), which
+    took an empty listing as final while NSE was refusing requests (65 of 68, e.g. ACE, ALEMBICLTD): read again."""
+    return rec.get("done") == VERSION and (rec.get("status") != "no NSE filings" or "tries" in rec)
+
+
 def run(symbols: list[str], minutes: float) -> dict:
     DIR.mkdir(parents=True, exist_ok=True)
     ns, t0, n = F.NSESession(), time.time(), 0
-    todo = [s for s in symbols if load(s).get("done") != VERSION]
+    todo = [s for s in symbols if not _done(load(s))]
     empty = 0
     for s in todo:
         if time.time() - t0 > minutes * 60:

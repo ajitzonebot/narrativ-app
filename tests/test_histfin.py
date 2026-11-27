@@ -42,3 +42,11 @@ def test_old_quarters_skipped(monkeypatch, tmp_path):
     _patch(monkeypatch, tmp_path, rows, live={"basis": "Standalone", "quarters": {}})
     rec = H.backfill("ABC.NS", _NS(text=None))
     assert rec["done"] == H.VERSION and rec["quarters"] == {}
+
+
+def test_first_run_empty_listing_is_read_again():
+    from narrativ import histfin as H
+    assert not H._done({"done": H.VERSION, "status": "no NSE filings"})  # first run: no try count
+    assert H._done({"done": H.VERSION, "status": "no NSE filings", "tries": 3})
+    assert H._done({"done": H.VERSION, "status": "ok"})
+    assert not H._done({"status": "listing empty (retry)", "tries": 1, "done": None})

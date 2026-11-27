@@ -143,8 +143,13 @@ fun CheckRow(status: String, name: String, figure: String, passLine: String? = n
     }
 }
 
+/** True inside a BottomSheet: pop-ups have no divider lines (owner, 27 Nov 2026, feedback #195 #201 #203). */
+val LocalInSheet = androidx.compose.runtime.staticCompositionLocalOf { false }
+
 @Composable
-fun HLineDivider(modifier: Modifier = Modifier) = if (Look.paper) {
+fun HLineDivider(modifier: Modifier = Modifier) = if (LocalInSheet.current) {
+    Box(modifier.fillMaxWidth().height(1.dp))
+} else if (Look.paper) {
     val c = C.dim
     Box(modifier.fillMaxWidth().height(1.dp).drawBehind {
         drawLine(c, androidx.compose.ui.geometry.Offset(0f, 0.5f), androidx.compose.ui.geometry.Offset(size.width, 0.5f), 1.dp.toPx(),
@@ -292,19 +297,21 @@ fun SegmentedControl(options: List<String>, selected: Int, onSelect: (Int) -> Un
  */
 @Composable
 fun ToggleChip(label: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier, count: Int? = null,
-               dot: Color? = null, accent: Color? = null, icon: ImageVector? = null) {
+               dot: Color? = null, accent: Color? = null, icon: ImageVector? = null, solidOn: Boolean = false) {
     val bg = when { !selected -> C.chip; accent != null -> accent.copy(alpha = 0.15f); else -> C.teal }
     val p = Look.paper
-    Row(modifier.clip(rr(16.dp)).then(if (p) Modifier.border(1.dp, if (selected) (accent ?: C.teal) else C.line) else Modifier.background(bg))
+    // solidOn (Paper): when on, filled in the accent with white letters (the High conviction Buy chip, #205)
+    val solid = p && solidOn && selected && accent != null
+    Row(modifier.clip(rr(16.dp)).then(if (solid) Modifier.background(accent!!) else if (p) Modifier.border(1.dp, if (selected) (accent ?: C.teal) else C.line) else Modifier.background(bg))
         .then(if (selected && accent != null && !p) Modifier.border(1.dp, accent, rr(16.dp)) else Modifier)
         .clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         val onFill = selected && accent == null && !Look.paper  // solid blue fill (Classic): white text
         icon?.let { Icon(it, null, tint = accent ?: if (onFill) C.onAccent else C.white, modifier = Modifier.size(14.dp)) }
         dot?.let { Box(Modifier.size(8.dp).clip(CircleShape).background(it)) }
-        if (Look.paper) PaperLabel(label, if (selected) (accent ?: C.teal) else C.white, 11.sp, bold = selected)
+        if (Look.paper) PaperLabel(label, if (solid) Color.White else if (selected) (accent ?: C.teal) else C.white, 11.sp, bold = selected)
         else T(label, 13.sp, if (onFill) C.onAccent else if (selected) C.white else C.muted, maxLines = 1)
-        count?.let { T("$it", 12.sp, if (onFill) C.onAccent.copy(alpha = 0.8f) else if (selected) C.hi.copy(alpha = 0.8f) else C.dim, maxLines = 1) }
+        count?.let { T("$it", 12.sp, if (solid) Color.White else if (onFill) C.onAccent.copy(alpha = 0.8f) else if (selected) C.hi.copy(alpha = 0.8f) else C.dim, maxLines = 1) }
     }
 }
 
@@ -328,7 +335,7 @@ fun BottomSheet(onDismiss: () -> Unit, title: String? = null, aside: String? = n
                 if (feedback) AppRef.st?.let { st -> FeedbackButton(st, "${st.screenContext} · $title") }
                 Icon(Icons.Rounded.Close, "Close", tint = C.dim, modifier = Modifier.clip(CircleShape).clickable(onClick = onDismiss).padding(2.dp).size(22.dp))
             }
-            content()
+            androidx.compose.runtime.CompositionLocalProvider(LocalInSheet provides true) { content() }
         }
     }
 }

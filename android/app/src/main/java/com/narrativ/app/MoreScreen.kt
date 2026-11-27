@@ -84,6 +84,49 @@ fun SettingsScreen(st: AppState) {
                 SetRow(Icons.Rounded.QueryStats, "Track record", if (buys > 0) "$buys Buys · vs Nifty" else "Every Buy vs Nifty", { st.go(Screen.TrackRecord) },
                     if (calls == null) null else vsNifty(avgVs), plColor(avgVs), figureLoading = callsF == null)
                 HLineDivider(Modifier.padding(horizontal = 14.dp))
+                // feedback #207 (owner, 27 Nov 2026): the queue is opened often, so it sits in Settings; the rest goes to Advanced
+                val done by produceState(st.repo.peek<DoneFile>("data/research_done.json")) { st.repo.cacheFirst<DoneFile>("data/research_done.json") { value = it } }
+                val nDone = done?.runs.orEmpty().sumOf { r -> r.items.size }
+                SetRow(Icons.Rounded.Science, "Research queue", "${st.queue?.items?.size ?: 0} waiting" + (done?.let { " · $nDone done in ${it.days} days" } ?: ""),
+                    { st.go(Screen.Queue) })
+            }
+        }
+        item {
+            Card(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth(), pad = 0.dp) {
+                SetRow(Icons.Rounded.Tune, "Advanced", "Data, checkpoints, IPO, look, feedback, access key", { st.go(Screen.Advanced) })
+            }
+        }
+    }
+}
+
+/** Settings > Advanced: the operational screens, each row with a status dot and a small picture of its state. */
+@Composable
+fun AdvancedScreen(st: AppState) {
+    val ctx = LocalContext.current
+    val runs by produceState(st.repo.peek<List<RunRec>>("data/runs.json")) { st.repo.cacheFirst<List<RunRec>>("data/runs.json") { value = it } }
+    val q = st.queue
+    val today = remember { java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kolkata")) }
+    val cps = st.memory?.stocks.orEmpty().flatMap { it.checkpoints }
+    val ndue = cps.count { it.status == "due" }
+    val n45 = cps.count { it.status == "open" && it.due in today.toString()..today.plusDays(45).toString() }
+    val last = runs?.firstOrNull()
+    AccScreen(st, "Advanced", context = "Advanced") {
+        item {
+            Card(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth(), pad = 0.dp) {
+                AdvRow(Icons.Rounded.MonitorHeart, "Data and pipeline", { st.go(Screen.Pipeline) },
+                    dot = if ((last?.problems ?: 0) > 0) C.amber else TierC.lightGreen,
+                    sub = if (last == null) "Last run" else "${shortDate(last.date)} · ${fmt(last.minutes, 1)} min",
+                    visual = { runs?.takeIf { it.size >= 2 }?.let { MiniRuns(it.reversed().takeLast(11)) } },
+                    badge = last?.problems?.takeIf { it > 0 })
+                HLineDivider(Modifier.padding(horizontal = 14.dp))
+                AdvRow(Icons.Rounded.CalendarMonth, "Checkpoint calendar", { st.go(Screen.Calendar) }, if (ndue > 0) C.amber else null, "$ndue due · $n45 in 45 days", visual = {
+                    if (ndue + n45 > 0) SegmentedBar(listOf(Segment(ndue.toDouble(), TierC.yellow), Segment(n45.toDouble(), C.grey)), Modifier.width(56.dp), height = 8.dp, legend = SegLegend.None)
+                })
+            }
+        }
+        item {
+            // moved from Settings (feedback #207)
+            Card(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth(), pad = 0.dp) {
                 // a switch, not a click-through (the old "Alerts" page described push alerts that were never set up: removed)
                 SetRow(Icons.Rounded.NotificationsNone, "IPO alerts", "09:15 each open day · 15:45 on the last day", { st.toggleIpoAlerts() }, trailing = {
                     androidx.compose.material3.Switch(checked = st.ipoAlerts, onCheckedChange = { st.toggleIpoAlerts() },
@@ -101,50 +144,6 @@ fun SettingsScreen(st: AppState) {
                 SetRow(Icons.Rounded.Key, "Access key", "Saved on this phone", { KeyGate.editing = true }, trailing = {
                     T("Change", 14.sp, C.blue, FontWeight.SemiBold)
                 })
-            }
-        }
-        item {
-            Card(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth(), pad = 0.dp) {
-                SetRow(Icons.Rounded.Tune, "Advanced", "Data, queue, checkpoints", { st.go(Screen.Advanced) })
-            }
-        }
-        item {
-            T("Screening tool, not investment advice. Every number is computed by formula from a named source or quoted verbatim; a dash means it could not be computed.",
-                12.sp, C.dim, lineHeight = 17.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp))
-        }
-    }
-}
-
-/** Settings > Advanced: the operational screens, each row with a status dot and a small picture of its state. */
-@Composable
-fun AdvancedScreen(st: AppState) {
-    val runs by produceState(st.repo.peek<List<RunRec>>("data/runs.json")) { st.repo.cacheFirst<List<RunRec>>("data/runs.json") { value = it } }
-    val q = st.queue
-    val today = remember { java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kolkata")) }
-    val cps = st.memory?.stocks.orEmpty().flatMap { it.checkpoints }
-    val ndue = cps.count { it.status == "due" }
-    val n45 = cps.count { it.status == "open" && it.due in today.toString()..today.plusDays(45).toString() }
-    val last = runs?.firstOrNull()
-    AccScreen(st, "Advanced", context = "Advanced") {
-        item {
-            Card(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth(), pad = 0.dp) {
-                AdvRow(Icons.Rounded.MonitorHeart, "Data and pipeline", { st.go(Screen.Pipeline) },
-                    dot = if ((last?.problems ?: 0) > 0) C.amber else TierC.lightGreen,
-                    sub = if (last == null) "Last run" else "${shortDate(last.date)} · ${fmt(last.minutes, 1)} min",
-                    visual = { runs?.takeIf { it.size >= 2 }?.let { MiniRuns(it.reversed().takeLast(11)) } },
-                    badge = last?.problems?.takeIf { it > 0 })
-                HLineDivider(Modifier.padding(horizontal = 14.dp))
-                AdvRow(Icons.Rounded.Science, "Research queue", { st.go(Screen.Queue) }, null, "${q?.items?.size ?: 0} in queue", visual = {
-                    q?.items?.takeIf { it.isNotEmpty() }?.let { items ->
-                        SegmentedBar(items.groupingBy { it.task ?: "scan" }.eachCount().entries.sortedByDescending { it.value }.map { Segment(it.value.toDouble(), queueTaskColor(it.key)) },
-                            Modifier.width(56.dp), height = 8.dp, legend = SegLegend.None)
-                    }
-                })
-                HLineDivider(Modifier.padding(horizontal = 14.dp))
-                AdvRow(Icons.Rounded.CalendarMonth, "Checkpoint calendar", { st.go(Screen.Calendar) }, if (ndue > 0) C.amber else null, "$ndue due · $n45 in 45 days", visual = {
-                    if (ndue + n45 > 0) SegmentedBar(listOf(Segment(ndue.toDouble(), TierC.yellow), Segment(n45.toDouble(), C.grey)), Modifier.width(56.dp), height = 8.dp, legend = SegLegend.None)
-                })
-
             }
         }
     }
@@ -172,8 +171,8 @@ private fun AdvRow(icon: ImageVector, title: String, onClick: () -> Unit, dot: C
 
 /** Minutes per run as 56 dp bars, oldest left; amber = 2 or more problems; the latest run is full strength. */
 @Composable
-private fun MiniRuns(rs: List<RunRec>) {
-    androidx.compose.foundation.Canvas(Modifier.size(56.dp, 22.dp)) {
+internal fun MiniRuns(rs: List<RunRec>, w: androidx.compose.ui.unit.Dp = 56.dp, h: androidx.compose.ui.unit.Dp = 22.dp) {
+    androidx.compose.foundation.Canvas(Modifier.size(w, h)) {
         val mx = rs.maxOf { it.minutes ?: 0.0 }.coerceAtLeast(0.1); val bw = size.width / rs.size
         rs.forEachIndexed { i, r ->
             val h = (((r.minutes ?: 0.0) / mx).toFloat() * size.height).coerceAtLeast(2.dp.toPx())

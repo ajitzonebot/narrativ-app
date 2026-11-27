@@ -313,7 +313,7 @@ private fun PaperChecks(st: AppState, p: P, openTab: (Int) -> Unit) {
 /** The overall score in a ring: a track, an arc from the top clockwise filled to the score in the verdict colour (70+ pass,
  *  45-69 partly, below 45 miss: the conviction bands), the number centred in lining figures. */
 @Composable
-fun ScoreRing(score: Int, size: androidx.compose.ui.unit.Dp = 64.dp, stroke: androidx.compose.ui.unit.Dp = 6.dp) {
+fun ScoreRing(score: Int, size: androidx.compose.ui.unit.Dp = 54.dp, stroke: androidx.compose.ui.unit.Dp = 5.dp) {  // 64 -> 54 (feedback #200)
     val v = score.coerceIn(0, 100)
     val col = fillColor(if (v >= 70) "Pass" else if (v >= 45) "Partly" else "Miss")
     val track = C.line
@@ -434,29 +434,38 @@ private fun PaperDecisionBox(st: AppState, sym: String, p: P?, det: Detail?, onO
             drawRect(ink, size = androidx.compose.ui.geometry.Size(size.width, 2.dp.toPx()))
             drawRect(ink, topLeft = androidx.compose.ui.geometry.Offset(0f, 4.dp.toPx()), size = androidx.compose.ui.geometry.Size(size.width, 1.dp.toPx()))
         }.clickable(onClick = onOpen).padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 10.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(d.uppercase(), fontSize = if (d.length <= 6) 40.sp else 26.sp, lineHeight = 42.sp, color = dcol, fontFamily = PaperFonts.headline, fontWeight = FontWeight.Black, maxLines = 1)
-            Spacer(Modifier.width(10.dp))
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                val cv = det?.conviction?.takeIf { it.level != null }
-                (cv?.level ?: p?.cv)?.let { lvl ->
-                    PaperLabel("$lvl conviction" + (cv?.score?.let { " · $it/100" + (cv.size?.let { z -> " · $z position" } ?: "") }
-                        ?: if (cv?.met != null && cv.of != null) " · ${cv.met} of ${cv.of}" else ""), if (lvl == "High") TierC.darkGreen else if (lvl == "Low") TierC.red else TierC.yellow, 10.sp)
-                }
-                topTenRank(st, sym)?.let { PaperLabel("#$it in today's Top 10", C.grey, 10.sp, bold = false) }
-                when {
-                    rv.verdict != null && rv.verdict != "pass" -> PaperLabel("Review: ${reviewWord(rv.verdict)}", reviewColor(rv.verdict), 10.sp, bold = false)
-                    rv.verdict == null && rv.pos > 0 -> PaperLabel("Review #${rv.pos} of ${rv.of} in queue", C.dim, 10.sp, bold = false)
-                    rv.verdict == null && rv.pos != 0 -> PaperLabel("In the research queue", C.dim, 10.sp, bold = false)
-                    rv.verdict == null && rv.studied == null -> PaperLabel("Rules only, not studied", C.dim, 10.sp, bold = false)
+        // feedback #199 (owner, 27 Nov 2026): the decision word, its two lines and the seal on one band, the height of the
+        // word's capitals: line 1 on its top edge, line 2 on its bottom edge, the seal as tall as the letters
+        val big = if (d.length <= 6) 44.sp else 28.sp
+        val cv = det?.conviction?.takeIf { it.level != null }
+        val l1 = (cv?.level ?: p?.cv)?.let { lvl -> Pair("$lvl conviction" + (cv?.score?.let { " · $it/100" } ?: ""),
+            if (lvl == "High") TierC.darkGreen else if (lvl == "Low") TierC.red else TierC.yellow) }
+        val l2 = listOfNotNull(
+            topTenRank(st, sym)?.let { "#$it in today's Top 10" },
+            when {
+                rv.verdict == "pass" -> rv.date?.let { skDay(it) }
+                rv.verdict != null -> "Review: ${reviewWord(rv.verdict)}"
+                rv.pos > 0 -> "Review #${rv.pos} of ${rv.of} in queue"
+                rv.pos != 0 -> "In the research queue"
+                rv.studied == null -> "Rules only, not studied"
+                else -> null
+            }).joinToString(" · ").ifBlank { null }
+        val density = androidx.compose.ui.platform.LocalDensity.current
+        val bandDp = with(density) { (CAP_PLAYFAIR * big.toPx()).let { kotlin.math.round(it) }.toDp() }
+        Row(Modifier.padding(vertical = 2.dp).height(bandDp), verticalAlignment = Alignment.CenterVertically) {
+            Text(d.uppercase(), fontSize = big, color = dcol, fontFamily = PaperFonts.headline, fontWeight = FontWeight.Black, maxLines = 1,
+                modifier = Modifier.capBand(CAP_PLAYFAIR, big))
+            Spacer(Modifier.width(12.dp))
+            val lines = listOfNotNull(l1?.let { Triple(it.first, it.second, true) }, l2?.let { Triple(it, C.grey, false) })
+            Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = if (lines.size == 2) Arrangement.SpaceBetween else Arrangement.Center) {
+                lines.forEach { (t, c, bold) ->
+                    val fs = if (bold) 12.5.sp else 11.5.sp
+                    Text(t.uppercase(), fontSize = fs, color = c, fontFamily = PaperFonts.label, fontWeight = if (bold) FontWeight.Bold else FontWeight.Medium,
+                        letterSpacing = 0.25.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        modifier = Modifier.capBand(CAP_ARCHIVO, fs))
                 }
             }
-            if (rv.verdict == "pass") Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Box(Modifier.size(24.dp).border(1.5.dp, reviewColor("pass"), CircleShape), contentAlignment = Alignment.Center) {
-                    Icon(Icons.Rounded.Check, "Verified by Narrativ.ai", tint = reviewColor("pass"), modifier = Modifier.size(15.dp))
-                }
-                rv.date?.let { PaperLabel(skDay(it), C.grey, 9.sp, bold = false) }
-            }
+            if (rv.verdict == "pass") { Spacer(Modifier.width(8.dp)); VerifiedSeal(bandDp + 0.5.dp) }
         }
         Box(Modifier.fillMaxWidth().height(1.dp).background(ink))
         if (p != null) androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -1044,10 +1053,10 @@ private fun WhyHead(text: String, tag: String? = null, tagColor: Color = C.grey)
 
 /** One line of the Why sheet: a coloured mark, a bold title and its evidence. */
 @Composable
-private fun WhyLine(mark: String, markColor: Color, title: String?, text: String?, onClick: (() -> Unit)? = null) {
+private fun WhyLine(mark: String, markColor: Color, title: String?, text: String?, onClick: (() -> Unit)? = null, markWidth: androidx.compose.ui.unit.Dp = 18.dp) {
     Row(Modifier.fillMaxWidth().then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier).padding(vertical = 5.dp),
         verticalAlignment = Alignment.Top) {
-        T(mark, 13.sp, markColor, FontWeight.Bold, maxLines = 1, modifier = Modifier.width(18.dp))
+        T(mark, 13.sp, markColor, FontWeight.Bold, maxLines = 1, modifier = Modifier.width(markWidth))
         Text(buildAnnotatedString {
             title?.takeIf { it.isNotBlank() }?.let { withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(it.trimEnd('.') + if (text.isNullOrBlank()) "" else ". ") } }
             text?.takeIf { it.isNotBlank() }?.let { append(it) }
@@ -1084,21 +1093,26 @@ private fun PaperWhyBody(st: AppState, sym: String, p: P?, det: Detail?, dd: Dec
     val audit = r?.audit
     val dn = dd?.d ?: "Not rated"
     val cv = det?.conviction
-    // 1 · the answer on one band: decision (verified or not), conviction level and score
-    val verified = dd?.verified == "pass" && dn in setOf("Buy", "Strong Buy")
-    val bandWord = when {
-        verified -> "Verified $dn"
-        dd?.candidate != null && dn !in setOf("Buy", "Strong Buy") -> "${dd.candidate} candidate · $dn"
-        else -> dn
-    }
-    Column(Modifier.fillMaxWidth().clip(rr(6.dp)).background(decisionColor(dn)).padding(horizontal = 14.dp, vertical = 12.dp)) {
-        Text(bandWord.uppercase(), fontSize = 10.sp, letterSpacing = 1.sp, color = C.card.copy(alpha = 0.85f), fontFamily = PaperFonts.label,
-            fontWeight = FontWeight.Bold, maxLines = 1)
-        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(cv?.level ?: dn, fontSize = 30.sp, color = C.card, fontFamily = PaperFonts.headline, fontWeight = FontWeight.Black, maxLines = 1)
-            cv?.score?.let {
-                Text("$it/100", fontSize = 20.sp, color = C.card, fontFamily = PaperFonts.headline, fontWeight = FontWeight.Bold, maxLines = 1,
-                    modifier = Modifier.padding(bottom = 3.dp))
+    // 1 · one box cut in half (feedback #196, owner 27 Nov 2026): the decision on the left in its colour, conviction on the
+    // right in its level colour (High green, Medium amber, Low red) with the score out of 100; each half has its own label
+    @Composable
+    fun Half(lbl: String, bg: Color, m: Modifier, body: @Composable RowScope.() -> Unit) =
+        Column(m.background(bg).padding(horizontal = 12.dp, vertical = 10.dp)) {
+            Text(lbl, fontSize = 9.5.sp, letterSpacing = 1.sp, color = C.card.copy(alpha = 0.9f), fontFamily = PaperFonts.label, fontWeight = FontWeight.Bold, maxLines = 1)
+            Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp), content = body)
+        }
+    Row(Modifier.fillMaxWidth().clip(rr(6.dp)).height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+        Half("DECISION", decisionColor(dn), Modifier.weight(1f).fillMaxHeight()) {
+            Text(dn, fontSize = 30.sp, color = C.card, fontFamily = PaperFonts.headline, fontWeight = FontWeight.Black, maxLines = 1)
+        }
+        cv?.level?.let { lvl ->
+            val cc = when (lvl) { "High" -> TierC.darkGreen; "Low" -> TierC.red; else -> C.amber }
+            Half("CONVICTION", cc, Modifier.weight(1f).fillMaxHeight()) {
+                Text(lvl, fontSize = 30.sp, color = C.card, fontFamily = PaperFonts.headline, fontWeight = FontWeight.Black, maxLines = 1)
+                cv?.score?.let {
+                    Text(buildAnnotatedString { append("$it"); withStyle(SpanStyle(fontSize = 12.sp)) { append("/100") } }, fontSize = 20.sp, color = C.card,
+                        fontFamily = PaperFonts.headline, fontWeight = FontWeight.Bold, maxLines = 1, modifier = Modifier.padding(bottom = 4.dp))
+                }
             }
         }
     }
@@ -1130,8 +1144,10 @@ private fun PaperWhyBody(st: AppState, sym: String, p: P?, det: Detail?, dd: Dec
     // 3 · conviction signals (no points), what is not there yet, what a verified Buy still needs
     if (cv != null && (cv.proofs.isNotEmpty() || cv.notYet.isNotEmpty())) {
         WhyHead("Conviction signals", cv.date?.let { skDay(it) }, C.grey)
-        cv.proofs.forEach { pr -> WhyLine("✓", fillColor("Pass"), pr.t, pr.v) }
-        cv.notYet.forEach { WhyLine("–", C.dim, null, it) }
+        // the points that make the score; what is missing shows as 0 (feedback #196)
+        cv.proofs.forEach { pr -> WhyLine(if (pr.pts > 0) "+${pr.pts}" else "✓", fillColor("Pass"), pr.t, pr.v, markWidth = 30.dp) }
+        if (cv.notYet.isNotEmpty()) WhyHead("Not yet")
+        cv.notYet.forEach { WhyLine(if (cv.proofs.any { it.pts > 0 }) "0" else "–", C.dim, null, it, markWidth = 30.dp) }
     }
     val missing = dd?.missing.orEmpty()
     if (missing.isNotEmpty()) {
@@ -1145,10 +1161,10 @@ private fun PaperWhyBody(st: AppState, sym: String, p: P?, det: Detail?, dd: Dec
     if (fwd.isNotEmpty() || mt > 0) {
         WhyHead("Management", "${tierMark(mt).first} ${nameOf(3)}", tierColor(mt))
         fwd.forEach { w ->
-            Row(Modifier.padding(vertical = 3.dp)) {
+            Row(Modifier.padding(vertical = 3.dp)) {  // label and text on one baseline (feedback #197)
                 if (w.contains(": ")) {
-                    T(w.substringBefore(": ").substringBefore(" ("), 10.5.sp, C.dim, maxLines = 2, modifier = Modifier.width(72.dp).padding(top = 2.dp))
-                    T(w.substringAfter(": "), 12.5.sp, lineHeight = 17.sp, modifier = Modifier.weight(1f))
+                    T(w.substringBefore(": ").substringBefore(" ("), 10.5.sp, C.dim, maxLines = 2, modifier = Modifier.width(72.dp).alignByBaseline())
+                    T(w.substringAfter(": "), 12.5.sp, lineHeight = 17.sp, modifier = Modifier.weight(1f).alignByBaseline())
                 } else T(w, 12.5.sp, lineHeight = 17.sp, modifier = Modifier.weight(1f))
             }
         }

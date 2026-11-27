@@ -195,6 +195,14 @@ fun PaperTag(text: String, color: Color, size: TextUnit = 11.sp, modifier: Modif
     }
 }
 
+/** Paper decision tag (owner, 27 Nov 2026, #205): solid in the decision colour, white capitals. */
+@Composable
+fun PaperSolidTag(text: String, color: Color, size: TextUnit = 11.sp, modifier: Modifier = Modifier) {
+    Box(modifier.clip(rr(2.dp)).background(color).padding(horizontal = 6.dp, vertical = 2.dp), contentAlignment = Alignment.Center) {
+        PaperLabel(text, Color.White, (size.value - 1f).coerceAtLeast(8.5f).sp)
+    }
+}
+
 /** Seven dots, one per funnel level, in tier colours. */
 @Composable
 fun LevelDots(p: P, dot: Dp = 8.dp) {
@@ -231,7 +239,7 @@ fun decisionColor(d: String?): Color = when (d) {
 fun DecisionChip(d: String?, size: TextUnit = 11.sp) {  // redesign: tinted pill, no border (mockup .dch)
     if (d == null) return
     val c = decisionColor(d)
-    if (Look.paper) return PaperTag(d, c, size)
+    if (Look.paper) return PaperSolidTag(d, c, size)  // solid, white letters (feedback #205)
     Box(Modifier.clip(rr(S.inner)).background(c.copy(alpha = 0.13f)).padding(horizontal = 8.dp, vertical = 2.dp), contentAlignment = Alignment.Center) {
         T(d, size, c, FontWeight.SemiBold, maxLines = 1)
     }
