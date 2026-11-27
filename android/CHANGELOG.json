@@ -1,11 +1,21 @@
 [
  {
+  "version": "2.32.8",
+  "date": "2026-11-27",
+  "changes": [
+   {
+    "type": "improved",
+    "text": "A Buy whose research is still being completed says \"Research pending\""
+   }
+  ]
+ },
+ {
   "version": "2.32.7",
   "date": "2026-11-27",
   "changes": [
    {
     "type": "improved",
-    "text": "A Buy whose research is not complete stays a Buy but shows no verified badge; its page says \"Research incomplete\""
+    "text": "A Buy whose research is pending stays a Buy but shows no verified badge; its page says \"Research pending\""
    }
   ]
  },

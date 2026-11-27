@@ -443,7 +443,7 @@ private fun PaperDecisionBox(st: AppState, sym: String, p: P?, det: Detail?, onO
         val l2 = listOfNotNull(
             topTenRank(st, sym)?.let { "#$it in today's Top 10" },
             when {
-                rv.verdict == "pass" && (dd?.incomplete?.isNotEmpty() == true || p?.ic != null) -> "Research incomplete"
+                rv.verdict == "pass" && (dd?.incomplete?.isNotEmpty() == true || p?.ic != null) -> "Research pending"  // owner, 27 Nov 2026
                 rv.verdict == "pass" -> rv.date?.let { skDay(it) }
                 rv.verdict != null -> "Review: ${reviewWord(rv.verdict)}"
                 rv.pos > 0 -> "Review #${rv.pos} of ${rv.of} in queue"

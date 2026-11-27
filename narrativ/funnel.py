@@ -2001,7 +2001,7 @@ def apply_buy_rules(d0: dict, Mx: dict, lender: bool, L: dict, th: dict | None, 
             "why": [f"Scores say {label}, but the Buy rules are not met (RULES.md):"] + g + [w for w in d0.get("why", []) if not w.startswith("Rules say")]}
     elif d0.get("d") in BUY:  # a passed review that lacks what R7 requires is not yet a verification
         d0 = {k: x for k, x in d0.items() if k != "incomplete"}
-        d0["missing"] = [m for m in d0.get("missing") or [] if not m.startswith("Research incomplete")]
+        d0["missing"] = [m for m in d0.get("missing") or [] if not m.startswith(("Research incomplete", "Research pending"))]
         miss = r7_missing((th or {}).get("audit"), Mx, lender, L)
         if miss:
             d0 = {**d0, "d": "Hold", "candidate": label, "verified": "pending",
@@ -2014,8 +2014,8 @@ def apply_buy_rules(d0: dict, Mx: dict, lender: bool, L: dict, th: dict | None, 
         elif gaps := research_missing(th):
             d0 = {**d0, "incomplete": gaps,
                   "why": [w for w in d0.get("why", []) if not w.startswith(VERIFIED_BY)]
-                  + ["Narrativ.ai's review passed; the full story is not complete yet, so no verified badge (RULES.md R8)"],
-                  "missing": d0["missing"] + [f"Research incomplete: {m}" for m in gaps]}
+                  + ["Narrativ.ai's review passed; research pending, so no verified badge yet (RULES.md R8)"],
+                  "missing": d0["missing"] + [f"Research pending: {m}" for m in gaps]}  # owner, 27 Nov 2026: "pending", not "incomplete"
     return d0
 
 
