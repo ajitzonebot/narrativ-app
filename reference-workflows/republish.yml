@@ -62,7 +62,9 @@ jobs:
           GIT_PUSH_TOKEN: ${{ secrets.NARRATIV_RW_TOKEN }}
         run: |
           base=$(cat data/republish_base.txt 2>/dev/null || true)
-          head=$(git log -1 --format=%H -- docs/data/theses.json)
+          # theses.json, or the research run log: a run that changes no thesis (a review that passed as it was) still
+          # finishes queue items, and republish drops them from queue.json (feedback #189, 27 Nov 2026)
+          head=$(git log -1 --format=%H -- docs/data/theses.json docs/data/research_runs.jsonl)
           echo "base=$base" >> $GITHUB_OUTPUT
           echo "head=$head" >> $GITHUB_OUTPUT
           if [ "$base" = "$head" ]; then echo "new=false" >> $GITHUB_OUTPUT; else echo "new=true" >> $GITHUB_OUTPUT; fi

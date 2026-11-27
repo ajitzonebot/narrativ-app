@@ -1,11 +1,41 @@
 {
- "versionCode": 93,
- "versionName": "2.32.1",
- "date": "2026-11-26",
- "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.32.1-b93/narrativ-v2.32.1-b93.apk",
- "sizeMb": 12.2,
- "sha256": "0d96d419dfa7e617f600adfbee5f3ba897b9af60d8347bc93df0cccc90ccf9ff",
+ "versionCode": 94,
+ "versionName": "2.32.2",
+ "date": "2026-11-27",
+ "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.32.2-b94/narrativ-v2.32.2-b94.apk",
+ "sizeMb": 12.3,
+ "sha256": "def70820602f2d7428d01d4c3610e5bceb586be1efd1b8c7b44017f03983fe4d",
  "changelog": [
+  {
+   "version": "2.32.2",
+   "date": "2026-11-27",
+   "changes": [
+    {
+     "type": "new",
+     "text": "Research queue: search box that finds a stock in the queue and in completed work"
+    },
+    {
+     "type": "improved",
+     "text": "Key checks as verdict cards: the verdict on a coloured band, the figure in ink, one plain sentence and the pass line"
+    },
+    {
+     "type": "improved",
+     "text": "Why Buy: the answer first, three questions as cards, conviction signals, management, Narrativ.ai's check and what to watch; rating history latest first"
+    },
+    {
+     "type": "new",
+     "text": "Summary: overall score as a ring beside the seven checks"
+    },
+    {
+     "type": "improved",
+     "text": "Research queue \u203a Completed: each row says it is done and what came out of it (full review Pass, red flag confirmed or false alarm, research refreshed, dated driver found)"
+    },
+    {
+     "type": "improved",
+     "text": "Research queue: one filter button for Waiting and Completed; waiting list in time order, first to last; no summary heading or task chart"
+    }
+   ]
+  },
   {
    "version": "2.32.1",
    "date": "2026-11-26",
