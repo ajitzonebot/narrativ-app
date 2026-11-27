@@ -10,7 +10,7 @@ do define them) and stores them separately, so nothing the app reads changes:
 Same basis as the stock's daily record (one consistent series), same normalisation (filings._normalise), same filing
 date per quarter (the benchmark uses only quarters filed on or before each date). Resumable: a stock with `done` is
 skipped; `--minutes` caps one run. `merged(sym)` gives daily + history quarters for the benchmark.
-python -m narrativ.histfin [--minutes 50] [--symbols A,B]
+python -m narrativ.histfin [--minutes 50] [--symbols A,B]   (default: the symbols in data/benchmark/histfin_symbols.json)
 """
 import json
 import sys
@@ -23,6 +23,8 @@ from narrativ import filings as F
 
 DIR = Path("data/financials_hist")
 VERSION = 1
+FROM_QE = "2019-03-31"  # owner, 27 Nov 2026 (cut the load): quarters from Mar 2019, 3 years of history for 2022-2024 starts
+SCOPE = Path("data/benchmark/histfin_symbols.json")  # liquid NSE stocks (Rs 1 crore a day at some point in 2020-2024)
 
 
 def _path(sym: str) -> Path:
@@ -47,7 +49,7 @@ def backfill(sym: str, ns: F.NSESession) -> dict:
         basis = "Consolidated" if any(r["basis"] == "Consolidated" for r in rows if r["qe"] == latest) else "Standalone"
     have_live = set((live.get("quarters") or {}))
     for r in sorted(rows, key=lambda r: r["qe"], reverse=True):
-        if r["basis"] != basis or r["qe"] in have_live:
+        if r["basis"] != basis or r["qe"] in have_live or r["qe"] < FROM_QE:
             continue
         got = (rec["quarters"].get(r["qe"]) or {}).get(basis)
         if got and F.same_doc(got.get("url"), r["url"]):
@@ -103,6 +105,8 @@ if __name__ == "__main__":
     mins = float(args[args.index("--minutes") + 1]) if "--minutes" in args else 50
     if "--symbols" in args:
         syms = args[args.index("--symbols") + 1].split(",")
+    elif SCOPE.exists():
+        syms = json.loads(SCOPE.read_text())["symbols"]
     else:
         syms = [r["s"] for r in json.loads(Path("docs/data/picks.json").read_text())["picks"] if r["s"].endswith(".NS")]
     run(syms, mins)

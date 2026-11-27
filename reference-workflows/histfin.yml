@@ -30,7 +30,7 @@ jobs:
       - name: Anything left?
         id: left
         run: |
-          n=$(python3 -c "import json,pathlib as P;s=[r['s'] for r in json.loads(P.Path('docs/data/picks.json').read_text())['picks'] if r['s'].endswith('.NS')];f=lambda x:P.Path('data/financials_hist/'+x+'.json');print(sum(1 for x in s if not f(x).exists() or json.loads(f(x).read_text()).get('done')!=1))")
+          n=$(python3 -c "import json,pathlib as P;s=json.loads(P.Path('data/benchmark/histfin_symbols.json').read_text())['symbols'];f=lambda x:P.Path('data/financials_hist/'+x+'.json');print(sum(1 for x in s if not f(x).exists() or json.loads(f(x).read_text()).get('done')!=1))")
           echo "n=$n" >> $GITHUB_OUTPUT
       - uses: actions/setup-python@v5
         if: steps.left.outputs.n != '0'
