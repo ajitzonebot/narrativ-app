@@ -87,12 +87,47 @@ def open_issues(sym: str) -> list:
         return []
 
 
+REVIEW_RESULTS = ("pass", "caution", "fail")
+
+
+def prune_queue(done: dict, built_at: str | None, queue: dict) -> int:
+    """Drop queue items a research run finished after the daily run built the queue (feedback #189 / #190, 27 Nov 2026:
+    SURAKSHA was reviewed at 04:05 IST but stayed "in full review" until the next evening run). A full review (pass /
+    caution / fail) clears review, review_flag and audit tasks; a flag review clears review_flag; any other result clears
+    the task it names (enrich, recheck). Returns how many items were dropped."""
+    if not built_at:
+        return 0
+    cleared: dict = {}
+    for run in done.get("runs") or []:
+        if not run.get("start") or run["start"] <= built_at[:16]:
+            continue
+        for it in run.get("items") or []:
+            s, r = it.get("s"), str(it.get("r") or "")
+            if not s:
+                continue
+            word = r.split()[0].split("(")[0].split("+")[0].lower() if r else ""
+            tasks = {"review", "review_flag", "audit"} if word in REVIEW_RESULTS else {"review_flag"} if word == "review_flag" \
+                else {word} if word in ("enrich", "recheck") else set()
+            cleared.setdefault(s, set()).update(tasks)
+    items = queue.get("items") or []
+    keep = [x for x in items if x.get("task") not in cleared.get(x.get("symbol"), set())]
+    queue["items"] = keep
+    return len(items) - len(keep)
+
+
 def main(before: str | None) -> None:
     try:  # Research queue > Completed in the app, also after runs that changed no research
         from narrativ import runlog
-        runlog.completed()
+        done = runlog.completed()
+        qp, pp = OUT / "queue.json", OUT / "picks.json"
+        if qp.exists() and pp.exists():
+            q = json.loads(qp.read_text())
+            n = prune_queue(done or {}, json.loads(pp.read_text()).get("updated"), q)
+            if n:
+                qp.write_text(json.dumps(q, indent=1, ensure_ascii=False))
+                print(f"[republish] queue: {n} item(s) finished since the daily run removed")
     except Exception as e:  # noqa: BLE001
-        print(f"[republish] research_done.json failed: {e}")
+        print(f"[republish] research_done.json / queue failed: {e}")
     syms = changed(before)
     if not syms:
         print("[republish] no research changes")

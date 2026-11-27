@@ -464,12 +464,32 @@ def due_periods(quote: str, said_on: date | None) -> list[tuple[str, date]]:
             add(m, _month_end(said_on.year, said_on.month + n * (12 if m.group(2).startswith("year") else 1)))
     # a month with no year after a time word ('from November', 'by March'): its next occurrence from the date said on.
     # 'may' only as 'month of May' (otherwise it is the verb)
-    for m in re.finditer(r"(?<![a-z])(?:from|by|in|till|until|before|since|starting|during|end\s+of)\s+(?:the\s+)?(month\s+of\s+)?"
+    for m in re.finditer(r"(?<![a-z])(?:from|by|in|till|until|before|since|starting|during|end\s+of|mid(?:-|\s+of)?|middle\s+of|"
+                         r"early|late|beginning\s+of)\s*(?:the\s+)?(month\s+of\s+)?"
                          + _MONTH + r"(?![a-z\d'-])", q):
         if free(m) and (m.group(2) != "may" or m.group(1)):
             mo = _MON[m.group(2)]
             add(m, _month_end(said_on.year + (mo < said_on.month), mo))
     return out
+
+
+def infer_due(quote: str, said_on) -> tuple[str, str] | None:
+    """(due, phrase) when an item has no due date but its quote names exactly one period ("mid of December", "FY27",
+    "this financial year"), read with due_periods against the date it was said; None when the quote names none or
+    several. The date then comes from the quote itself, so it counts as verified (feedback #191, 27 Nov 2026: AJMERA's
+    "launch by mid of December" had no due date and did not count for conviction)."""
+    try:
+        s = date.fromisoformat(str(said_on)[:10]) if said_on else None
+    except ValueError:
+        s = None
+    if s and s > date.today():
+        s = None
+    found = due_periods(quote or "", s)
+    ends = {e for _, e in found}
+    if len(ends) != 1:
+        return None
+    end = ends.pop()
+    return str(end), next(ph for ph, e in found if e == end)
 
 
 PROMISE_SETTLE_DAYS = 61  # a promise's due may be the results date that settles the period (SEBI LODR: year 60 days, quarter 45)
@@ -615,6 +635,8 @@ def verify_all(theses: dict) -> tuple[dict, dict]:
             if p.get("due"):
                 basis = due_support(p["due"], p["quote"], p.get("made_on") or doc_date(sym, p.get("source")), PROMISE_SETTLE_DAYS)
                 p = {**p, "due_verified": basis is not None, "due_basis": basis}
+            elif (inf := infer_due(p["quote"], p.get("made_on") or doc_date(sym, p.get("source")))):
+                p = {**p, "due": inf[0], "due_verified": True, "due_basis": inf[1], "due_inferred": True}
             ups = []
             for u in p.get("updates", []):
                 w = check(u, ("text",))
@@ -646,7 +668,9 @@ def verify_all(theses: dict) -> tuple[dict, dict]:
                 continue
             all_quotes += " " + it["quote"]
             d = {k: it.get(k) for k in ("kind", "text", "value", "unit", "due", "quote", "source", "date")}
-            if it.get("due"):  # R4 counts a due date only if the quote states it (with the date it was said on for 'Q4', 'next quarter')
+            if not it.get("due") and (inf := infer_due(it["quote"], it.get("date") or doc_date(sym, it["source"]))):
+                d |= {"due": inf[0], "due_verified": True, "due_basis": inf[1], "due_inferred": True}
+            elif it.get("due"):  # R4 counts a due date only if the quote states it (with the date it was said on for 'Q4', 'next quarter')
                 basis = due_support(it["due"], it["quote"], it.get("date") or doc_date(sym, it["source"]))
                 d |= {"due_verified": basis is not None, "due_basis": basis}
                 if basis is None:
