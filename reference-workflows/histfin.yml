@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: write
+  actions: write   # start the next run when stocks are left (self-chaining)
 
 concurrency:
   group: histfin
@@ -56,6 +57,18 @@ jobs:
             echo "chunk $i: $left stocks left"
             [ "$left" = "0" ] && break
           done
+      # owner, 27 Nov 2026 (scheduler plan): the next run starts as soon as this one ends, instead of waiting for a schedule
+      # (GitHub's skipped every 2-hour run on 27 Nov). Only when this run made progress, so a day NSE refuses every request
+      # does not loop; the Worker's 2-hour start (worker/worker.js SCHEDULE) picks it up again later.
+      - name: Start the next run while stocks are left
+        if: steps.left.outputs.n != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BEFORE: ${{ steps.left.outputs.n }}
+        run: |
+          left=$(python3 -c "import json,pathlib as P;s=json.loads(P.Path('data/benchmark/histfin_symbols.json').read_text())['symbols'];f=lambda x:P.Path('data/financials_hist/'+x+'.json');print(sum(1 for x in s if not f(x).exists() or json.loads(f(x).read_text()).get('done')!=1))")
+          echo "left $left (was $BEFORE)"
+          if [ "$left" != "0" ] && [ "$left" -lt "$BEFORE" ]; then gh workflow run histfin.yml --ref main -R "$GITHUB_REPOSITORY"; fi
       - name: Save on failure
         if: failure() && steps.left.outputs.n != '0'
         env:
