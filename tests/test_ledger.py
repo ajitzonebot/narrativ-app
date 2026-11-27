@@ -123,3 +123,12 @@ def test_link_restated_target_raised():
         r.update(LG.size_item(r["sym"], None, r["text"], None, None, r["due"], r["made"], B))
     LG.link(rows)
     assert rows[1]["prev"] == "a" and rows[1]["change"] == "raised" and rows[0]["prev"] is None
+
+
+def test_promise_targets_are_sized_like_drivers():
+    t = {"measure": "revenue", "of": "company", "low": 640, "high": 660, "unit": "cr", "fy": "FY27"}
+    th = {"ACME.NS": {"promises": [{"id": "rev-fy27", "promise": "FY27 revenue of Rs 640-660 crore", "due": "2027-03-31",
+                                    "made_on": "2026-06-01", "status": "pending", "due_verified": True, "target": t}]}}
+    rows = LG.annotate(LG.rows_from_theses(th), B)
+    assert rows[0]["id"] == LG.item_id("ACME.NS", "promise", ["rev-fy27"])   # the id conviction reads
+    assert rows[0]["src"] == "narrativ" and rows[0]["material"] == 1

@@ -219,6 +219,25 @@ def test_promise_due_verified_like_drivers(doc, monkeypatch):
     assert due_support("2027-05-30", "In FY27 Revenue Guidance", None) is None  # drivers: same month as the period end only
 
 
+def test_promise_target_checked_like_a_drivers(doc, monkeypatch):
+    """A numeric promise carries a `target` (27 Nov 2026): kept when its numbers and fiscal year sit in the quote, dropped
+    (the promise stays) when not."""
+    monkeypatch.setattr(verify, "_PACK_DATES", {})
+    q = "Growth Outlook - In FY27 Revenue Guidance Rs 1400- 1750crores"
+    doc["u"] = q
+    base = {"made_on": "2026-08-14", "call": "Q1 FY27 call", "kind": "results", "status": "pending", "source": "u", "updates": [],
+            "promise": "FY27 revenue Rs 1400-1750 crores", "due": "2027-03-31", "quote": q}
+    good = {"measure": "revenue", "of": "company", "low": 1400, "high": 1750, "unit": "cr", "fy": "FY27"}
+    th = {"X.NS": {"promises": [{**base, "id": "a", "target": good},
+                                {**base, "id": "b", "target": good | {"high": 1800}},
+                                {**base, "id": "c"}]}}
+    out, rep = verify_all(th)
+    got = {p["id"]: p.get("target") for p in out["X.NS"]["promises"]}
+    assert got["a"]["low"] == 1400 and got["a"]["fy"] == "FY27"
+    assert got["b"] is None and got["c"] is None and len(out["X.NS"]["promises"]) == 3
+    assert [r["field"] for r in rep["X.NS"]["rejected"]] == ["promise target"]
+
+
 # ---- docling text: only from a file that records the same source URL ----
 
 @pytest.fixture

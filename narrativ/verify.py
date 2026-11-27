@@ -678,6 +678,11 @@ def verify_all(theses: dict) -> tuple[dict, dict]:
                 p = {**p, "due_verified": basis is not None, "due_basis": basis}
             elif (inf := infer_due(p["quote"], p.get("made_on") or doc_date(sym, p.get("source")))):
                 p = {**p, "due": inf[0], "due_verified": True, "due_basis": inf[1], "due_inferred": True}
+            if p.get("target") is not None:  # forward ledger: a numeric promise carries its target too (owner, 27 Nov 2026);
+                tg, tw = target_check(p["target"], p["quote"], p.get("source"), fetch_text(p.get("source")) or "")  # a failing one is dropped
+                p = {k: x for k, x in p.items() if k != "target"} | ({"target": tg} if tg else {})
+                if not tg:
+                    rej.append({"id": p.get("id"), "field": "promise target", "reason": tw})
             ups = []
             for u in p.get("updates", []):
                 w = check(u, ("text",))

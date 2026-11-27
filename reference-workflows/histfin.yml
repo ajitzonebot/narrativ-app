@@ -55,7 +55,7 @@ jobs:
             bash scripts/publish.sh -m "data: history backfill $(TZ=Asia/Kolkata date '+%F %H:%M') IST" -- data/financials_hist || echo "chunk $i: save failed; the next chunk retries"
             left=$(python3 -c "import json,pathlib as P;s=json.loads(P.Path('data/benchmark/histfin_symbols.json').read_text())['symbols'];f=lambda x:P.Path('data/financials_hist/'+x+'.json');print(sum(1 for x in s if not f(x).exists() or json.loads(f(x).read_text()).get('done')!=1))")
             echo "chunk $i: $left stocks left"
-            [ "$left" = "0" ] && break
+            if [ "$left" = "0" ]; then break; fi  # not `[ ] && break`: on the last chunk it returned 1 and failed the step (27 Nov 2026)
           done
       # owner, 27 Nov 2026 (scheduler plan): the next run starts as soon as this one ends, instead of waiting for a schedule
       # (GitHub's skipped every 2-hour run on 27 Nov). Only when this run made progress, so a day NSE refuses every request

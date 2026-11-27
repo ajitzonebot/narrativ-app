@@ -566,7 +566,7 @@ def sync(today: date, s0i, btypes: dict, lender: dict, picks: list, details: dic
                         x.get("target"))
                 for x in t.get("promises") or []:
                     add(s, "promise", [x.get("id") or x.get("promise")], x.get("kind"), x.get("promise"), None, None, x.get("due"), None,
-                        x.get("status") or "open", x.get("quote"), x.get("source"), x.get("made_on"))
+                        x.get("status") or "open", x.get("quote"), x.get("source"), x.get("made_on"), x.get("target"))
             rp = Path("data/reader/store.json")
             for url, e in (json.loads(rp.read_text()) if rp.exists() else {}).items():
                 r = next((e[m] for m in ("flash", "lite") if "rows" in (e.get(m) or {})), None)

@@ -417,7 +417,7 @@ def rows_from_theses(theses: dict) -> list[dict]:
             if x.get("promise"):
                 out.append({"id": item_id(s, "promise", [x.get("id") or x["promise"]]), "sym": s, "origin": "promise", "kind": x.get("kind"),
                             "text": x["promise"], "value": None, "unit": None, "due": x.get("due"), "made": x.get("made_on"),
-                            "status": x.get("status"), "verified": bool(x.get("due_verified"))})
+                            "status": x.get("status"), "verified": bool(x.get("due_verified")), "target": x.get("target")})
     return out
 
 
