@@ -534,18 +534,19 @@ def sync(today: date, s0i, btypes: dict, lender: dict, picks: list, details: dic
             rows from every document read (status unconfirmed). first_seen is kept from the first write."""
             rows, led = [], []
 
-            def add(sym, origin, key, kind, text, value, unit, due, direction, status, quote, url, doc_date):
+            def add(sym, origin, key, kind, text, value, unit, due, direction, status, quote, url, doc_date, target=None):
                 i = isin.get(sym)
                 if i and text:
                     rid = digest([sym, origin.split(":")[0], key], 20)
                     rows.append([rid, i, kind, text, value if isinstance(value, (int, float)) else None,
                                  unit, due, direction, status, origin, quote, url, doc_date, d, d])
                     led.append({"id": rid, "sym": sym, "grp": "reader" if origin.startswith("reader") else "narrativ", "kind": kind,
-                                "text": text, "value": value, "unit": unit, "due": due, "made": doc_date})
+                                "text": text, "value": value, "unit": unit, "due": due, "made": doc_date, "target": target})
             for s, t in theses.items():
                 for x in t.get("drivers") or []:
                     add(s, "claude", [x.get("text"), x.get("due")], x.get("kind"), x.get("text"), x.get("value"), x.get("unit"), x.get("due"),
-                        x.get("direction"), "verified" if x.get("due_verified") else "open", x.get("quote"), x.get("source"), x.get("date"))
+                        x.get("direction"), "verified" if x.get("due_verified") else "open", x.get("quote"), x.get("source"), x.get("date"),
+                        x.get("target"))
                 for x in t.get("promises") or []:
                     add(s, "promise", [x.get("id") or x.get("promise")], x.get("kind"), x.get("promise"), None, None, x.get("due"), None,
                         x.get("status") or "open", x.get("quote"), x.get("source"), x.get("made_on"))
@@ -555,15 +556,20 @@ def sync(today: date, s0i, btypes: dict, lender: dict, picks: list, details: dic
                 for x in (r or {}).get("rows") or []:
                     add(e.get("s"), f"reader:{r.get('model')}", [url, x.get("text"), x.get("due")], x.get("kind"), x.get("text"), x.get("value"),
                         x.get("unit"), x.get("due"), x.get("direction"), "unconfirmed", x.get("quote") or x.get("text"), url, e.get("date"))
-            # ledger stage 1: type, base, size, materiality and the earlier version of each item (free-reader rows are linked
-            # among themselves only, so an unconfirmed row never restates Narrativ.ai's)
+            # ledger stage 1: type, base, size, materiality and the earlier version of Narrativ.ai's verified items only (owner,
+            # 27 Nov 2026: only verified quotes count); free-reader rows stay unsized until Narrativ.ai confirms them
             try:
                 from . import ledger as LG
                 bases = LG.Bases(fins)
+                mine = [r for r in led if r["grp"] == "narrativ"]
+                for r in mine:
+                    r.update(LG.size_item(r["sym"], r["kind"], r["text"], r["value"], r["unit"], r["due"], r["made"], bases, r["target"]))
+                    if r.get("src") == "parsed" and r.get("why") is None:
+                        r["why"] = "parsed from the text: provisional until Narrativ.ai records the target"
+                LG.link(mine)
                 for r in led:
-                    r.update(LG.size_item(r["sym"], r["kind"], r["text"], r["value"], r["unit"], r["due"], r["made"], bases))
-                for g in ("narrativ", "reader"):
-                    LG.link([r for r in led if r["grp"] == g])
+                    if r["grp"] == "reader":
+                        r["why"] = "free-reader row: not sized until Narrativ.ai confirms it"
             except Exception as e:  # noqa: BLE001
                 print(f"[store] ledger sizing skipped: {e}")
             lf = ("ftype", "measure", "period", "amount", "base", "size_pct", "trend_pct", "material", "why", "prev", "change")

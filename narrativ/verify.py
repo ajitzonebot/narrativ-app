@@ -335,6 +335,47 @@ def value_check(value, unit, quote: str, doc: str = "") -> str | None:
     return f"value {value} {unit}: the quote has {n} with another unit or none" if bad else None
 
 
+# ---------- forward ledger target (RESEARCH.md drivers.target, 27 Nov 2026): what the number is, checked against the quote ----------
+TARGET_MEASURES = ("revenue", "ebitda", "pat", "margin", "growth", "capex", "order", "order_book", "capacity", "aum", "other")
+TARGET_GROWTH_OF = ("revenue", "ebitda", "pat", "aum", "volume")
+
+
+def target_check(t, quote: str, source: str | None, doc: str = "") -> tuple[dict | None, str | None]:
+    """(clean target, None) when every number Narrativ.ai typed sits in the quote (`now` in `now_quote`, itself verbatim in the
+    source), the fiscal year is named there and the measure is one of TARGET_MEASURES; else (None, reason)."""
+    from .ledger import fiscal_years, fy_year
+    if not isinstance(t, dict):
+        return None, "target is not an object"
+    m = t.get("measure")
+    if m not in TARGET_MEASURES:
+        return None, f"target measure {m!r} is not one of {', '.join(TARGET_MEASURES)}"
+    of = str(t.get("of") or "company").strip()
+    if not (of == "company" or of.startswith("part")):
+        return None, f"target 'of' {of!r} is not 'company' or 'part: <name>'"
+    if m == "growth" and t.get("growth_of") not in TARGET_GROWTH_OF:
+        return None, f"growth target needs growth_of in {', '.join(TARGET_GROWTH_OF)}"
+    if t.get("low") is None and t.get("high") is None:
+        return None, "target has no figure (low / high)"
+    for k in ("low", "high"):
+        w = value_check(t.get(k), t.get("unit"), quote, doc)
+        if w:
+            return None, f"target {k}: {w}"
+    fy = t.get("fy")
+    if fy:
+        y = fy_year(fy)
+        if y is None or y not in fiscal_years(quote):
+            return None, f"target fy {fy} not named in the quote"
+    now_q = t.get("now_quote")
+    if t.get("now") is not None:
+        if now_q and not quoted_in(now_q, doc or (fetch_text(source) or "")):
+            return None, "target now_quote not found in source"
+        w = value_check(t["now"], t.get("unit"), now_q or quote, doc)
+        if w:
+            return None, f"target now: {w}"
+    keep = ("measure", "of", "growth_of", "low", "high", "unit", "fy", "now", "adds", "now_quote")
+    return {k: t.get(k) for k in keep if t.get(k) is not None} | {"of": of}, None
+
+
 # ---------- driver due dates (RULES.md R4): a due date counts only if the quote states it ----------
 _MON = {m: i + 1 for i, m in enumerate(("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"))}
 _MONTH = r"(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)(?:[a-z]*)\.?"
@@ -668,6 +709,12 @@ def verify_all(theses: dict) -> tuple[dict, dict]:
                 continue
             all_quotes += " " + it["quote"]
             d = {k: it.get(k) for k in ("kind", "text", "value", "unit", "due", "quote", "source", "date")}
+            if it.get("target") is not None:  # forward ledger: a target that fails is dropped, the driver stays
+                tg, tw = target_check(it["target"], it["quote"], it.get("source"), fetch_text(it["source"]) or "")
+                if tg:
+                    d["target"] = tg
+                else:
+                    rej.append({"id": "driver target", "field": it.get("text", "")[:60], "reason": tw})
             if not it.get("due") and (inf := infer_due(it["quote"], it.get("date") or doc_date(sym, it["source"]))):
                 d |= {"due": inf[0], "due_verified": True, "due_basis": inf[1], "due_inferred": True}
             elif it.get("due"):  # R4 counts a due date only if the quote states it (with the date it was said on for 'Q4', 'next quarter')

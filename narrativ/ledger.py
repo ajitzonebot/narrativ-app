@@ -40,6 +40,7 @@ ORDER_PCT = 10.0        # a single order of 10%+ of last year's revenue (as R4 T
 BOOK_X = 100.0          # an order book or yearly inflow of 1x+ last year's revenue (book-to-bill > 1, as T2)
 PART_PCT = 10.0         # a segment / plant / subsidiary target worth 10%+ of company revenue
 SAME_PCT = 2.0
+CAPACITY_PCT = 20.0     # capacity up 20%+ on today's figure as management states it (target.now)
 PART_OF = 0.8           # a "revenue" target below 80% of last year's company revenue is a part of the business          # a restated figure within 2% of the earlier one is "reaffirmed"
 
 _NUM = r"\d[\d,]*(?:\.\d+)?"
@@ -123,6 +124,31 @@ def fiscal_end(text: str, due, made: date | None) -> date | None:
     return None
 
 
+def fy_year(fy) -> int | None:
+    """"FY27" / "FY2027" / "FY 2026-27" / 2027 -> 2027 (the year the fiscal year ends in)."""
+    m = _FY.search(f"FY{fy}" if isinstance(fy, int) or str(fy).strip()[:1].isdigit() else str(fy))
+    if not m:
+        return None
+    y = int(m.group(2) or m.group(1))
+    y = y + 2000 if y < 100 else y
+    return y if 2000 < y < 2100 else None
+
+
+def fiscal_years(text: str) -> set:
+    """Every fiscal year a statement names: FY27, FY 2026-27, FY29/30 (both), and a calendar year (2027 -> FY27 or FY28:
+    "by March 2027" ends FY27, "by December 2027" falls in FY28)."""
+    out = set()
+    for m in _FY.finditer(text or ""):
+        for g in (m.group(1), m.group(2)):
+            if g:
+                y = int(g)
+                out.add(y + 2000 if y < 100 else y)
+    for m in re.finditer(r"(?<!\d)(20\d\d)(?!\d)", text or ""):
+        y = int(m.group(1))
+        out |= {y, y + 1}
+    return out
+
+
 def classify(text: str, kind: str | None, unit: str | None) -> tuple[str, str]:
     """(ftype, measure) from the statement's words; kind and unit only break ties."""
     t = (text or "").lower()
@@ -194,13 +220,46 @@ def _cagr(a, b, years):
     return ((b / a) ** (1 / years) - 1) * 100
 
 
-def size_item(sym: str, kind: str | None, text: str, value, unit: str | None, due, made, bases: Bases) -> dict:
-    """Type, base, size and materiality of one forward statement (see the module docstring)."""
+def _from_target(t: dict) -> tuple[str, str, float | None, date | None]:
+    """(ftype, measure, amount, period) from Narrativ.ai's verified target (verify.target_check)."""
+    m, of = t.get("measure"), str(t.get("of") or "company")
+    lo, hi = t.get("low"), t.get("high")
+    amt = (lo + hi) / 2 if lo is not None and hi is not None else (lo if lo is not None else hi)
+    y = fy_year(t["fy"]) if t.get("fy") else None
+    per = date(y, 3, 31) if y else None
+    if m in ("revenue", "ebitda", "pat") and of.startswith("part"):
+        return "financial", "part", amt, per
+    if m == "growth":
+        g = t.get("growth_of") or "revenue"
+        return ("operational" if g == "volume" else "financial"), f"growth:{g}", amt, per
+    if m == "capacity":
+        return "operational", "capacity", amt, per
+    return "financial", m, amt, per
+
+
+def size_item(sym: str, kind: str | None, text: str, value, unit: str | None, due, made, bases: Bases, target: dict | None = None) -> dict:
+    """Sized as below; only a verified target can mark an item material (owner, 27 Nov 2026: only Narrativ.ai's verified
+    quotes count). A size read from the text keeps its estimate in `est_material` and leaves `material` empty."""
+    out = _size(sym, kind, text, value, unit, due, made, bases, target)
+    if out.get("src") == "parsed":
+        out["est_material"], out["material"] = out.get("material"), None
+    return out
+
+
+def _size(sym: str, kind: str | None, text: str, value, unit: str | None, due, made, bases: Bases, target: dict | None = None) -> dict:
+    """Type, base, size and materiality of one forward statement (see the module docstring). With Narrativ.ai's verified
+    `target` the figures are hers (src "narrativ"); without it they are read from the text (src "parsed", provisional: the
+    next review records the target)."""
     md = _d(made)
-    ftype, measure = classify(text, kind, unit)
+    tg = target if isinstance(target, dict) and target.get("measure") else None
+    if tg:
+        ftype, measure, t_amt, per = _from_target(tg)
+        per = per or fiscal_end(text, due, md)
+    else:
+        ftype, measure = classify(text, kind, unit)
+        t_amt, per = None, fiscal_end(text, due, md)
     out = {"ftype": ftype, "measure": measure, "period": None, "amount": None, "base": None, "size_pct": None,
-           "trend_pct": None, "material": None, "direction": None, "why": None}
-    per = fiscal_end(text, due, md)
+           "trend_pct": None, "material": None, "direction": None, "why": None, "src": "narrativ" if tg else "parsed"}
     out["period"] = str(per) if per else None
     fy = bases.fy(sym, md) if ftype == "financial" else {}
     last = max(fy) if fy else None
@@ -224,6 +283,9 @@ def size_item(sym: str, kind: str | None, text: str, value, unit: str | None, du
     pc = percent(text)
     if pc is None and unit == "%" and isinstance(value, (int, float)):
         pc = float(value)
+    if tg:  # her figures, never the text's
+        rs = t_amt if str(tg.get("unit") or "").lower() in ("cr", "crore", "crores", "₹ cr") else None
+        pc = t_amt if str(tg.get("unit") or "") in ("%", "pct") else None
 
     def done(size, mat, direction=None, base=None, tr=None, amount=None):
         out.update({"size_pct": None if size is None else round(size, 1), "material": None if mat is None else int(mat),
@@ -241,6 +303,10 @@ def size_item(sym: str, kind: str | None, text: str, value, unit: str | None, du
         tr = trend(key.get(what, "rev")) if what in key or what == "aum" else None  # lenders: AUM against the revenue trend
         mat = pc >= FLOOR_GROWTH and (tr is None or pc >= tr + TREND_MARGIN)
         return done(pc, mat, tr=tr, amount=pc)
+    if measure == "capacity" and tg and tg.get("now") and t_amt is not None:
+        now = float(tg["now"])
+        ch = (t_amt / now * 100) if tg.get("adds") else (t_amt / now - 1) * 100
+        return done(ch, ch >= CAPACITY_PCT, base=now, amount=t_amt)
     if ftype != "financial":
         out["why"] = "base not in the filings (needs the current figure quoted by management)" if measure in ("capacity", "growth:volume", "other") \
             else "no number to size" if ftype == "event" else "not sized"
@@ -248,7 +314,7 @@ def size_item(sym: str, kind: str | None, text: str, value, unit: str | None, du
     if not fy or rev is None or rev <= 0:
         out["why"] = "no full fiscal year filed before the statement"
         return out
-    if measure == "revenue" and rs is not None and rs < PART_OF * rev:
+    if measure == "revenue" and not tg and rs is not None and rs < PART_OF * rev:
         measure = out["measure"] = "part"  # a division / plant figure (TALBROAUTO forging Rs345 cr vs Rs870 cr company revenue)
     if measure in key:
         if rs is None:
@@ -323,7 +389,8 @@ def rows_from_theses(theses: dict) -> list[dict]:
         for i, x in enumerate(t.get("drivers") or []):
             if x.get("text"):
                 out.append({"id": f"{s}|d{i}", "sym": s, "origin": "claude", "kind": x.get("kind"), "text": x["text"], "value": x.get("value"),
-                            "unit": x.get("unit"), "due": x.get("due"), "made": x.get("date"), "verified": bool(x.get("due_verified"))})
+                            "unit": x.get("unit"), "due": x.get("due"), "made": x.get("date"), "verified": bool(x.get("due_verified")),
+                            "target": x.get("target")})
         for x in t.get("promises") or []:
             if x.get("promise"):
                 out.append({"id": f"{s}|p:{x.get('id') or x['promise'][:40]}", "sym": s, "origin": "promise", "kind": x.get("kind"),
@@ -336,20 +403,24 @@ def annotate(rows: list[dict], bases: Bases | None = None) -> list[dict]:
     """Size every row and link versions; returns the rows with the ledger fields added."""
     bases = bases or Bases()
     for r in rows:
-        r.update(size_item(r["sym"], r.get("kind"), r["text"], r.get("value"), r.get("unit"), r.get("due"), r.get("made"), bases))
+        r.update(size_item(r["sym"], r.get("kind"), r["text"], r.get("value"), r.get("unit"), r.get("due"), r.get("made"), bases,
+                           r.get("target")))
     return link(rows)
 
 
 def build(theses: dict, today: date, fins: dict | None = None) -> dict:
     """data/ledger.json: Narrativ.ai's forward items with type, size, materiality and lineage; summary counts."""
     rows = annotate(rows_from_theses(theses), Bases(fins))
-    keep = ("id", "sym", "origin", "text", "due", "made", "verified", "status", "ftype", "measure", "period", "amount", "base",
-            "size_pct", "trend_pct", "material", "direction", "why", "prev", "change")
+    keep = ("id", "sym", "origin", "text", "due", "made", "verified", "status", "src", "ftype", "measure", "period", "amount", "base",
+            "size_pct", "trend_pct", "material", "est_material", "direction", "why", "prev", "change", "target")
     items = [{k: r.get(k) for k in keep if r.get(k) is not None} for r in rows]
     summ = {"items": len(items),
             "by_type": {t: sum(1 for r in rows if r["ftype"] == t) for t in ("financial", "operational", "event")},
             "sized": sum(1 for r in rows if r.get("size_pct") is not None),
             "material": sum(1 for r in rows if r.get("material") == 1),
+            "est_material_parsed": sum(1 for r in rows if r.get("est_material") == 1),
+            "from_target": sum(1 for r in rows if r.get("src") == "narrativ"),
+            "material_from_target": sum(1 for r in rows if r.get("src") == "narrativ" and r.get("material") == 1),
             "linked": sum(1 for r in rows if r.get("prev")),
             "changes": {c: sum(1 for r in rows if r.get("change") == c) for c in ("raised", "lowered", "reaffirmed", "restated")}}
     doc = {"date": str(today), "rule": "ledger stage 1 (2026-11-27)", "thresholds": {
