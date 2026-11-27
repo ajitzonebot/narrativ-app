@@ -1,5 +1,15 @@
 [
  {
+  "version": "2.32.7",
+  "date": "2026-11-27",
+  "changes": [
+   {
+    "type": "improved",
+    "text": "A Buy whose research is not complete stays a Buy but shows no verified badge; its page says \"Research incomplete\""
+   }
+  ]
+ },
+ {
   "version": "2.32.6",
   "date": "2026-11-27",
   "changes": [

@@ -134,7 +134,9 @@ import kotlinx.serialization.json.JsonPrimitive
                                   val decisions: Map<String, Int> = emptyMap())
 /** missing: why the stock is not (yet) a verified Buy, most specific reason first ("Not rated" reasons). */
 @Serializable data class Decision(val d: String = "Not rated", val why: List<String> = emptyList(), val missing: List<String> = emptyList(),
-                                  val verified: String? = null, val candidate: String? = null)
+                                  val verified: String? = null, val candidate: String? = null,
+                                  // RULES.md R8: what Claude's research still lacks; a Buy shows no verified badge until it is empty
+                                  val incomplete: List<String> = emptyList())
 @Serializable data class Cp2(val type: String? = null, val due: String? = null, val what: String? = null, val status: String? = null)
 @Serializable data class Out(val l: Int = 0, val w: String? = null)
 
@@ -147,7 +149,7 @@ import kotlinx.serialization.json.JsonPrimitive
     val vd: String = "", val pr: Double = 0.0, val turn: Boolean = false, val ext: Boolean = false, val gn: Map<String, String> = emptyMap(),
     val out: Out? = null, val why: String? = null, val su: String? = null, val bt: String? = null, val up: Double? = null, val na: Int? = null,
     val sp: List<Double> = emptyList(), val r: Boolean = false, val ss: String? = null, val cp: List<Cp2> = emptyList(),
-    val tags: List<String> = emptyList(), val bq: Int? = null, val dc: String? = null, val ld: String? = null, val vf: String? = null, val af: Int? = null,
+    val tags: List<String> = emptyList(), val bq: Int? = null, val dc: String? = null, val ld: String? = null, val vf: String? = null, val ic: Int? = null, val af: Int? = null,
     val cand: String? = null, val rk: Int? = null, val mb: Boolean = false, val cv: String? = null, val tb: Int? = null,
     /** 50-day above the 200-day today (1 / 0) and trading days since the latest cross in the chart's year (feedback #170). */
     val ma: Int? = null, val gx: Int? = null,

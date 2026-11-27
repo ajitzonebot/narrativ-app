@@ -175,6 +175,9 @@ def main(before: str | None) -> None:
         det["decision"] = nd
         r = rows[s]
         r["dc"], r["vf"] = nd["d"], nd.get("verified")
+        r.pop("ic", None)
+        if nd.get("incomplete"):  # RULES.md R8: a Buy without the verified badge until the research is complete
+            r["ic"] = 1
         r.pop("cand", None)
         if nd.get("candidate"):
             r["cand"] = nd["candidate"]

@@ -1999,14 +1999,23 @@ def apply_buy_rules(d0: dict, Mx: dict, lender: bool, L: dict, th: dict | None, 
         d0 = {k: x for k, x in d0.items() if k != "candidate"} | {
             "d": "Hold", "gates": g, "gated_label": label,
             "why": [f"Scores say {label}, but the Buy rules are not met (RULES.md):"] + g + [w for w in d0.get("why", []) if not w.startswith("Rules say")]}
-    elif d0.get("d") in BUY:  # a passed review that lacks what R7 / R8 require is not yet a verification
-        miss = r7_missing((th or {}).get("audit"), Mx, lender, L) + research_missing(th)
+    elif d0.get("d") in BUY:  # a passed review that lacks what R7 requires is not yet a verification
+        d0 = {k: x for k, x in d0.items() if k != "incomplete"}
+        d0["missing"] = [m for m in d0.get("missing") or [] if not m.startswith("Research incomplete")]
+        miss = r7_missing((th or {}).get("audit"), Mx, lender, L)
         if miss:
             d0 = {**d0, "d": "Hold", "candidate": label, "verified": "pending",
-                  "why": [f"Rules say {label}: Narrativ.ai's review passed but the research is not complete yet (RULES.md R7, R8)"]
+                  "why": [f"Rules say {label}: Narrativ.ai's review passed but does not yet cover RULES.md R7"]
                   + [w for w in d0.get("why", []) if not w.startswith(VERIFIED_BY)],
                   "missing": [m for m in d0.get("missing") or [] if not m.startswith("Verification pending")]
                   + [f"Verification pending: {m}" for m in miss]}
+        # R8 (owner, 27 Nov 2026): the stock stays a Buy, but without the verified badge until Claude's research is complete
+        # ("let them still be Buy, let's just not show the verified badge"); the review queue takes it first with its gaps
+        elif gaps := research_missing(th):
+            d0 = {**d0, "incomplete": gaps,
+                  "why": [w for w in d0.get("why", []) if not w.startswith(VERIFIED_BY)]
+                  + ["Narrativ.ai's review passed; the full story is not complete yet, so no verified badge (RULES.md R8)"],
+                  "missing": d0["missing"] + [f"Research incomplete: {m}" for m in gaps]}
     return d0
 
 

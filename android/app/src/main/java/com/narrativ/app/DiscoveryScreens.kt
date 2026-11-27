@@ -83,7 +83,8 @@ fun gainColor(v: Double?): Color = if ((v ?: 0.0) >= 0) TierC.lightGreen else Ti
 fun setupLabel(su: String?): String = setupName(su)
 
 /** Verified by Claude: the verification of the rating passed. */
-fun P.verified(): Boolean = vf == "pass"
+// RULES.md R8 (owner, 27 Nov 2026): a Buy whose research is not complete (ic) stays a Buy but shows no verified badge
+fun P.verified(): Boolean = vf == "pass" && ic == null
 
 /** Researched by Claude: in research.json, or carries a review verdict. "pending" alone is not research: every scored stock
  *  without a review carries it (557 of 789 "Researched" stocks on 27 Nov 2026 had no research). */

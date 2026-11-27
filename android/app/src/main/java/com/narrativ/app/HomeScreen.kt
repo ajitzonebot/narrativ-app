@@ -485,7 +485,7 @@ fun InfoButton(onClick: () -> Unit) {
 @Composable
 fun TopTenInfoSheet(st: AppState, top: List<P>, rp: ReplayFile?, onEvidence: () -> Unit, onDismiss: () -> Unit) {
     BottomSheet(onDismiss, "About today's Top 10") {
-        T(run { val nv = st.picks?.picks?.count { it.dc in setOf("Buy", "Strong Buy") && it.vf == "pass" } ?: top.size
+        T(run { val nv = st.picks?.picks?.count { it.dc in setOf("Buy", "Strong Buy") && it.verified() } ?: top.size
             "Verified Buys only, at most 2 per industry, ranked by readiness. $nv verified Buy${if (nv == 1) "" else "s"} today, ${top.size} in the Top 10." }, 13.sp, lineHeight = 18.sp)
         rp?.let { r ->
             val cur = r.variants["current rules"]; val any = r.baselines["every stock scored"]
