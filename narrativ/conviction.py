@@ -193,6 +193,48 @@ def _target_key(text: str, due) -> tuple:
     return str(due)[:10], max(ns) if ns else _norm(text)[:30]
 
 
+# words that say nothing about which target it is (time, currency, filler); dates are compared separately
+_STOP = set("""the a an of to and in on for by at be is are was with than from as this that its it our we will would should
+    next last current previous financial year yearly years fy end before after about around expected expect targeted target
+    targets aims aim plan plans likely by till until crore crores cr inr rs lakh million billion january february march april
+    may june july august september october november december jan feb mar apr jun jul aug sep sept oct nov dec quarter""".split())
+_TOK = re.compile(r"[a-z]+|\d[\d,]*\.?\d*")
+SAME_DAYS = 92  # one target dated at the period end and again at its results date (MPSLTD 31 Mar / 31 May 2027)
+
+
+def _words(text: str) -> set:
+    """Content words cut to 5 letters (commissioning / commissioned, complete / completed), numbers without commas; years and
+    FY tags dropped."""
+    out = set()
+    txt = re.sub(r"\bfy\s?'?\d{2,4}\b|'\d\d\b|\b(?:cy|h[12])\s?\d{2,4}\b", " ", str(text or "").lower().replace("₹", " "))
+    for t in _TOK.findall(txt):
+        t = t.replace(",", "")
+        if t in _STOP:
+            continue
+        if t[0].isdigit():
+            if _YEAR.match(t.split(".")[0]):
+                continue
+            out.add(t)
+        elif len(t) > 1:
+            out.add(t[:5])
+    return out
+
+
+def _same_target(a: dict, b: dict) -> bool:
+    """The same management target quoted twice in different words or with a different due date (owner, 27 Nov 2026: SARDAEN's
+    coal mine, CAPLIPOINT's COL-II plant, MPSLTD's FY27 EBITDA, ASAHISONG's Q3, SOMANYCERA's growth guidance were each counted
+    twice): due dates within SAME_DAYS, most of the shorter statement's words in the longer one, no conflicting figure."""
+    da, db = _d(a["due"]), _d(b["due"])
+    if not da or not db or abs((da - db).days) > SAME_DAYS:
+        return False
+    wa, wb = _words(a["text"]), _words(b["text"])
+    na, nb = {w for w in wa if w[0].isdigit()}, {w for w in wb if w[0].isdigit()}
+    if na and nb and not (na & nb):  # both give figures and none agree: two targets (50 MW vs 100 MW)
+        return False
+    small = min(len(wa), len(wb))
+    return small >= 3 and len(wa & wb) / small >= 0.6
+
+
 def management_targets(th: dict, today: date) -> list[dict]:
     """Quoted management targets / guidance whose due date the verifier confirmed, due within TARGET_YEARS."""
     end = today + timedelta(days=365 * TARGET_YEARS)
@@ -208,7 +250,12 @@ def management_targets(th: dict, today: date) -> list[dict]:
         if k in seen:
             continue
         seen.add(k)
-        out.append({"text": str(text).rstrip("."), "due": str(due)[:10], "better": status in ("raised", "beat", "delivered")})
+        row = {"text": str(text).rstrip("."), "due": str(due)[:10], "better": status in ("raised", "beat", "delivered")}
+        twin = next((x for x in out if _same_target(x, row)), None)
+        if twin:
+            twin["better"] = twin["better"] or row["better"]  # a raised / delivered restatement keeps its bonus
+            continue
+        out.append(row)
     return out
 
 

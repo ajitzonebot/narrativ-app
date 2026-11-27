@@ -1,11 +1,57 @@
 {
- "versionCode": 94,
- "versionName": "2.32.2",
+ "versionCode": 95,
+ "versionName": "2.32.3",
  "date": "2026-11-27",
- "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.32.2-b94/narrativ-v2.32.2-b94.apk",
+ "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.32.3-b95/narrativ-v2.32.3-b95.apk",
  "sizeMb": 12.3,
- "sha256": "def70820602f2d7428d01d4c3610e5bceb586be1efd1b8c7b44017f03983fe4d",
+ "sha256": "72e7ea697b4a072ebe4b71e25a127698186298d79978e8209900ef5a37db0069",
  "changelog": [
+  {
+   "version": "2.32.3",
+   "date": "2026-11-27",
+   "changes": [
+    {
+     "type": "improved",
+     "text": "Summary: the decision, its two lines and a green verified seal sit on one band, the height of the decision word"
+    },
+    {
+     "type": "improved",
+     "text": "Why Buy: the decision and the conviction side by side, conviction in its level colour with the score out of 100; the signals show their points"
+    },
+    {
+     "type": "improved",
+     "text": "Stocks: solid decision tags, the green seal on verified stocks only, conviction as a word, no setup words on the row"
+    },
+    {
+     "type": "new",
+     "text": "Stocks: a High conviction Buy chip, and a Conviction row in Filters"
+    },
+    {
+     "type": "improved",
+     "text": "Settings: Research queue in Settings; IPO alerts, Paper look, Feedback and Access key moved to Advanced"
+    },
+    {
+     "type": "improved",
+     "text": "Data and pipeline on one screen: a status card, the sources as a grid, and tabs for problems, schedule, runs and details"
+    },
+    {
+     "type": "improved",
+     "text": "Pop-ups (Why Buy, Narrativ.ai's research, level details) without dotted divider lines"
+    },
+    {
+     "type": "fixed",
+     "text": "Why Buy \u203a Management: labels and text on one line"
+    },
+    {
+     "type": "improved",
+     "text": "Summary: overall score ring a little smaller"
+    },
+    {
+     "type": "fixed",
+     "text": "Stocks \u203a Researched filter and the outline tick count only stocks Narrativ.ai has researched (it also counted every stock waiting for a review)"
+    }
+   ]
+  },
   {
    "version": "2.32.2",
    "date": "2026-11-27",

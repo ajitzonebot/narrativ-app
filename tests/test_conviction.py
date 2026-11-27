@@ -196,3 +196,38 @@ def test_beat_and_delivered_targets_count_with_bonus():
                                       {"due": "2027-09-30", "due_verified": True, "status": "pending", "promise": "Plant of 500 tonnes by Sep 2027"}])
     t = CV.management_targets(th, TODAY)
     assert len(t) == 2 and [x["better"] for x in t] == [True, False]
+
+
+def _tg(*rows):
+    """Drivers (text, due) as verified management targets."""
+    return CV.management_targets(thesis(drivers=[{"due": d, "due_verified": True, "text": t} for t, d in rows], promises=[]), TODAY)
+
+
+def test_same_target_in_other_words_counts_once():
+    # owner, 27 Nov 2026: each pair below was counted twice
+    assert len(_tg(("Shahpur West coal mine commissioning targeted before the end of the current financial year", "2027-03-31"),
+                   ("Shahpur West coal mine commissioned before the end of the current financial year", "2027-03-31"))) == 1
+    assert len(_tg(("COL-II sterile facility construction to complete by Aug '27, housing 5 injectable lines", "2027-08-31"),
+                   ("COL-II sterile facility at Gummidipoondi completed by August 2027", "2027-08-31"))) == 1
+    assert len(_tg(("FY27 revenue growth guidance kept at high single digits", "2027-03-31"),
+                   ("Yearly growth guidance kept at high single digits", "2027-03-31"))) == 1
+
+
+def test_same_target_at_period_end_and_results_date_counts_once():
+    assert len(_tg(("FY27 EBITDA floor raised to at least INR 310 crores", "2027-03-31"),
+                   ("FY27 EBITDA of at least INR 310 crores", "2027-05-31"))) == 1
+    assert len(_tg(("Q3 FY27 expected to be significantly better than Q3 of last year", "2026-12-31"),
+                   ("Q3 significantly better than Q3 of the previous year", "2027-02-14"))) == 1
+
+
+def test_different_targets_stay_apart():
+    assert len(_tg(("50 MW captive solar plant commissioned", "2027-03-31"), ("100 MW captive solar plant commissioned", "2027-03-31"))) == 2
+    assert len(_tg(("Shahpur West coal mine commissioning", "2027-03-31"), ("50 MW captive solar project commissioned", "2027-03-31"))) == 2
+    assert len(_tg(("Plant A commissioning by March", "2027-03-31"), ("Plant A commissioning by March", "2027-12-31"))) == 2  # 9 months apart
+
+
+def test_restated_target_keeps_raised_bonus():
+    th = thesis(drivers=[{"due": "2027-03-31", "due_verified": True, "text": "FY27 EBITDA of at least INR 310 crores"}],
+                promises=[{"due": "2027-05-31", "due_verified": True, "status": "raised", "promise": "FY27 EBITDA floor raised to at least INR 310 crores"}])
+    t = CV.management_targets(th, TODAY)
+    assert len(t) == 1 and t[0]["better"]
