@@ -853,7 +853,8 @@ fun DecisionDetailsSheet(st: AppState, sym: String, p: P?, det: Detail?, onDismi
                 cv.size?.let { T("· $it position", 13.sp, C.dim, modifier = Modifier.padding(bottom = 3.dp)) }
             }
             Row(Modifier.fillMaxWidth().padding(top = 6.dp).height(7.dp), horizontalArrangement = Arrangement.spacedBy(1.dp)) {
-                listOf(40f to "Low", 15f to "Medium", 45f to "High")  // v4 bands (owner, 27 Nov 2026): High 55+, Medium 40-54.forEach { (w, l) ->
+                // v4 bands (owner, 27 Nov 2026): High 55+, Medium 40-54
+                listOf(40f to "Low", 15f to "Medium", 45f to "High").forEach { (w, l) ->
                     val c = if (l == "High") TierC.lightGreen else if (l == "Low") TierC.lightRed else TierC.yellow
                     Box(Modifier.weight(w).fillMaxHeight().background(c.copy(alpha = if (l == cvLevel) 0.95f else 0.22f)))
                 }
