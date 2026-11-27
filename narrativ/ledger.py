@@ -48,7 +48,8 @@ _RS = re.compile(rf"(?:₹|rs\.?|inr)\s*({_NUM})(?:\s*(?:to|-|–|—)\s*(?:₹|
                  rf"({_NUM})(?:\s*(?:to|-|–|—)\s*({_NUM}))?\s*(crores?|cr\b)", re.I)
 _RANGE_TAIL = re.compile(rf"\s*(?:to|-|–|—)\s*(?:₹|rs\.?|inr)?\s*({_NUM})\s*(?:crores?|cr\b)", re.I)
 _PCT = re.compile(rf"({_NUM})\s*%?(?:\s*(?:to|-|–|—)\s*({_NUM}))?\s*%", re.I)
-_FY = re.compile(r"\bfy\s?'?(\d{2,4})(?:\s*[-–/]\s*'?(\d{2,4}))?\b", re.I)
+_FY = re.compile(r"(?<![a-z])(?:fy|f\.y\.|(?:financial|fiscal)\s+year)\s?['’]?\s?(\d{2,4})(?:\s*[-–/]\s*['’]?(\d{2,4}))?(?!\d)", re.I)
+_APOS_YR = re.compile(r"['’](\d{2})(?!\d)")  # "Aug ’27", "Q4 of '27": a calendar or fiscal year, read as either
 _RANGE_FY = re.compile(r"\bfy\s?'?(\d{2})\s*(?:-|–|to)\s*(\d{2})\b", re.I)
 
 # measure words (checked on the lower-cased text, in this order)
@@ -146,6 +147,9 @@ def fiscal_years(text: str) -> set:
     for m in re.finditer(r"(?<!\d)(20\d\d)(?!\d)", text or ""):
         y = int(m.group(1))
         out |= {y, y + 1}
+    for m in _APOS_YR.finditer(_FY.sub(" ", text or "")):
+        y = 2000 + int(m.group(1))
+        out |= {y, y + 1}
     return out
 
 
@@ -220,6 +224,12 @@ def _cagr(a, b, years):
     return ((b / a) ** (1 / years) - 1) * 100
 
 
+# rupee units a target may be recorded in -> crore (USD and other currencies are not converted: sized as unknown)
+TO_CR = {"cr": 1.0, "crore": 1.0, "crores": 1.0, "rs cr": 1.0, "lakh": 0.01, "lakhs": 0.01, "rs lakh": 0.01, "mn": 0.1,
+         "million": 0.1, "rs mn": 0.1, "bn": 100.0, "billion": 100.0, "rs bn": 100.0, "lakh cr": 1e5, "lakh crore": 1e5,
+         "rs": 1e-7, "rupees": 1e-7}
+
+
 def _from_target(t: dict) -> tuple[str, str, float | None, date | None]:
     """(ftype, measure, amount, period) from Narrativ.ai's verified target (verify.target_check)."""
     m, of = t.get("measure"), str(t.get("of") or "company")
@@ -284,7 +294,8 @@ def _size(sym: str, kind: str | None, text: str, value, unit: str | None, due, m
     if pc is None and unit == "%" and isinstance(value, (int, float)):
         pc = float(value)
     if tg:  # her figures, never the text's
-        rs = t_amt if str(tg.get("unit") or "").lower() in ("cr", "crore", "crores", "₹ cr") else None
+        k = TO_CR.get(str(tg.get("unit") or "").lower().replace("₹", "").replace("inr", "").strip())
+        rs = t_amt * k if k is not None and t_amt is not None else None
         pc = t_amt if str(tg.get("unit") or "") in ("%", "pct") else None
 
     def done(size, mat, direction=None, base=None, tr=None, amount=None):
@@ -303,6 +314,8 @@ def _size(sym: str, kind: str | None, text: str, value, unit: str | None, due, m
         tr = trend(key.get(what, "rev")) if what in key or what == "aum" else None  # lenders: AUM against the revenue trend
         mat = pc >= FLOOR_GROWTH and (tr is None or pc >= tr + TREND_MARGIN)
         return done(pc, mat, tr=tr, amount=pc)
+    if measure == "capacity" and tg and tg.get("adds") and str(tg.get("unit")) == "%" and t_amt is not None:
+        return done(t_amt, t_amt >= CAPACITY_PCT, amount=t_amt)  # "a 20-30% capacity addition"
     if measure == "capacity" and tg and tg.get("now") and t_amt is not None:
         now = float(tg["now"])
         ch = (t_amt / now * 100) if tg.get("adds") else (t_amt / now - 1) * 100
@@ -329,6 +342,9 @@ def _size(sym: str, kind: str | None, text: str, value, unit: str | None, due, m
         tr = trend(key[measure])
         mat = g is not None and g >= FLOOR_GROWTH and (tr is None or g >= tr + TREND_MARGIN)
         return done(g, mat, base=b, tr=tr, amount=rs)
+    if measure == "margin" and tg and (tg.get("adds") or str(tg.get("unit") or "").lower() == "bps") and t_amt is not None:
+        ch = t_amt / 100 if str(tg.get("unit") or "").lower() == "bps" else t_amt  # an uplift: "100 bps", "3-4% margin benefit"
+        return done(ch, abs(ch) >= MARGIN_PTS, amount=t_amt)
     if measure == "margin":
         e = L.get("ebitda")
         if pc is None or e is None:
@@ -382,18 +398,24 @@ def link(items: list[dict]) -> list[dict]:
     return items
 
 
+def item_id(sym: str, origin: str, key: list) -> str:
+    """The same id as D1 forward_item (dbsync.forward): stable while the statement's text and due date do not change."""
+    from .util import digest
+    return digest([sym, origin, key], 20)
+
+
 def rows_from_theses(theses: dict) -> list[dict]:
     """Narrativ.ai's drivers and tracked promises as ledger inputs (the free readers' rows are sized in dbsync only)."""
     out = []
     for s, t in (theses or {}).items():
-        for i, x in enumerate(t.get("drivers") or []):
+        for x in t.get("drivers") or []:
             if x.get("text"):
-                out.append({"id": f"{s}|d{i}", "sym": s, "origin": "claude", "kind": x.get("kind"), "text": x["text"], "value": x.get("value"),
+                out.append({"id": item_id(s, "claude", [x["text"], x.get("due")]), "sym": s, "origin": "claude", "kind": x.get("kind"), "text": x["text"], "value": x.get("value"),
                             "unit": x.get("unit"), "due": x.get("due"), "made": x.get("date"), "verified": bool(x.get("due_verified")),
                             "target": x.get("target")})
         for x in t.get("promises") or []:
             if x.get("promise"):
-                out.append({"id": f"{s}|p:{x.get('id') or x['promise'][:40]}", "sym": s, "origin": "promise", "kind": x.get("kind"),
+                out.append({"id": item_id(s, "promise", [x.get("id") or x["promise"]]), "sym": s, "origin": "promise", "kind": x.get("kind"),
                             "text": x["promise"], "value": None, "unit": None, "due": x.get("due"), "made": x.get("made_on"),
                             "status": x.get("status"), "verified": bool(x.get("due_verified"))})
     return out

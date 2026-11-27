@@ -1150,6 +1150,8 @@ def main(limit: int | None) -> None:
     try:  # forward ledger stage 1: Narrativ.ai's targets typed, sized against filed numbers, material or not, versions linked
         from narrativ import ledger
         print(f"[ledger] {ledger.build(theses, today, fins)}")
+        from narrativ import monitor  # stage 2: progress, resolution, restatements and silent drops of verified targets
+        print(f"[ledger monitor] {monitor.run(theses, today, fins)}")
     except Exception as e:  # noqa: BLE001
         print(f"[ledger] failed: {e}")
     alerts.send([p for p in picks if not p.get("out")][:60], newly_due_all, changes, new_events)

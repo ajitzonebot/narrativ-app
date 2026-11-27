@@ -203,7 +203,9 @@ def upsert_changed(st: Store, man: Manifest, table: str, cols: list[str], rows: 
 
 # forward_item columns added by the forward ledger, stage 1 (narrativ/ledger.py, 27 Nov 2026)
 FWD_NEW = (("ftype", "TEXT"), ("measure", "TEXT"), ("period", "TEXT"), ("amount", "REAL"), ("base", "REAL"), ("size_pct", "REAL"),
-           ("trend_pct", "REAL"), ("material", "INTEGER"), ("size_why", "TEXT"), ("prev_id", "TEXT"), ("change", "TEXT"))
+           ("trend_pct", "REAL"), ("material", "INTEGER"), ("size_why", "TEXT"), ("prev_id", "TEXT"), ("change", "TEXT"),
+           # stage 2 (narrativ/monitor.py): progress at the last filing, its projection, and the outcome once the year is filed
+           ("progress", "TEXT"), ("projected", "REAL"), ("outcome", "TEXT"))
 SNAP_NEW = (("decision", "TEXT"), ("candidate", "TEXT"), ("verified", "TEXT"), ("rk", "INTEGER"), ("mb", "INTEGER"), ("conviction", "TEXT"))
 
 
@@ -482,6 +484,21 @@ def sync(today: date, s0i, btypes: dict, lender: dict, picks: list, details: dic
             return upsert_changed(st, man, "checkpoint", ["id", "isin", "type", "due", "what", "expected", "source", "status", "resolved_on", "outcome"],
                                   rows, ["isin", "id"])[0]
 
+        def signals():
+            """forward_signal: the ledger monitor's signals (narrativ/monitor.py), append-only; today's rows only."""
+            p = Path("data/ledger_signals.json")
+            if not p.exists():
+                return 0
+            rows = []
+            for x in json.loads(p.read_text()).get("signals", []):
+                i = isin.get(x.get("sym"))
+                if i and x.get("date") == d:
+                    rows.append([digest([x["date"], x["item"], x["kind"], x["status"]], 20), i, x["item"], x["date"], x["kind"],
+                                 x["status"], x["dir"], x.get("material"), x.get("measure"), x.get("text"),
+                                 json.dumps(x.get("detail"), separators=(",", ":"), ensure_ascii=False)])
+            return upsert_changed(st, man, "forward_signal", ["id", "isin", "item_id", "date", "kind", "status", "dir", "material", "measure",
+                                                              "text", "detail"], rows, ["id"])[0]
+
         def verdicts():
             """priority: the funnel priority (run.py ev[s]["pr"]) on the verdict's date, from the stock's memory snapshots
             (kept 400 days) or today's pick; NULL for an older change whose snapshot is gone."""
@@ -573,8 +590,14 @@ def sync(today: date, s0i, btypes: dict, lender: dict, picks: list, details: dic
             except Exception as e:  # noqa: BLE001
                 print(f"[store] ledger sizing skipped: {e}")
             lf = ("ftype", "measure", "period", "amount", "base", "size_pct", "trend_pct", "material", "why", "prev", "change")
+            try:
+                mon = json.loads(Path("data/ledger_state.json").read_text()).get("items", {})
+            except Exception:  # noqa: BLE001
+                mon = {}
             for row, r in zip(rows, led):
-                row.extend(r.get(k) for k in lf)
+                pg = (mon.get(r["id"]) or {}).get("progress") or {} if r["grp"] == "narrativ" else {}
+                row.extend([*(r.get(k) for k in lf), pg.get("status"), pg.get("projected", pg.get("actual")),
+                            (mon.get(r["id"]) or {}).get("outcome") if r["grp"] == "narrativ" else None])
             seen, uniq = set(), []
             for r in rows:
                 if r[0] not in seen:
@@ -638,7 +661,7 @@ def sync(today: date, s0i, btypes: dict, lender: dict, picks: list, details: dic
 
         # daily essentials first (new events and filings included); the history backfills use what is left, each capped
         for name, fn in (("snapshot", snapshot), ("stock_detail", detail), ("market_day", market), ("research", research),
-                         ("checkpoint", checkpoint), ("forward_item", forward), ("narrativ_sheet", sheets), ("verdict_log", verdicts),
+                         ("checkpoint", checkpoint), ("forward_item", forward), ("forward_signal", signals), ("narrativ_sheet", sheets), ("verdict_log", verdicts),
                          ("company", company), ("document", document), ("event", event), ("quarter", quarter),
                          ("industry_breadth", capped(breadth)), ("event_backfill", event_backfill)):
             step(name, fn)

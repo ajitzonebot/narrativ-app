@@ -1751,8 +1751,9 @@ AUDITED = ("drivers", "scan", "story", "integrity", "other_income_recurring")
 
 
 def _canon(o):
-    if isinstance(o, dict):  # dates of saying / scanning are not content: a re-scan that changes nothing is not a change
-        return {k: _canon(x) for k, x in sorted(o.items()) if k not in ("date", "updated")}
+    if isinstance(o, dict):  # dates of saying / scanning are not content: a re-scan that changes nothing is not a change; a
+        # driver's `target` (forward ledger, 27 Nov 2026) only labels the audited quote and is checked against it by the verifier
+        return {k: _canon(x) for k, x in sorted(o.items()) if k not in ("date", "updated", "target")}
     if isinstance(o, list):
         return [_canon(x) for x in o]
     return o
