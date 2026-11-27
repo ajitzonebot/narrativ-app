@@ -24,6 +24,8 @@ from narrativ import filings as F
 DIR = Path("data/financials_hist")
 VERSION = 1
 FROM_QE = "2019-03-31"  # owner, 27 Nov 2026 (cut the load): quarters from Mar 2019, 3 years of history for 2022-2024 starts
+MAX_TRIES = 3  # a stock whose listing or files keep failing is closed after 3 runs (status says what is missing)
+STOP_EMPTY = 10  # this many listings in a row empty or failed: NSE is likely refusing us, stop the chunk
 SCOPE = Path("data/benchmark/histfin_symbols.json")  # liquid NSE stocks (Rs 1 crore a day at some point in 2020-2024)
 
 
@@ -41,13 +43,18 @@ def backfill(sym: str, ns: F.NSESession) -> dict:
     basis = live.get("basis")
     rec = load(sym) or {"symbol": sym, "quarters": {}}
     rows = F._listings(ns, sym[:-3]) or F._listings(ns, sym[:-3], index="sme")
+    rec["tries"] = rec.get("tries", 0) + 1
     if not rows:
-        rec.update({"status": "no NSE filings", "done": VERSION, "checked": datetime.now(timezone.utc).isoformat()})
+        # an empty listing is final only when the daily store also found none; otherwise NSE may be refusing us: retry later
+        final = live.get("status") == "no NSE filings" or rec["tries"] >= MAX_TRIES
+        rec.update({"status": "no NSE filings" if final else "listing empty (retry)", "done": VERSION if final else None,
+                    "checked": datetime.now(timezone.utc).isoformat()})
         return rec
     if not basis:  # no daily record: the same rule as filings.update, from the latest quarter
         latest = max(r["qe"] for r in rows)
         basis = "Consolidated" if any(r["basis"] == "Consolidated" for r in rows if r["qe"] == latest) else "Standalone"
     have_live = set((live.get("quarters") or {}))
+    missed = 0
     for r in sorted(rows, key=lambda r: r["qe"], reverse=True):
         if r["basis"] != basis or r["qe"] in have_live or r["qe"] < FROM_QE:
             continue
@@ -57,6 +64,7 @@ def backfill(sym: str, ns: F.NSESession) -> dict:
         txt = ns.get(r["url"], as_json=False)
         time.sleep(config.FILINGS_SLEEP_SEC)
         if not txt:
+            missed += 1  # download failed: not done, the next run retries (files already read are skipped)
             continue
         p = F.parse_xbrl(txt, declared=True)
         if not p or p.get("end") != r["qe"]:
@@ -68,7 +76,9 @@ def backfill(sym: str, ns: F.NSESession) -> dict:
                   "declared_ctx": '<xbrli:context id="OneD"' not in txt})
         rec["quarters"].setdefault(p["end"], {})[basis] = p
     rec["quarters"] = dict(sorted(rec["quarters"].items(), reverse=True))
-    rec.update({"basis": basis, "status": "ok", "done": VERSION, "checked": datetime.now(timezone.utc).isoformat()})
+    final = not missed or rec["tries"] >= MAX_TRIES
+    rec.update({"basis": basis, "status": "ok" if not missed else f"{missed} file(s) not downloaded",
+                "done": VERSION if final else None, "checked": datetime.now(timezone.utc).isoformat()})
     return rec
 
 
@@ -83,6 +93,7 @@ def run(symbols: list[str], minutes: float) -> dict:
     DIR.mkdir(parents=True, exist_ok=True)
     ns, t0, n = F.NSESession(), time.time(), 0
     todo = [s for s in symbols if load(s).get("done") != VERSION]
+    empty = 0
     for s in todo:
         if time.time() - t0 > minutes * 60:
             break
@@ -90,8 +101,13 @@ def run(symbols: list[str], minutes: float) -> dict:
             rec = backfill(s, ns)
         except Exception as e:  # noqa: BLE001
             print(f"[histfin] {s}: {e}", flush=True)
+            empty += 1
             continue
         _path(s).write_text(json.dumps(rec, separators=(",", ":")))
+        empty = empty + 1 if rec.get("status") == "listing empty (retry)" else 0
+        if empty >= STOP_EMPTY:
+            print(f"[histfin] {empty} empty listings in a row: NSE is likely refusing requests; stopping this chunk", flush=True)
+            break
         n += 1
         if n % 25 == 0:
             print(f"[histfin] {n}/{len(todo)} stocks, {ns.calls} requests, {time.time() - t0:.0f}s", flush=True)

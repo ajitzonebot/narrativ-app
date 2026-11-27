@@ -1,6 +1,6 @@
 # Benchmark history backfill (narrativ/histfin.py): NSE quarterly results filed before the daily store's 16 quarters,
 # read with the declared-period fallback. Research only; nothing the app reads changes. Resumable: each run does up to
-# 100 minutes and commits; the schedule repeats every 2 hours and does nothing once every stock is done.
+# 100 minutes in five 20-minute chunks, saving after each; the schedule repeats every 2 hours and does nothing once every stock is done.
 name: histfin
 
 on:
@@ -39,16 +39,28 @@ jobs:
           cache: pip
       - if: steps.left.outputs.n != '0'
         run: pip install -r requirements.txt
-      - name: Backfill
+      # saves after every 20-minute chunk (owner, 27 Nov 2026: "save at every step so a failure doesn't stop everything"):
+      # each stock's file is written as soon as it is read, and a failed chunk or push only loses that chunk
+      - name: Backfill and save every 20 minutes
         if: steps.left.outputs.n != '0'
         env:
           PYTHONUNBUFFERED: "1"
-        run: python -m narrativ.histfin --minutes 100
-      - name: Commit
-        if: steps.left.outputs.n != '0'
+          GIT_PUSH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          for i in 1 2 3 4 5; do
+            python -m narrativ.histfin --minutes 20 || echo "chunk $i: histfin stopped with an error; saving what it read"
+            bash scripts/publish.sh -m "data: history backfill $(TZ=Asia/Kolkata date '+%F %H:%M') IST" -- data/financials_hist || echo "chunk $i: save failed; the next chunk retries"
+            left=$(python3 -c "import json,pathlib as P;s=json.loads(P.Path('data/benchmark/histfin_symbols.json').read_text())['symbols'];f=lambda x:P.Path('data/financials_hist/'+x+'.json');print(sum(1 for x in s if not f(x).exists() or json.loads(f(x).read_text()).get('done')!=1))")
+            echo "chunk $i: $left stocks left"
+            [ "$left" = "0" ] && break
+          done
+      - name: Save on failure
+        if: failure() && steps.left.outputs.n != '0'
         env:
           GIT_PUSH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          bash scripts/publish.sh -m "data: history backfill $(TZ=Asia/Kolkata date '+%F %H:%M') IST" -- data/financials_hist
+          bash scripts/publish.sh -m "data: history backfill (saved after a failure) $(TZ=Asia/Kolkata date '+%F %H:%M') IST" -- data/financials_hist
