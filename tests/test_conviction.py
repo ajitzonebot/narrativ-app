@@ -47,10 +47,10 @@ def test_never_for_a_non_buy_or_an_unverified_buy():
 
 
 def test_score_adds_the_proofs():
-    # 2 dated targets 20 + checks 15 + quote matched 5 + breakout 10 + institutions 10 = 60: Medium, half position
+    # v4: 2 dated targets of unknown size 5 + 5, breakout 15, institutions 10 = 35 (checks passing give no points): Low
     r = run()
-    assert r["score"] == 60 and r["level"] == "Medium" and r["size"] == "half"
-    assert [p["k"] for p in r["proofs"]] == ["management", "checks", "setup", "institutions"]
+    assert r["score"] == 35 and r["level"] == "Low" and r["size"] == "quarter"
+    assert [p["k"] for p in r["proofs"]] == ["management", "setup", "institutions"]
     assert "No price or earnings signal live" in r["not_yet"]
     assert [c["id"] for c in r["checks"]] == [f"C{i}" for i in range(1, 8)]  # kept for app versions before 2.32
 
@@ -58,34 +58,35 @@ def test_score_adds_the_proofs():
 def test_strong_signals_reach_high():
     L = levels(triggers=("T11",))
     L["out"]["triggers"][0]["v"] = "+5.4% vs Nifty in 3 days after 2026-10-28 · profit +231% YoY"
-    r = run(L=L)
-    assert r["score"] == 72 and r["level"] == "High" and r["size"] == "full"
-    assert any(p["t"].startswith("Strong ") and p["pts"] == 12 for p in r["proofs"])
+    r = run(L=L, sym="X.NS", led=_led((1, 1)))   # material targets 30 + strong results beat 15 + breakout 15 + institutions 10
+    assert r["score"] == 70 and r["level"] == "High" and r["size"] == "full"
+    assert any(p["t"].startswith("Strong ") and p["pts"] == 15 for p in r["proofs"])
 
 
-def test_signals_capped_at_25_and_weak_signal_is_8():
+def test_signals_capped_at_30_and_weak_signal_is_10():
     L = levels(triggers=("T11", "T12", "T15", "T14"))
     r = run(L=L)
-    assert sum(p["pts"] for p in r["proofs"] if p["k"] == "signal") == 25
+    assert sum(p["pts"] for p in r["proofs"] if p["k"] == "signal") == 30
+    assert run(L=levels(triggers=("T12",)))["proofs"][1]["pts"] == 10
 
 
 def test_no_setup_is_one_statement_and_high_capped_by_incomplete_data():
     r = run(setup={"type": "No setup"})
     assert "No entry setup yet: wait for a breakout, pullback or base" in r["not_yet"]
     L = levels(triggers=("T11", "T12", "T15"))
-    r = run(L=L, Mx={"kind": "general", "quarters_available": 4})
+    r = run(L=L, Mx={"kind": "general", "quarters_available": 4}, sym="X.NS", led=_led((1, 1)))
     assert r["score"] >= 70 and r["level"] == "Medium" and "capped at Medium" in r["why"]
 
 
 def test_same_target_twice_counts_once():
-    th = thesis(drivers=[{"due": "2030-03-31", "due_verified": True, "text": "Long-term target of ₹32,000 crore AUM by 2030"}],
-                promises=[{"due": "2030-03-31", "due_verified": True, "status": "pending", "promise": "AUM of ₹32,000 crore by 2030, 30% non-MF"}])
+    th = thesis(drivers=[{"due": "2027-03-31", "due_verified": True, "text": "Target of ₹12,000 crore AUM by March 2027"}],
+                promises=[{"due": "2027-03-31", "due_verified": True, "status": "pending", "promise": "AUM of ₹12,000 crore by March 2027, 30% non-MF"}])
     assert len(CV.management_targets(th, TODAY)) == 1
 
 
 def test_three_or_fewer_is_low():
     r = run(L=levels(d5=0), th=thesis(drivers=[], story={"status": "weakening"}), reader=None)
-    assert r["met"] == 3 and r["level"] == "Low" and r["score"] == 25 and r["size"] == "quarter"
+    assert r["met"] == 3 and r["level"] == "Low" and r["score"] == 15 and r["size"] == "quarter"   # breakout only
 
 
 def test_dated_triggers_counted_once_per_document_and_within_18_months():
@@ -187,7 +188,7 @@ def test_unverified_driver_dates_do_not_count():
 
 def test_integrity_word_in_a_passing_story_does_not_cap():
     L = levels(triggers=("T11", "T12", "T15"))
-    r = run(L=L, th=thesis(story={"status": "intact", "date": "2026-11-14", "text": "no management integrity concerns"}))
+    r = run(L=L, th=thesis(story={"status": "intact", "date": "2026-11-14", "text": "no management integrity concerns"}), sym="X.NS", led=_led((1, 1)))
     assert r["score"] >= 70 and r["level"] == "High"
 
 
@@ -242,9 +243,11 @@ def _led(materials=(None, None), signals=(), cred=None):
 
 
 def test_targets_count_by_their_size():
-    base = run(sym="X.NS", led=_led())["score"]                                    # two targets of unknown size: 10 + 10
-    assert run(sym="X.NS", led=_led((1, 1)))["score"] == base + 10                  # 15 + 15
-    assert run(sym="X.NS", led=_led((0, 0)))["score"] == base - 10                  # 5 + 5
+    base = run(sym="X.NS", led=_led())["score"]                                    # v4: two targets of unknown size: 5 + 5
+    assert run(sym="X.NS", led=_led((1, 1)))["score"] == base + 20                  # 15 + 15
+    small = run(sym="X.NS", led=_led((0, 0)))                                       # 0 + 0: no proof, one statement
+    assert small["score"] == base - 10 and "management" not in [p["k"] for p in small["proofs"]]
+    assert "Management targets in 18 months are small against today's numbers" in small["not_yet"]
 
 
 def test_credibility_scales_target_points():
@@ -266,3 +269,34 @@ def test_material_good_signals_add_and_bad_ones_cap_or_subtract():
     assert run(L=L, sym="X.NS", led=_led((1, 1), signals=red))["level"] == "Medium"
     small = [{"dir": "bad", "material": 0, "status": "lowered", "text": "capex"}] * 3
     assert run(sym="X.NS", led=_led(signals=small))["score"] == run(sym="X.NS", led=_led())["score"] - 10   # max -10
+
+
+# ---------- v4: the conviction review (owner, 27 Nov 2026) ----------
+def test_checks_give_no_points_and_a_review_not_clean_caps_at_medium():
+    L = levels(triggers=("T11", "T12", "T15"))
+    hi = run(L=L, sym="X.NS", led=_led((1, 1)))
+    assert hi["level"] == "High" and "checks" not in [p["k"] for p in hi["proofs"]]
+    th = thesis()
+    th["audit"]["checks"] = th["audit"]["checks"][:2]   # fewer than 3 checks: not a clean review
+    r = run(L=L, th=th, sym="X.NS", led=_led((1, 1)))
+    assert r["score"] == hi["score"] and r["level"] == "Medium" and "Narrativ.ai checks not clean" in r["why"]
+
+
+def test_targets_beyond_18_months_do_not_count():
+    assert len(_tg(("AUM of Rs 32,000 crore by 2030", "2030-03-31"))) == 0
+    assert len(_tg(("Plant by Mar 2028", "2028-03-31"))) == 1   # 16 months from 20 Nov 2026
+
+
+def test_undiscovered_with_good_quality_counts_like_institutions_adding():
+    L = levels(d5=1, d6=1)                                          # institutions flat
+    assert "institutions" not in [p["k"] for p in run(L=L)["proofs"]]
+    L["disc"] |= {"t": 1, "name": "Undiscovered"}
+    L["qual"] = {"t": 2, "name": "Good"}
+    p = next(p for p in run(L=L)["proofs"] if p["k"] == "institutions")
+    assert p["pts"] == 10 and p["t"] == "Undiscovered, quality good"
+    L["qual"] = {"t": 3, "name": "Average"}
+    assert "institutions" not in [p["k"] for p in run(L=L)["proofs"]]
+    L = levels(d5=0)                                                # institutions selling: undiscovered does not make up for it
+    L["disc"] |= {"t": 1, "name": "Undiscovered"}
+    L["qual"] = {"t": 1, "name": "Excellent"}
+    assert "institutions" not in [p["k"] for p in run(L=L)["proofs"]]

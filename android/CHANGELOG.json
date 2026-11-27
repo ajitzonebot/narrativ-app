@@ -1,5 +1,19 @@
 [
  {
+  "version": "2.32.5",
+  "date": "2026-11-27",
+  "changes": [
+   {
+    "type": "improved",
+    "text": "Conviction scored the new way: management targets count only when due within 18 months and by how much they matter; checks passing no longer add points (a review that is not clean keeps it at Medium at most); undiscovered with good quality counts like institutions adding"
+   },
+   {
+    "type": "improved",
+    "text": "Conviction bands: High 55 and above, Medium 40 to 54"
+   }
+  ]
+ },
+ {
   "version": "2.32.4",
   "date": "2026-11-27",
   "changes": [

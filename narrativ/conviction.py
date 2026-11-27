@@ -14,11 +14,11 @@ Seven checks, each met or not, each with a one-line reason (like the Buy gates):
   C6 Complete data: 3 full years of results, cash conversion known (lenders exempt), 8+ quarters, no open data issue
   C7 Quotes double-checked: a separate AI read of the same filing (narrativ/reader.py, before Claude) found one of
      Claude's dated statements in the same words
-Level (v2, owner 26 Nov 2026, feedback #175): the proof score `score()` sets it, not the count of checks: management
-targets with dates (up to 35), signals (up to 25), Narrativ.ai checks C2 + C7 (up to 20), entry setup C3 (10),
-institutions C5 (10); High 70+, Medium 45-69, Low below 45; an open integrity item (C4) or incomplete data (C6) keeps it
-at Medium at most. v3 (27 Nov 2026, forward ledger stage 4): targets count by their verified size and credibility, the
-ledger's good signals add "Targets delivering", a material bad signal or red filing caps at Medium (see SCORE_RULE). The checks are still stored for app versions before 2.32.
+Level (v4, owner 27 Nov 2026): the proof score `score()` sets it, not the count of checks: management targets due within
+18 months by size (up to 45), signals (up to 30), entry setup C3 (15), institutions adding C5 or undiscovered with good
+quality (10), the forward ledger's good signals ("Targets delivering", up to 10); High 55+, Medium 40-54, Low below 40.
+Narrativ.ai checks (C2) give no points: a review that is not clean, an open integrity item (C4), incomplete data (C6), a
+material bad ledger signal or a red filing keeps it at Medium at most (see SCORE_RULE). The checks are still stored for app versions before 2.32.
 Tested and left out (narrativ/replay.py `conviction`): valuation Deep value / Undervalued lowered the win rate inside the
 margin-of-safety gate; price in stage 2 and strong momentum did not help inside the Top 10.
 """
@@ -180,16 +180,23 @@ def _c7(th, reader):
 
 # ---------------------------------------------------------------- proof score (owner, 26 Nov 2026, feedback #175)
 # Conviction is driven by proofs: each proof adds points, the total (0-100) sets the level. Weights approved by the owner.
-SCORE_RULE = "conviction score v3 (2026-11-27)"
+SCORE_RULE = "conviction score v4 (2026-11-27)"
+# v4 (owner, 27 Nov 2026, the conviction review agreed earlier that day): checks passing is the price of admission, not
+# evidence (none of the investors studied counts correct data as a reason to buy): no points, a review that is not clean
+# keeps the level at Medium at most. Targets count only when due within 18 months (as R4) and by size: material 15,
+# size not known 5, small 0 (up to 45). Institutions: adding, or undiscovered / early discovery with Excellent / Good
+# quality (and not selling). Signals 10 each, 15 strong (up to 30); entry setup 15. Ledger signals as v3.
 # v3 (owner, 27 Nov 2026, forward ledger stage 4): a verified target counts by its size (material 15, small 5, size not
 # known 10; +5 raised / beat / delivered; cap 35), scaled by size-weighted credibility once 2+ targets resolved (x0.5 at none
 # delivered .. x1.0 at all); the ledger's signals of the last 90 days: material good +5 each (max 10, "Targets delivering"),
 # material bad or a red filing caps the level at Medium, small bad -5 each (max -10)
-T_MATERIAL, T_SMALL, T_UNKNOWN = 15, 5, 10
+T_MATERIAL, T_SMALL, T_UNKNOWN = 15, 0, 5
+TARGET_MAX, SIG_PTS, SIG_STRONG, SIG_MAX, SETUP_PTS, INST_PTS = 45, 10, 15, 30, 15, 10
+QUIET_DISC, GOOD_QUAL = (1, 2), (1, 2)  # levels: Undiscovered / Early discovery; Excellent / Good
 GOOD_MAX, BAD_SMALL, BAD_MAX = 10, 5, 10
-HIGH_AT, MEDIUM_AT = 70, 45
+HIGH_AT, MEDIUM_AT = 55, 40  # v4 (owner, 27 Nov 2026): High 55+, Medium 40-54
 SIZE = {"High": "full", "Medium": "half", "Low": "quarter"}  # option C: every verified Buy stays a Buy, sized by conviction
-TARGET_YEARS = 5  # a management target counts when its verified due date is within 5 years
+TARGET_DAYS = HORIZON_DAYS  # v4: a management target counts when its verified due date is within 18 months (as R4)
 _YEAR = re.compile(r"^(19|20)\d\d$")
 _NUM = re.compile(r"\d[\d,]*\.?\d*")
 
@@ -243,9 +250,9 @@ def _same_target(a: dict, b: dict) -> bool:
 
 
 def management_targets(th: dict, today: date, sym: str | None = None) -> list[dict]:
-    """Quoted management targets / guidance whose due date the verifier confirmed, due within TARGET_YEARS. With `sym`, each
+    """Quoted management targets / guidance whose due date the verifier confirmed, due within 18 months. With `sym`, each
     carries its forward-ledger id (ledger.item_id), so conviction can read its size and signals."""
-    end = today + timedelta(days=365 * TARGET_YEARS)
+    end = today + timedelta(days=TARGET_DAYS)
     out, seen = [], set()
     rows = [(d.get("text"), d.get("due"), None, ("claude", [d.get("text"), d.get("due")])) for d in th.get("drivers") or []
             if d.get("due_verified")]
@@ -307,13 +314,16 @@ def score(dec: dict, L: dict, setup: dict | None, th: dict, Mx: dict | None, tod
         def tpts(t):
             m = (items.get(t.get("id")) or {}).get("material") if items else None
             return (T_MATERIAL if m == 1 else T_SMALL if m == 0 else T_UNKNOWN) + (5 if t["better"] else 0)
-        pts = min(35, sum(tpts(t) for t in tg))
+        pts = min(TARGET_MAX, sum(tpts(t) for t in tg))
         cred = (led or {}).get("cred")
         if cred:
             pts = round(pts * (0.5 + cred["pct"] / 200))
         lab = lambda t: {1: " · material", 0: " · small"}.get((items.get(t.get("id")) or {}).get("material"), "")  # noqa: E731
-        proofs.append({"k": "management", "pts": pts, "t": "Management targets with dates" + (f" (delivered {cred['pct']}% of {cred['n']})" if cred else ""),
-                       "v": " · ".join(f"{t['text']} (due {_short_date(t['due'])}{lab(t)})" for t in tg[:3])})
+        if pts:
+            proofs.append({"k": "management", "pts": pts, "t": "Management targets with dates" + (f" (delivered {cred['pct']}% of {cred['n']})" if cred else ""),
+                           "v": " · ".join(f"{t['text']} (due {_short_date(t['due'])}{lab(t)})" for t in tg[:3])})
+        else:  # v4: only small targets (or none delivered) in 18 months
+            not_yet.append("Management targets in 18 months are small against today's numbers")
     elif (th or {}).get("no_concall"):
         not_yet.append("No call this quarter: no management target on record")
     else:
@@ -321,37 +331,38 @@ def score(dec: dict, L: dict, setup: dict | None, th: dict, Mx: dict | None, tod
     sig = [t for t in (L.get("out") or {}).get("triggers") or [] if t.get("id") and t.get("id") != "T4"]
     for t in sig:
         st = _signal_strong(t)
-        proofs.append({"k": "signal", "pts": 12 if st else 8, "t": ("Strong " + t["n"][0].lower() + t["n"][1:]) if st else t["n"],
+        proofs.append({"k": "signal", "pts": SIG_STRONG if st else SIG_PTS, "t": ("Strong " + t["n"][0].lower() + t["n"][1:]) if st else t["n"],
                        "v": t.get("v")})
     sig_pts = sum(x["pts"] for x in proofs if x["k"] == "signal")
-    if sig_pts > 25:  # cap the signals at 25, trimming the last ones
-        over = sig_pts - 25
+    if sig_pts > SIG_MAX:  # cap the signals, trimming the last ones
+        over = sig_pts - SIG_MAX
         for x in reversed([x for x in proofs if x["k"] == "signal"]):
             cut = min(over, x["pts"]); x["pts"] -= cut; over -= cut
         proofs = [x for x in proofs if x["pts"] > 0]
     if not sig:
         not_yet.append("No price or earnings signal live")
     c = checks or {}
+    caps, minus = [], 0
     ok2, v2 = c.get("C2") or _c2(th, lender)
-    ok7, v7 = c.get("C7") or _c7(th, reader)
-    if ok2:
-        au = th.get("audit") or {}
-        n = len(au.get("checks") or [])
-        proofs.append({"k": "checks", "pts": 15 + (5 if ok7 else 0), "t": "Narrativ.ai checks pass",
-                       "v": f"{n} of {n} checks match the filing" + (f" · {v7}" if ok7 else "")})
-    else:
+    if not ok2:  # v4: no points for passing; a review that is not clean keeps it at Medium at most
+        caps.append(f"Narrativ.ai checks not clean ({v2})")
         not_yet.append(f"Narrativ.ai checks: {v2}")
     ok3, v3 = c.get("C3") or _c3(L, setup)
     if ok3:
-        proofs.append({"k": "setup", "pts": 10, "t": f"Entry setup: {str(v3).lower()}", "v": None})
+        proofs.append({"k": "setup", "pts": SETUP_PTS, "t": f"Entry setup: {str(v3).lower()}", "v": None})
     else:
         not_yet.append("Price extended: wait for a pullback" if "extended" in str(v3) else "No entry setup yet: wait for a breakout, pullback or base")
     ok5, v5 = c.get("C5") or _c5(L, shp)
+    dl, ql = (L.get("disc") or {}), (L.get("qual") or {})
+    selling = "sold" in str(v5) or "falling" in str(v5)
+    quiet = dl.get("t") in QUIET_DISC and ql.get("t") in GOOD_QUAL and not selling
     if ok5:
-        proofs.append({"k": "institutions", "pts": 10, "t": "Institutions adding", "v": v5})
+        proofs.append({"k": "institutions", "pts": INST_PTS, "t": "Institutions adding", "v": v5})
+    elif quiet:  # v4: undiscovered is not a weakness when the business is good
+        proofs.append({"k": "institutions", "pts": INST_PTS, "t": "Undiscovered, quality good",
+                       "v": f"{dl.get('name')} · quality {str(ql.get('name')).lower()}"})
     else:
         not_yet.append(f"Institutions not adding: {v5}" if "no shareholding" not in str(v5) else "No shareholding data yet")
-    caps, minus = [], 0
     sig = (led or {}).get("signals") or []
     good = [x for x in sig if x.get("dir") == "good" and x.get("material") == 1]
     if good:

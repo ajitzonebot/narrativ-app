@@ -853,16 +853,16 @@ fun DecisionDetailsSheet(st: AppState, sym: String, p: P?, det: Detail?, onDismi
                 cv.size?.let { T("· $it position", 13.sp, C.dim, modifier = Modifier.padding(bottom = 3.dp)) }
             }
             Row(Modifier.fillMaxWidth().padding(top = 6.dp).height(7.dp), horizontalArrangement = Arrangement.spacedBy(1.dp)) {
-                listOf(45f to "Low", 25f to "Medium", 30f to "High").forEach { (w, l) ->
+                listOf(40f to "Low", 15f to "Medium", 45f to "High")  // v4 bands (owner, 27 Nov 2026): High 55+, Medium 40-54.forEach { (w, l) ->
                     val c = if (l == "High") TierC.lightGreen else if (l == "Low") TierC.lightRed else TierC.yellow
                     Box(Modifier.weight(w).fillMaxHeight().background(c.copy(alpha = if (l == cvLevel) 0.95f else 0.22f)))
                 }
             }
             Row(Modifier.fillMaxWidth().padding(top = 2.dp)) {
-                T("Low", 9.sp, C.dim, modifier = Modifier.weight(45f)); T("45", 9.sp, C.dim, modifier = Modifier.weight(25f)); T("70 · High", 9.sp, C.dim, modifier = Modifier.weight(30f))
+                T("Low", 9.sp, C.dim, modifier = Modifier.weight(40f)); T("40", 9.sp, C.dim, modifier = Modifier.weight(15f)); T("55 · High", 9.sp, C.dim, modifier = Modifier.weight(45f))
             }
-            // review 26 Nov 2026: a score of 70+ kept at Medium says why (open integrity item or incomplete data)
-            if ((cv.score ?: 0) >= 70 && cvLevel != "High") cv.why?.substringAfter("; ", "")?.takeIf { it.isNotBlank() }?.let {
+            // review 26 Nov 2026: a score in the High band (55+ from v4) kept at Medium says why (open integrity item or incomplete data)
+            if ((cv.score ?: 0) >= 55 && cvLevel != "High") cv.why?.substringAfter("; ", "")?.takeIf { it.isNotBlank() }?.let {
                 T(it.replaceFirstChar { c -> c.uppercase() }, 12.sp, TierC.yellow, lineHeight = 16.sp, modifier = Modifier.padding(top = 4.dp))
             }
             if (cv.proofs.isNotEmpty()) T("PROOFS", 10.sp, C.dim, FontWeight.Bold, modifier = Modifier.padding(top = 10.dp, bottom = 2.dp))

@@ -1,11 +1,37 @@
 {
- "versionCode": 95,
- "versionName": "2.32.3",
+ "versionCode": 96,
+ "versionName": "2.32.4",
  "date": "2026-11-27",
- "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.32.3-b95/narrativ-v2.32.3-b95.apk",
+ "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.32.4-b96/narrativ-v2.32.4-b96.apk",
  "sizeMb": 12.3,
- "sha256": "72e7ea697b4a072ebe4b71e25a127698186298d79978e8209900ef5a37db0069",
+ "sha256": "d30e8286a9cd1ee7b350bc036470277d37273f7e53bfb69d125e27cc8155e31a",
  "changelog": [
+  {
+   "version": "2.32.4",
+   "date": "2026-11-27",
+   "changes": [
+    {
+     "type": "new",
+     "text": "Home: the Stocks quick-filter chips (Verified only, High conviction Buy, Buy, Hold) with their counts, each opening Stocks with that filter"
+    },
+    {
+     "type": "improved",
+     "text": "Home Top 10 rows carry the same tags as the Stocks list: verified seal, Buy tag and conviction"
+    },
+    {
+     "type": "new",
+     "text": "IPO page: swipe left or right for the next or previous IPO"
+    },
+    {
+     "type": "improved",
+     "text": "Pop-ups (Why Buy and others) on the same paper as the pages"
+    },
+    {
+     "type": "fixed",
+     "text": "Research queue \u203a Completed says a dated driver was found only when the stock has one on record"
+    }
+   ]
+  },
   {
    "version": "2.32.3",
    "date": "2026-11-27",
