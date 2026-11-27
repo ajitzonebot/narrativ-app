@@ -70,12 +70,13 @@ jobs:
           if [ "$base" = "$head" ]; then echo "new=false" >> $GITHUB_OUTPUT; else echo "new=true" >> $GITHUB_OUTPUT; fi
           h="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GIT_PUSH_TOKEN" | base64 | tr -d '\n')"
           if [ -n "$base" ] && ! git cat-file -e "$base^{commit}" 2>/dev/null; then git -c http.https://github.com/.extraheader="$h" fetch --no-tags --deepen=1000 origin main || true; fi
+      # Python also when nothing new was researched: the queue re-sort below runs every 30 minutes (owner, 27 Nov 2026)
       - uses: actions/setup-python@v5
-        if: steps.n.outputs.new == 'true'
+        if: steps.d.outputs.busy != 'true'
         with:
           python-version: "3.12"
           cache: pip
-      - if: steps.n.outputs.new == 'true'
+      - if: steps.d.outputs.busy != 'true'
         run: pip install -r requirements.txt -r requirements-dev.txt
       # The public copies have no push trigger: tests gate publishing here and in daily.yml (~15 s).
       - name: Tests (ruff, pytest)
@@ -96,8 +97,17 @@ jobs:
         env:
           PYTHONUNBUFFERED: "1"
         run: python -m narrativ.republish "${{ steps.n.outputs.base }}"
+      # light re-sort (narrativ/requeue.py): done items out; the owner's app requests, Buys whose research is incomplete
+      # (RULES.md R8) and new Buy candidates to the top, with a light pack; the daily run still builds the whole queue
+      - name: Re-sort the research queue
+        id: rq
+        if: steps.d.outputs.busy != 'true'
+        env:
+          PYTHONUNBUFFERED: "1"
+          GITHUB_TOKEN: ${{ secrets.NARRATIV_RW_TOKEN }}   # reads the private repo's open "scan" request issues
+        run: python -m narrativ.requeue
       - name: Commit
-        if: steps.n.outputs.new == 'true'
+        if: steps.n.outputs.new == 'true' || steps.rq.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           GIT_PUSH_TOKEN: ${{ secrets.NARRATIV_RW_TOKEN }}

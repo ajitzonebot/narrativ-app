@@ -162,3 +162,18 @@ def test_r8_incomplete_research_stays_a_buy_without_the_badge():
     assert any("needs 3" in m for m in republish.gate(CAND, two, "2026-11-01", TODAY, mx(80), TRIG, False, [])["incomplete"])
     done = republish.gate(CAND, PASS, "2026-11-01", TODAY, mx(80), TRIG, False, [])
     assert FN.research_missing(PASS) == [] and "incomplete" not in done
+
+
+def test_queue_drops_items_whose_research_is_already_done():
+    """27 Nov 2026: a review run finished while the daily run built the queue; the same stocks were queued again."""
+    q = {"date": "2026-11-26", "items": [
+        {"symbol": "A.NS", "task": "review"},                                   # reviewed on the queue's date: done
+        {"symbol": "B.NS", "task": "review"},                                   # last review before: still to do
+        {"symbol": "C.NS", "task": "review", "complete": ["R8 no synthesis"]},  # completion item, now complete: done
+        {"symbol": "D.NS", "task": "review_flag", "flags": ["G2"]},             # flag reviewed: done
+        {"symbol": "E.NS", "task": "enrich"}]}
+    th = {"A.NS": {"audit": {"date": "2026-11-26"}}, "B.NS": {"audit": {"date": "2026-10-01"}},
+          "C.NS": {"audit": {"date": "2026-11-20"}, "scan": PASS["scan_raw"]}, "D.NS": {"flag_reviews": {"G2": {"verdict": "dismissed"}}}}
+    rs = {"C.NS": {k: v for k, v in PASS.items() if k != "scan_raw"}}
+    assert republish.prune_done_research(q, th, rs) == 3
+    assert [x["symbol"] for x in q["items"]] == ["B.NS", "E.NS"]

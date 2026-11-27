@@ -1,11 +1,21 @@
 {
- "versionCode": 99,
- "versionName": "2.32.6",
+ "versionCode": 100,
+ "versionName": "2.32.7",
  "date": "2026-11-27",
- "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.32.6-b99/narrativ-v2.32.6-b99.apk",
+ "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.32.7-b100/narrativ-v2.32.7-b100.apk",
  "sizeMb": 12.3,
- "sha256": "a6e8f0b9bdb10ba7022b1bfaf49962d360c2a1dfaa182bb5eab88a8a07a03bd3",
+ "sha256": "58dd89b4f042c7157c4121d15e2fe82ef82703aa9b7e280c0cdd5bb2244e172d",
  "changelog": [
+  {
+   "version": "2.32.7",
+   "date": "2026-11-27",
+   "changes": [
+    {
+     "type": "improved",
+     "text": "A Buy whose research is not complete stays a Buy but shows no verified badge; its page says \"Research incomplete\""
+    }
+   ]
+  },
   {
    "version": "2.32.6",
    "date": "2026-11-27",

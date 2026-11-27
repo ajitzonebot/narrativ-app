@@ -115,6 +115,33 @@ def prune_queue(done: dict, built_at: str | None, queue: dict) -> int:
     return len(items) - len(keep)
 
 
+def prune_done_research(queue: dict, theses: dict, research: dict) -> int:
+    """Drop queue items whose work is already in the research, whatever the run times (27 Nov 2026: a review run finished
+    while the daily run was building the queue, so MOREPENLAB, PASUPTAC and MANAKSTEEL, reviewed at 23:05 IST, were queued
+    again and the 09:05 and 14:05 review runs found nothing to do). A full review: an audit dated on or after the queue's
+    date; a completion item (`complete`, RULES.md R8): the record is complete; a red-flag item: every flag has a review."""
+    qd = str(queue.get("date") or "")[:10]
+    keep = []
+    for x in queue.get("items") or []:
+        s, t = x.get("symbol"), x.get("task")
+        th, rs = theses.get(s) or {}, research.get(s) or {}
+        if t == "review" and x.get("complete"):
+            if not FN.research_missing({**rs, "scan_raw": th.get("scan") or rs.get("scan_raw")}):
+                continue
+        elif t in ("review", "audit") and not x.get("requested"):
+            a = str((th.get("audit") or {}).get("date") or "")[:10]
+            if qd and a >= qd and not (rs.get("audit") or {}).get("changed_after"):
+                continue
+        elif t == "review_flag":
+            fl = set(x.get("flags") or [])
+            if fl and fl <= set((th.get("flag_reviews") or {}).keys()):
+                continue
+        keep.append(x)
+    n = len(queue.get("items") or []) - len(keep)
+    queue["items"] = keep
+    return n
+
+
 def main(before: str | None) -> None:
     try:  # Research queue > Completed in the app, also after runs that changed no research
         from narrativ import runlog
@@ -124,6 +151,9 @@ def main(before: str | None) -> None:
         if qp.exists() and pp.exists():
             q = json.loads(qp.read_text())
             n = prune_queue(done or {}, json.loads(pp.read_text()).get("updated"), q)
+            tp = OUT / "theses.json"
+            if tp.exists() and rp.exists():
+                n += prune_done_research(q, json.loads(tp.read_text()), json.loads(rp.read_text()))
             if n:
                 qp.write_text(json.dumps(q, indent=1, ensure_ascii=False))
                 print(f"[republish] queue: {n} item(s) finished since the daily run removed")
