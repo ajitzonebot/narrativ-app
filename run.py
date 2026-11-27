@@ -723,7 +723,9 @@ def main(limit: int | None) -> None:
 
     # every Buy / Strong Buy must pass Claude's independent audit before the app shows it as buyable (top priority after requests),
     # in readiness order: the stocks most likely to be good buys now are reviewed first (and lead the Top 10)
-    to_audit = sorted([s for s in syms if dec[s].get("candidate") in ("Strong Buy", "Buy")], key=readiness)
+    # a passed review whose research is not complete (RULES.md R7 / R8: verified "pending") goes first: it was a verified Buy
+    to_audit = sorted([s for s in syms if dec[s].get("candidate") in ("Strong Buy", "Buy")],
+                      key=lambda s: (dec[s].get("verified") != "pending", readiness(s)))
     for r in requested:  # the owner asked: a full review (every check), unless Claude reviewed it in the last 7 days
         a = ((raw_theses.get(r["symbol"]) or {}).get("audit") or {}).get("date")
         if not a or (today - date.fromisoformat(str(a)[:10])).days > 7:
@@ -751,6 +753,11 @@ def main(limit: int | None) -> None:
         if why:
             waits.append(s)
             dec[s]["missing"] = [why] + list(dec[s].get("missing") or [])
+            continue
+        if dec[s].get("verified") == "pending":  # R7 / R8: complete what the passed review lacks, then the seal returns
+            gaps = [m.replace("Verification pending: ", "") for m in dec[s].get("missing") or [] if m.startswith("Verification pending: ")]
+            q(s, f"rules say {dec[s]['candidate']}: the review passed but the research is not complete (RULES.md R7, R8): "
+                 + "; ".join(gaps[:6]), "review", {"checks": aflags[s], "complete": gaps})
             continue
         q(s, f"rules say {dec[s]['candidate']}: full review (verify every number, connect the dots, verdict) before it is shown as buyable",
           "review", {"checks": aflags[s]})

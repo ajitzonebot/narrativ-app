@@ -62,9 +62,16 @@ def test_apply_buy_rules_holds_for_open_issues_and_failed_gates():
 
 
 # ---------------------------------------------------------------- republish applies the same rules as the daily run
-PASS = {"audit": {"verdict": "pass", "date": "2026-11-19",  # complete for RULES.md R7 (funnel.r7_missing)
-                  "checks": [{"item": "Borrowings and lease liabilities", "rule": "debt_leases", "ok": True}],
-                  "related_party": {"status": "not disclosed", "checked": "results notes", "source": "u"}}}
+# RULES.md R8 (27 Nov 2026): the rest of a complete research record (scan, dated driver, story, synthesis, 3 checks)
+R8 = {"scan_raw": {"must_go_right": [{"text": "plant on time"}], "kill_switches": [{"text": "order cancelled"}],
+                   "theories": {"bull": "b", "base": "m", "bear": "w"}},
+      "drivers": [{"due": "2027-03-31", "due_verified": True, "text": "new plant"}],
+      "story": {"status": "intact", "text": "on track"}, "synthesis": {"one_line": "s"}}
+OK2 = [{"item": "Revenue", "ok": True}, {"item": "Equity", "ok": True}]
+PASS = {"audit": {"verdict": "pass", "date": "2026-11-19",  # complete for RULES.md R7 (funnel.r7_missing) and R8
+                  "checks": [{"item": "Borrowings and lease liabilities", "rule": "debt_leases", "ok": True}] + OK2,
+                  "related_party": {"status": "not disclosed", "checked": "results notes", "source": "u"}}} | R8
+NODRV = {k: v for k, v in PASS.items() if k != "drivers"}  # R4 tests: no dated driver yet
 CAND = {"d": "Hold", "candidate": "Buy", "why": ["Rules say Buy: waiting for Narrativ.ai's full review"], "missing": ["Verification pending"]}
 
 
@@ -82,8 +89,8 @@ def test_republish_rechecks_r2_against_the_verified_research():
 
 def test_republish_rechecks_r4_drivers():
     L = TRIG | {"out": {"triggers": None}}
-    assert republish.gate(CAND, PASS, "2026-11-01", TODAY, mx(80), L, False, [])["gates"][0].startswith("R4")
-    th = PASS | {"drivers": [{"due": "2027-03-31", "due_verified": True, "text": "new plant"}]}
+    assert republish.gate(CAND, NODRV, "2026-11-01", TODAY, mx(80), L, False, [])["gates"][0].startswith("R4")
+    th = NODRV | {"drivers": [{"due": "2027-03-31", "due_verified": True, "text": "new plant"}]}
     assert republish.gate(CAND, th, "2026-11-01", TODAY, mx(80), L, False, [])["d"] == "Buy"
 
 
@@ -132,9 +139,23 @@ def test_republish_releases_a_gated_candidate_when_r2_is_answered():
 def test_republish_releases_a_verified_buy_held_by_r4_once_a_dated_driver_verifies():
     L = TRIG | {"out": {"triggers": None}}
     verified = {"d": "Buy", "verified": "pass", "why": ["Verified by Claude's full review on 2026-11-19"], "missing": []}
-    held = FN.apply_buy_rules(verified, mx(80), False, L, PASS, TODAY)
+    held = FN.apply_buy_rules(verified, mx(80), False, L, NODRV, TODAY)
     assert held["d"] == "Hold" and held["gates"][0].startswith("R4") and held["gated_label"] == "Buy"
-    assert republish.gate(held, PASS, "2026-11-01", TODAY, mx(80), L, False, [])["d"] == "Hold"  # still no dated driver
-    th = PASS | {"drivers": [{"due": "2027-03-31", "due_verified": True, "text": "new plant"}]}
+    assert republish.gate(held, NODRV, "2026-11-01", TODAY, mx(80), L, False, [])["d"] == "Hold"  # still no dated driver
+    th = NODRV | {"drivers": [{"due": "2027-03-31", "due_verified": True, "text": "new plant"}]}
     nd = republish.gate(held, th, "2026-11-01", TODAY, mx(80), L, False, [])
     assert nd["d"] == "Buy" and "gates" not in nd
+
+
+def test_r8_a_passed_review_without_a_complete_research_record_is_pending():
+    """Owner, 27 Nov 2026: a verified Buy is a full story scanned by Claude, no loopholes (LUPIN was verified with no scan)."""
+    for drop, why in (("scan_raw", "no outlook scan"), ("drivers", "no dated driver"), ("story", "no story check"), ("synthesis", "no synthesis")):
+        th = {k: v for k, v in PASS.items() if k != drop}
+        nd = republish.gate(CAND, th, "2026-11-01", TODAY, mx(80), TRIG, False, [])
+        assert nd["d"] == "Hold" and nd["verified"] == "pending" and any(why in m for m in nd["missing"]), drop
+    weak = PASS | {"story": {"status": "weakening", "text": "competition"}}
+    nd = republish.gate(CAND, weak, "2026-11-01", TODAY, mx(80), TRIG, False, [])
+    assert nd["d"] == "Hold" and any("story weakening" in m for m in nd["missing"])
+    two = PASS | {"audit": PASS["audit"] | {"checks": PASS["audit"]["checks"][:2]}}
+    assert any("needs 3" in m for m in republish.gate(CAND, two, "2026-11-01", TODAY, mx(80), TRIG, False, [])["missing"])
+    assert FN.research_missing(PASS) == []

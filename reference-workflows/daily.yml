@@ -8,6 +8,11 @@ on:
     - cron: "40 14 * * 1-5"
     - cron: "40 16 * * 1-5"
   workflow_dispatch:
+    inputs:
+      retry:
+        description: "true = a retry (the Worker's 20:10 / 22:10 IST starts): skip when today's prices are already built"
+        required: false
+        default: "false"
 
 permissions:
   contents: write
@@ -47,7 +52,7 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: pip install -r requirements.txt
-      - name: Skip if there are no new prices since the last build (backup schedule only)
+      - name: Skip if there are no new prices since the last build (backup schedule and the Worker's retries)
         id: skip
         # picks.json "date" is the last PRICE (trading) date, not the IST calendar day. GitHub's backup schedule can start after
         # midnight IST, so comparing with the IST date never matched and a full rerun stamped the previous prices with the next
@@ -57,7 +62,7 @@ jobs:
           latest=$(python3 -m scripts.latest_trading_date 2>/dev/null || true)
           have=$(python3 -c "import json;print(json.load(open('docs/data/picks.json')).get('date',''))" 2>/dev/null || true)
           echo "latest exchange date=${latest:-unknown} data date=${have:-none}"
-          if [ "${{ github.event_name }}" = "schedule" ] && [ -n "$latest" ] && [ "$have" = "$latest" ]; then echo "already built for $latest"; echo "skip=true" >> $GITHUB_OUTPUT; fi
+          if { [ "${{ github.event_name }}" = "schedule" ] || [ "${{ github.event.inputs.retry }}" = "true" ]; } && [ -n "$latest" ] && [ "$have" = "$latest" ]; then echo "already built for $latest"; echo "skip=true" >> $GITHUB_OUTPUT; fi
       # Tests gate publishing: the public copies have no push trigger, so this is where code changes get tested (~15 s).
       - name: Tests (ruff, pytest)
         if: steps.skip.outputs.skip != 'true'

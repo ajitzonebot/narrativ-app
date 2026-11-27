@@ -1,5 +1,27 @@
 [
  {
+  "version": "2.32.6",
+  "date": "2026-11-27",
+  "changes": [
+   {
+    "type": "improved",
+    "text": "Verified Buy now means the full story is done: outlook scan, dated driver, story check, synthesis and 3+ checks; anything missing shows as verification pending"
+   },
+   {
+    "type": "fixed",
+    "text": "Conviction: mutual funds entering counts once, and a subsidiary's buyback is no longer read as the company's"
+   },
+   {
+    "type": "fixed",
+    "text": "Why Buy: the conviction score moves under a long level word instead of being cut (\"40/\")"
+   },
+   {
+    "type": "new",
+    "text": "IPO page: ‹ › at the edges to move between IPOs"
+   }
+  ]
+ },
+ {
   "version": "2.32.5",
   "date": "2026-11-27",
   "changes": [

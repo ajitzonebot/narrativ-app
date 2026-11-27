@@ -359,6 +359,7 @@ fun IpoDetailScreen(st: AppState, name: String) {
             if (at >= 0 && to != at && to in all.indices) st.stack[st.stack.lastIndex] = Screen.Ipo(all[to])
         }) { _, d -> dx += d }
     }
+    Box(Modifier.fillMaxSize()) {
     LazyColumn(Modifier.fillMaxSize().pageBackground().then(swipe), contentPadding = PaddingValues(bottom = 110.dp)) {
         item { TopBar(st, name, context = "IPO $name", subtitle = listOfNotNull(i?.board?.ifBlank { null }, i?.symbol,
             if (all.size > 1 && at >= 0) "${at + 1} of ${all.size} · swipe for the next" else null).joinToString(" · ")) }
@@ -457,6 +458,16 @@ fun IpoDetailScreen(st: AppState, name: String) {
                 }
             }
         }
+    }
+    // feedback #223 (owner, 27 Nov 2026): ‹ › at the edges say the IPO pages swipe; a tap moves too
+    @Composable
+    fun BoxScope.Edge(sym: String, al: Alignment, to: Int) =
+        Box(Modifier.align(al).padding(horizontal = 2.dp).size(26.dp, 52.dp).clip(rr(6.dp)).background(C.card.copy(alpha = 0.85f))
+            .clickable { st.stack[st.stack.lastIndex] = Screen.Ipo(all[to]) }, contentAlignment = Alignment.Center) {
+            Text(sym, fontSize = 24.sp, color = C.dim, fontWeight = FontWeight.Bold)
+        }
+    if (at > 0) Edge("‹", Alignment.CenterStart, at - 1)
+    if (at >= 0 && at < all.lastIndex) Edge("›", Alignment.CenterEnd, at + 1)
     }
 }
 

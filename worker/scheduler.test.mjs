@@ -48,3 +48,11 @@ test("watchdog: missed window and failed last run", () => {
   const mon = at("2026-11-30T03:30:00Z");
   assert.deepEqual(overdue({ "daily.yml": [{ created_at: "2026-11-27T11:40:00Z", status: "completed", conclusion: "success" }] }, mon), []);
 });
+
+test("the 20:10 and 22:10 IST daily retries carry retry=true; 17:10 does not", async () => {
+  const { dueRuns } = await import("./worker.js");
+  const d = (iso) => dueRuns(Date.parse(iso)).find((j) => j.wf === "daily.yml");
+  assert.equal(d("2026-11-27T11:40:00Z").inputs, undefined);
+  assert.deepEqual(d("2026-11-27T14:40:00Z").inputs, { retry: "true" });
+  assert.deepEqual(d("2026-11-27T16:40:00Z").inputs, { retry: "true" });
+});

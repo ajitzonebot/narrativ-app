@@ -1857,6 +1857,38 @@ def r7_missing(audit: dict | None, Mx: dict, lender, L: dict | None) -> list[str
     return miss
 
 
+def research_missing(th: dict | None) -> list[str]:
+    """RULES.md R8 (owner, 27 Nov 2026: "verified Buys should be full stories scanned properly by Claude, no loopholes"):
+    what Claude's research still lacks before a passed review counts as a verification. [] when complete. A full review
+    alone left 21 of 26 verified Buys without an outlook scan, a story check or a dated driver (27 Nov 2026)."""
+    th = th or {}
+    miss = []
+    sc = th.get("scan_raw") or th.get("scan") or {}
+    if not sc:
+        miss.append("R8 no outlook scan (guidance, order book, must-go-right items, kill switches, bull / base / bear)")
+    else:
+        if not sc.get("must_go_right"):
+            miss.append("R8 scan has no must-go-right item")
+        if not sc.get("kill_switches"):
+            miss.append("R8 scan has no kill switch")
+        th_ = sc.get("theories") or {}
+        if not all(th_.get(k) for k in ("bull", "base", "bear")):
+            miss.append("R8 scan has no bull / base / bear case")
+    if not any(d.get("due_verified") for d in th.get("drivers") or []):
+        miss.append("R8 no dated driver with a verified due date")
+    st = th.get("story") or {}
+    if not st.get("status"):
+        miss.append("R8 no story check")
+    elif st["status"] != "intact":
+        miss.append(f"R8 story {st['status']}: a review must re-check it (intact, quoted) or drop the Buy")
+    if not th.get("synthesis"):
+        miss.append("R8 no synthesis")
+    ch = (th.get("audit") or {}).get("checks") or []
+    if len(ch) < 3 or not all(c.get("ok") for c in ch):
+        miss.append(f"R8 audit has {sum(1 for c in ch if c.get('ok'))} matching check(s) of its own (needs 3, all matching the filing)")
+    return miss
+
+
 # ------------------------------------------------------------------ Buy gates (RULES.md), shared by run.py and republish.py
 BUY = ("Buy", "Strong Buy")
 
@@ -1967,11 +1999,11 @@ def apply_buy_rules(d0: dict, Mx: dict, lender: bool, L: dict, th: dict | None, 
         d0 = {k: x for k, x in d0.items() if k != "candidate"} | {
             "d": "Hold", "gates": g, "gated_label": label,
             "why": [f"Scores say {label}, but the Buy rules are not met (RULES.md):"] + g + [w for w in d0.get("why", []) if not w.startswith("Rules say")]}
-    elif d0.get("d") in BUY:  # a passed review that lacks what R7 requires is not yet a verification
-        miss = r7_missing((th or {}).get("audit"), Mx, lender, L)
+    elif d0.get("d") in BUY:  # a passed review that lacks what R7 / R8 require is not yet a verification
+        miss = r7_missing((th or {}).get("audit"), Mx, lender, L) + research_missing(th)
         if miss:
             d0 = {**d0, "d": "Hold", "candidate": label, "verified": "pending",
-                  "why": [f"Rules say {label}: Narrativ.ai's review passed but does not yet cover RULES.md R7"]
+                  "why": [f"Rules say {label}: Narrativ.ai's review passed but the research is not complete yet (RULES.md R7, R8)"]
                   + [w for w in d0.get("why", []) if not w.startswith(VERIFIED_BY)],
                   "missing": [m for m in d0.get("missing") or [] if not m.startswith("Verification pending")]
                   + [f"Verification pending: {m}" for m in miss]}
@@ -2024,7 +2056,10 @@ def signal_triggers(df, bench, Mx, av, nse, ann_rows, today, mcap_cr) -> list[tu
             out.append(("T12", "Analyst estimates upgraded", f"EPS estimate {ch:+.1f}% in 90 days ({av['n']} analysts, Yahoo)", ch >= 15))
     since = str(pd.Timestamp(today) - pd.Timedelta(days=120))[:10]
     bb = [r for r in ann_rows or [] if r[0] >= since and re.search(r"buy-?back", f"{r[1]} {r[2]}", re.I)
-          and not re.search(r"postal ballot|newspaper|record date|scrutini", f"{r[1]} {r[2]}", re.I)]
+          and not re.search(r"postal ballot|newspaper|record date|scrutini", f"{r[1]} {r[2]}", re.I)
+          # a subsidiary buying back its own shares is not the company's buyback (LUPIN, 1 Oct 2026: Multicare Philippines
+          # bought back 30,559 shares and became a step-down wholly owned subsidiary; feedback #232 review, 27 Nov 2026)
+          and not re.search(r"subsidiar|step-?down|wholly[- ]owned", f"{r[1]} {r[2]}", re.I)]
     cf = (nse or {}).get("cf") or {}
     net = (cf.get("prom_buy") or 0) - (cf.get("prom_sell") or 0)
     if bb:

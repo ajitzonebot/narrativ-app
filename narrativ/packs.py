@@ -517,6 +517,9 @@ def build(queue: list[dict], today: date, ann_st: dict, ex: dict, dec: dict, ev:
                 pack["claude_checks"].append("BSE-only stock: code has no shareholding or insider-trading data (R5, T14 promoter buying, "
                                              "T15 not evaluated). Say what you checked instead in audit.bse_only_note {text, source}")
             pack["decision_reasons"] = (dec.get(s) or {}).get("why")
+            # RULES.md R8 (owner, 27 Nov 2026): what the research record still lacks before a pass is a verification
+            from .funnel import research_missing
+            pack["complete_record"] = research_missing(theses.get(s)) or ["complete: keep it current"]
         write_if_changed(OUT / f"{s}.json", json.dumps(pack, ensure_ascii=False, indent=0, default=str))
     print(f"[packs] {len(queue)} packs, {n_docs} documents ({n_ok} with text), {time.time() - t0:.0f}s")
     return {"packs": len(queue), "docs": n_docs, "with_text": n_ok}

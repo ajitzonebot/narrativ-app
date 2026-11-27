@@ -18,7 +18,7 @@ def test_old_and_new_verified_texts_are_both_replaced():
         d = FN.apply_buy_rules({"d": "Buy", "why": [old], "verified": "pass"}, GOOD, False, TRIG,
                                {"audit": {"verdict": "pass", "checks": [DEBT]}}, TODAY)
         assert d["d"] == "Hold" and old not in d["why"]
-        assert d["why"][0] == "Rules say Buy: Narrativ.ai's review passed but does not yet cover RULES.md R7"
+        assert d["why"][0] == "Rules say Buy: Narrativ.ai's review passed but the research is not complete yet (RULES.md R7, R8)"
         nd = republish.gate({"d": "Buy", "why": [old], "missing": []},
                             {"audit": {"verdict": "pass", "date": "2026-11-20", "changed_after": ["drivers"]}}, "2026-11-01", TODAY)
         assert nd["d"] == "Hold" and old not in nd["why"] and nd["why"][0] == "Rules say Buy: waiting for Narrativ.ai's full review"

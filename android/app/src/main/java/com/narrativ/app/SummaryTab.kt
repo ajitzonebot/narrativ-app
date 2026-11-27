@@ -1100,7 +1100,8 @@ private fun PaperWhyBody(st: AppState, sym: String, p: P?, det: Detail?, dd: Dec
     fun Half(lbl: String, bg: Color, m: Modifier, body: @Composable RowScope.() -> Unit) =
         Column(m.background(bg).padding(horizontal = 12.dp, vertical = 10.dp)) {
             Text(lbl, fontSize = 9.5.sp, letterSpacing = 1.sp, color = C.card.copy(alpha = 0.9f), fontFamily = PaperFonts.label, fontWeight = FontWeight.Bold, maxLines = 1)
-            Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp), content = body)
+            // feedback #233 (27 Nov 2026): a FlowRow, so "/100" moves under a long word ("Medium 40/") instead of being cut
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), content = body)
         }
     Row(Modifier.fillMaxWidth().clip(rr(6.dp)).height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
         Half("DECISION", decisionColor(dn), Modifier.weight(1f).fillMaxHeight()) {
@@ -1112,7 +1113,8 @@ private fun PaperWhyBody(st: AppState, sym: String, p: P?, det: Detail?, dd: Dec
                 Text(lvl, fontSize = 30.sp, color = C.card, fontFamily = PaperFonts.headline, fontWeight = FontWeight.Black, maxLines = 1)
                 cv?.score?.let {
                     Text(buildAnnotatedString { append("$it"); withStyle(SpanStyle(fontSize = 12.sp)) { append("/100") } }, fontSize = 20.sp, color = C.card,
-                        fontFamily = PaperFonts.headline, fontWeight = FontWeight.Bold, maxLines = 1, modifier = Modifier.padding(bottom = 4.dp))
+                        fontFamily = PaperFonts.headline, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false,
+                        modifier = Modifier.align(Alignment.Bottom).padding(bottom = 4.dp))
                 }
             }
         }

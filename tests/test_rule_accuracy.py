@@ -9,6 +9,13 @@ from narrativ import funnel as FN
 from narrativ import republish, technicals, verify
 from narrativ.portfolio import top10
 
+# RULES.md R8 (27 Nov 2026): the rest of a complete research record (scan, dated driver, story, synthesis, 3 checks)
+R8 = {"scan_raw": {"must_go_right": [{"text": "plant on time"}], "kill_switches": [{"text": "order cancelled"}],
+                   "theories": {"bull": "b", "base": "m", "bear": "w"}},
+      "drivers": [{"due": "2027-03-31", "due_verified": True, "text": "new plant"}],
+      "story": {"status": "intact", "text": "on track"}, "synthesis": {"one_line": "s"}}
+OK2 = [{"item": "Revenue", "ok": True}, {"item": "Equity", "ok": True}]
+
 TODAY = date(2026, 11, 20)
 
 
@@ -133,7 +140,7 @@ def test_passed_review_without_r7_items_is_verification_pending():
     d = FN.apply_buy_rules(d0, GOOD, False, TRIG, {"audit": {"verdict": "pass", "checks": [DEBT]}}, TODAY)
     assert d["d"] == "Hold" and d["candidate"] == "Buy" and d["verified"] == "pending"
     assert any(m.startswith("Verification pending: R7 related-party") for m in d["missing"])
-    ok = FN.apply_buy_rules(d0, GOOD, False, TRIG, {"audit": {"verdict": "pass", "checks": [DEBT], "related_party": RP}}, TODAY)
+    ok = FN.apply_buy_rules(d0, GOOD, False, TRIG, {"audit": {"verdict": "pass", "checks": [DEBT] + OK2, "related_party": RP}} | R8, TODAY)
     assert ok["d"] == "Buy"
 
 
@@ -172,7 +179,7 @@ def test_insurer_exempt_with_label_and_broker_gated():
 def test_bse_only_buy_needs_the_review_to_note_unevaluated_checks():
     L = TRIG | {"out": {"triggers": [{"id": "T11"}], "not_evaluated": FN.BSE_NOT_EVALUATED}}
     d0 = {"d": "Buy", "why": [], "verified": "pass"}
-    th = {"audit": {"verdict": "pass", "checks": [DEBT], "related_party": RP}}
+    th = {"audit": {"verdict": "pass", "checks": [DEBT] + OK2, "related_party": RP}} | R8
     d = FN.apply_buy_rules(d0, GOOD, False, L, th, TODAY)
     assert d["d"] == "Hold" and any("BSE-only" in m for m in d["missing"])
     assert any(w.startswith("Not evaluated (BSE-only") for w in d["why"])
@@ -269,3 +276,13 @@ def test_story_weakening_in_a_downtrend_is_sell_without_momentum_tier_5():
     th = {"story": {"status": "weakening", "text": "orders slowing"}, "drivers": [{"kind": "order", "text": "order"}]}
     assert FN.decision(_L("Downtrend", 4), None, th, None, None, 100, None, today=TODAY)["d"] == "Sell"
     assert FN.decision(_L("Stage 2", 4), None, th, None, None, 100, None, today=TODAY)["d"] != "Sell"
+
+
+def test_t14_ignores_a_subsidiarys_own_buyback():
+    """LUPIN, 1 Oct 2026: a step-down subsidiary's buyback of its own shares is not the company's buyback (#232 review)."""
+    df = frame([100.0] * 30, end="2026-11-10")
+    sub = ("2026-10-01", "General Updates", "Lupin Limited has informed the Exchange about Multicare Pharmaceuticals Philippines, Inc. "
+           "('MPPI') has completed buyback of 30,559 shares, pursuant to which MPPI has become a step-down wholly owned subsidiary")
+    own = ("2026-10-01", "Buyback", "Board approved buyback of equity shares at Rs 2,000 per share")
+    t14 = lambda rows: [x[0] for x in FN.signal_triggers(df, None, {}, None, None, rows, date(2026, 11, 12), 1000)]  # noqa: E731
+    assert "T14" not in t14([sub]) and "T14" in t14([own])

@@ -52,7 +52,8 @@ const WEEKDAYS = [1, 2, 3, 4, 5];
 const SCHEDULE = [
   // 17:10 IST after the NSE close; 20:10 and 22:10 IST retries (NSE's closing file is often late); each run skips in about a
   // minute when the day is already built
-  { wf: "daily.yml", at: ["11:40", "14:40", "16:40"], days: WEEKDAYS, maxH: 26, watchDays: [2, 3, 4, 5, 6] },
+  { wf: "daily.yml", at: ["11:40"], days: WEEKDAYS, maxH: 26, watchDays: [2, 3, 4, 5, 6] },
+  { wf: "daily.yml", at: ["14:40", "16:40"], days: WEEKDAYS, inputs: { retry: "true" } },  // retries skip in a minute when built
   { wf: "republish.yml", every: 30, maxH: 2 },                       // publish finished research (exits when nothing new)
   { wf: "filings.yml", at: ["15:20"], maxH: 26 },                    // 20:50 IST: quarterly results beyond the daily top 300
   { wf: "news.yml", every: 120, offset: 20, maxH: 6 },               // every 2 hours: feeds hold only their latest items
@@ -68,8 +69,12 @@ const WATCHDOG_AT = "03:30"; // 09:00 IST
 const ACTIVE = new Set(["queued", "in_progress", "waiting", "requested", "pending"]);
 const hm = (m) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 
-/** The jobs due in the 10-minute slot of `ms` (UTC). Pure: tested in worker/scheduler.test.mjs. */
+/** The jobs due in the 10-minute slot of `ms` (UTC), as workflow file names (dueRuns: with their inputs). Pure: tested. */
 export function dueJobs(ms, schedule = SCHEDULE) {
+  return dueRuns(ms, schedule).map((j) => j.wf);
+}
+
+export function dueRuns(ms, schedule = SCHEDULE) {
   const d = new Date(Math.round(ms / (TICK_MIN * 60000)) * TICK_MIN * 60000);
   const min = d.getUTCHours() * 60 + d.getUTCMinutes(), day = d.getUTCDay(), slot = hm(min);
   return schedule.filter((j) => {
@@ -77,7 +82,7 @@ export function dueJobs(ms, schedule = SCHEDULE) {
     if (j.monthDay && d.getUTCDate() !== j.monthDay) return false;
     if (j.every) return min >= (j.offset || 0) && (min - (j.offset || 0)) % j.every === 0;
     return (j.at || []).includes(slot);
-  }).map((j) => j.wf);
+  });
 }
 
 async function lastRuns(env, wf, n = 3) {
@@ -88,7 +93,7 @@ async function lastRuns(env, wf, n = 3) {
 }
 
 /** Start one workflow unless a run of it is already queued or running. Returns "started", "busy" or throws. */
-async function startJob(env, wf) {
+async function startJob(env, wf, inputs) {
   let runs = [];
   try { runs = await lastRuns(env, wf); } catch (e) { console.error(String(e)); } // cannot tell: start anyway (concurrency groups queue it)
   if (runs.some((x) => ACTIVE.has(x.status))) return "busy";
@@ -99,7 +104,7 @@ async function startJob(env, wf) {
       const r = await gh(env, `/actions/workflows/${wf}/dispatches`, {
         method: "POST",
         headers: { "content-type": "application/json", accept: "application/vnd.github+json" },
-        body: JSON.stringify({ ref: "main" }),
+        body: JSON.stringify(inputs ? { ref: "main", inputs } : { ref: "main" }),
       }, env.RUN_REPO || env.REPO);
       status = r.status;
       if (status === 204) return "started";
@@ -535,11 +540,11 @@ export default {
   async scheduled(event, env, ctx) {
     // one trigger every 10 minutes (wrangler.toml): start the jobs due in this slot, and once a day run the watchdog
     const ms = event.scheduledTime || Date.now();
-    const due = dueJobs(ms);
+    const due = dueRuns(ms);
     const failed = [];
-    for (const wf of due) {
+    for (const { wf, inputs } of due) {
       try {
-        console.log(`tick ${new Date(ms).toISOString()}: ${wf} ${await startJob(env, wf)}`);
+        console.log(`tick ${new Date(ms).toISOString()}: ${wf} ${await startJob(env, wf, inputs)}`);
       } catch (e) {
         console.error(String(e));
         failed.push(wf);

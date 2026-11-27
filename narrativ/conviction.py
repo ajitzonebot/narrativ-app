@@ -145,7 +145,8 @@ def _c5(L, shp):
     if d5 is None and d6 is None and not t15:
         return False, "no shareholding data yet"
     if d5 == 2 or d6 == 2 or t15:
-        why = "mutual funds entering (T15)" if t15 else (items.get("D5") or {}).get("v") if d5 == 2 else (items.get("D6") or {}).get("v")
+        # institutional holding itself up (D5) is named first: T15 alone is also a signal and must not count twice (#232)
+        why = (items.get("D5") or {}).get("v") if d5 == 2 else "mutual funds entering (T15)" if t15 else (items.get("D6") or {}).get("v")
         return True, str(why)
     return False, "institutions flat: " + " · ".join(str((items.get(k) or {}).get("v")) for k in ("D5", "D6") if (items.get(k) or {}).get("v"))
 
@@ -356,6 +357,11 @@ def score(dec: dict, L: dict, setup: dict | None, th: dict, Mx: dict | None, tod
     dl, ql = (L.get("disc") or {}), (L.get("qual") or {})
     selling = "sold" in str(v5) or "falling" in str(v5)
     quiet = dl.get("t") in QUIET_DISC and ql.get("t") in GOOD_QUAL and not selling
+    # feedback #232 (27 Nov 2026): mutual funds entering (T15) already counts as a signal; it does not count again as
+    # institutions adding (LUPIN: +4 schemes but institutional holding flat and MF holding -0.26 pts)
+    t15_counted = any(p["k"] == "signal" and p.get("t", "").endswith("utual funds entering") for p in proofs)
+    if ok5 and "T15" in str(v5) and t15_counted:
+        ok5, v5 = False, "only mutual funds entering, already counted as a signal"
     if ok5:
         proofs.append({"k": "institutions", "pts": INST_PTS, "t": "Institutions adding", "v": v5})
     elif quiet:  # v4: undiscovered is not a weakness when the business is good

@@ -300,3 +300,14 @@ def test_undiscovered_with_good_quality_counts_like_institutions_adding():
     L["disc"] |= {"t": 1, "name": "Undiscovered"}
     L["qual"] = {"t": 1, "name": "Excellent"}
     assert "institutions" not in [p["k"] for p in run(L=L)["proofs"]]
+
+
+def test_mutual_funds_entering_counts_once():
+    """Feedback #232 (27 Nov 2026): T15 is a signal; it does not count again as institutions adding."""
+    L = levels(d5=1, d6=1, triggers=("T15",))
+    L["out"]["triggers"][0]["n"] = "Mutual funds entering"
+    r = run(L=L)
+    assert [p["k"] for p in r["proofs"]].count("signal") == 1 and "institutions" not in [p["k"] for p in r["proofs"]]
+    L = levels(d5=2, d6=1, triggers=("T15",))   # institutional holding itself up: both count
+    L["out"]["triggers"][0]["n"] = "Mutual funds entering"
+    assert "institutions" in [p["k"] for p in run(L=L)["proofs"]]
