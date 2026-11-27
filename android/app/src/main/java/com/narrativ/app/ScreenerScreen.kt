@@ -263,7 +263,7 @@ fun ScreenerScreen(st: AppState, preset: String?) {
 }
 
 @Composable
-private fun CtlButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, on: Boolean = false, onClick: () -> Unit) {
+internal fun CtlButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, on: Boolean = false, onClick: () -> Unit) {
     Row(Modifier.clip(rr(16.dp)).background(if (on) C.teal.copy(alpha = 0.18f) else C.chip)
         .then(if (on) Modifier.border(1.dp, C.teal, rr(16.dp)) else Modifier).clickable(onClick = onClick)
         .padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {

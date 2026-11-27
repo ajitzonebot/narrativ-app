@@ -7,11 +7,20 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.runtime.*
@@ -22,6 +31,10 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.material3.Text
 import androidx.compose.ui.input.pointer.pointerInput
@@ -579,6 +592,9 @@ fun ResearchQueueScreen(st: AppState) {
     var tab by remember { mutableStateOf("waiting") }
     var info by remember { mutableStateOf(false) }
     var filter by remember { mutableStateOf("All") }
+    var qFilter by remember { mutableStateOf("All") }
+    var search by remember { mutableStateOf("") }  // feedback #188: one search over the queue and completed work
+    val focus = LocalFocusManager.current
     val done by produceState<DoneFile?>(null) { value = st.repo.get<DoneFile>("data/research_done.json") }
     val nDone = done?.runs.orEmpty().sumOf { r -> r.items.size }
     if (info) QueueInfoSheet { info = false }
@@ -599,48 +615,116 @@ fun ResearchQueueScreen(st: AppState) {
                 }
             }
         }
-        if (tab == "completed") { completedList(st, done, filter) { filter = it }; return@AccScreen }
-        if (q == null || q.items.isEmpty()) { item { Empty("The queue appears after the next daily run.") }; return@AccScreen }
-        // feedback #118: when the data is expected, for the whole queue and each row
-        val etas = queueEtas(q.items.map { it.task })
-        etas.maxByOrNull { it.first }?.let { last -> item {
-            Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
-                val nRev = q.items.count { it.task in REVIEW_TASKS }; val nCat = q.items.size - nRev
-                Text("All ${q.items.size} done by about ${etaWords(last.first)}", fontSize = 20.sp, lineHeight = 24.sp, color = C.white,
-                    fontFamily = if (Look.paper) PaperFonts.headline else null, fontWeight = FontWeight.Black)
-                T(listOfNotNull(nRev.takeIf { it > 0 }?.let { "$it reviews at $REVIEW_PER_RUN a run" }, nCat.takeIf { it > 0 }?.let { "$it rechecks and catalysts at $CATALYST_PER_RUN a run" })
-                    .joinToString(" · "), 11.sp, C.dim, lineHeight = 15.sp)
-            }
-        } }
         item {
-            val mix = q.items.groupingBy { it.task ?: "scan" }.eachCount().entries.sortedByDescending { it.value }
-            Card(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth(), pad = 14.dp) {
-                SegmentedBar(mix.map { Segment(it.value.toDouble(), queueTaskColor(it.key), "${queueTaskName(it.key)} ${it.value}") },
-                    height = 12.dp, gap = 3.dp, legend = SegLegend.Below)
+            Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth().clip(rr(14.dp)).background(C.hi.copy(alpha = 0.07f))
+                .padding(horizontal = 12.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.Search, null, tint = C.dim, modifier = Modifier.size(20.dp)); Spacer(Modifier.width(8.dp))
+                BasicTextField(search, { search = it }, singleLine = true, textStyle = TextStyle(color = C.white, fontSize = 15.sp), cursorBrush = SolidColor(C.blue),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { focus.clearFocus() }),
+                    modifier = Modifier.weight(1f),
+                    decorationBox = { inner -> if (search.isEmpty()) T("Search queue and done…", 15.sp, C.dim); inner() })
+                if (search.isNotEmpty()) Icon(Icons.Rounded.Close, "Clear", tint = C.dim, modifier = Modifier.clip(CircleShape).clickable { search = "" }.size(20.dp))
             }
         }
+        if (search.isNotBlank()) { queueSearch(st, q, done, search); return@AccScreen }
+        if (tab == "completed") { completedList(st, done, filter) { filter = it }; return@AccScreen }
+        if (q == null || q.items.isEmpty()) { item { Empty("The queue appears after the next daily run.") }; return@AccScreen }
+        // owner, 27 Nov 2026: no "All N done by" heading or task chart; one filter button; rows by expected time, first to last
+        val etas = queueEtas(q.items.map { it.task })
+        val rows = q.items.indices.map { q.items[it] to etas.getOrNull(it)?.first }
+            .filter { (it, _) -> qFilter == "All" || (it.task ?: "scan") == qFilter }
+            .sortedBy { (_, e) -> e }
         item {
-            val shown = q.items  // feedback #117: the whole list, no cap
+            val mix = q.items.groupingBy { it.task ?: "scan" }.eachCount()
+            FilterMenu(listOf(Triple("All", "All", q.items.size)) + mix.entries.sortedByDescending { it.value }.map { Triple(it.key, queueTaskName(it.key), it.value) },
+                qFilter, { k -> queueTaskColor(k) }) { qFilter = it }
+        }
+        item {
             Card(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth(), pad = 0.dp) {
-                shown.forEachIndexed { n, it ->
-                    val p = st.pick(it.symbol); val col = queueTaskColor(it.task)
-                    // one count everywhere: a full review says "Review N of M" (its place among pending reviews, as on the stock page);
-                    // other tasks keep their own name, with no competing number
-                    val label = (if (it.task == "review") queueLabel(st, it.symbol) else null) ?: queueTaskName(it.task)
-                    Row(Modifier.fillMaxWidth().clickable { st.go(Screen.Stock(it.symbol)) }.defaultMinSize(minHeight = 52.dp).padding(horizontal = 14.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.padding(end = 12.dp).size(3.dp, 30.dp).clip(rr(2.dp)).background(col))
-                        Column(Modifier.weight(1f)) {
-                            T(it.symbol.substringBeforeLast("."), 15.sp, weight = FontWeight.SemiBold, maxLines = 1)
-                            T(label, 12.sp, col, FontWeight.SemiBold, maxLines = 1)  // #117: no "rules say Buy" line; meanings behind (i)
-                        }
-                        etas.getOrNull(n)?.let { e -> T(etaWords(e.first), 12.sp, C.blue.takeIf { Look.paper } ?: C.muted, maxLines = 1, modifier = Modifier.padding(start = 8.dp)) }
-                    }
-                    if (n < shown.lastIndex) HLineDivider(Modifier.padding(horizontal = 14.dp))
+                rows.forEachIndexed { n, (it, e) ->
+                    QueueRow(st, it, e)
+                    if (n < rows.lastIndex) HLineDivider(Modifier.padding(horizontal = 14.dp))
                 }
             }
         }
     }
+}
+
+/** One filter button with a menu: label, count and colour dot per option; the button names the chosen option (owner, 27 Nov 2026). */
+@Composable
+fun FilterMenu(options: List<Triple<String, String, Int>>, selected: String, color: (String) -> Color?, onSelect: (String) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    val cur = options.firstOrNull { it.first == selected } ?: options.first()
+    Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+        Box {
+            CtlButton(Icons.Rounded.Tune, if (cur.first == "All") "Filter" else "${cur.second} · ${cur.third}", cur.first != "All") { open = true }
+            DropdownMenu(open, { open = false }, containerColor = C.chip) {
+                options.forEach { (k, lab, n) ->
+                    DropdownMenuItem(text = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            val dot = if (k == "All") null else color(k)
+                            Box(Modifier.padding(end = 8.dp).size(8.dp).clip(CircleShape).background(dot ?: Color.Transparent))
+                            Text("$lab  $n", color = if (k == cur.first) C.blue else C.white, fontSize = 14.sp)
+                        }
+                    }, onClick = { onSelect(k); open = false })
+                }
+            }
+        }
+    }
+}
+
+/** One queued item: task colour, symbol, task name ("Review N of M" for a full review), expected run. */
+@Composable
+private fun QueueRow(st: AppState, it: QItem, eta: java.time.LocalDateTime?) {
+    val col = queueTaskColor(it.task)
+    // one count everywhere: a full review says "Review N of M" (its place among pending reviews, as on the stock page);
+    // other tasks keep their own name, with no competing number
+    val label = (if (it.task == "review") queueLabel(st, it.symbol) else null) ?: queueTaskName(it.task)
+    Row(Modifier.fillMaxWidth().clickable { st.go(Screen.Stock(it.symbol)) }.defaultMinSize(minHeight = 52.dp).padding(horizontal = 14.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.padding(end = 12.dp).size(3.dp, 30.dp).clip(rr(2.dp)).background(col))
+        Column(Modifier.weight(1f)) {
+            T(it.symbol.substringBeforeLast("."), 15.sp, weight = FontWeight.SemiBold, maxLines = 1)
+            T(label, 12.sp, col, FontWeight.SemiBold, maxLines = 1)  // #117: no "rules say Buy" line; meanings behind (i)
+        }
+        eta?.let { e -> T(etaWords(e), 12.sp, C.blue.takeIf { Look.paper } ?: C.muted, maxLines = 1, modifier = Modifier.padding(start = 8.dp)) }
+    }
+}
+
+/** Search text matches a stock: symbol with or without .NS / .BO, or its company name (case-insensitive). */
+fun queueMatch(st: AppState, sym: String?, name: String?, q: String): Boolean {
+    val k = q.trim().lowercase()
+    if (k.isEmpty() || sym == null) return false
+    val nm = (st.pick(sym)?.n?.ifBlank { null } ?: name ?: "").lowercase()
+    return sym.lowercase().contains(k) || sym.substringBeforeLast(".").lowercase().contains(k) || nm.contains(k)
+}
+
+/** Feedback #188: matches in the queue and in completed work, in two sections with counts. */
+fun LazyListScope.queueSearch(st: AppState, q: QueueFile?, d: DoneFile?, text: String) {
+    val items = q?.items.orEmpty()
+    val etas = queueEtas(items.map { it.task })
+    val inQ = items.indices.filter { queueMatch(st, items[it].symbol, items[it].name, text) }
+    val inDone = d?.runs.orEmpty().flatMap { r -> r.items.map { r to it } }.filter { (_, x) -> queueMatch(st, x.s, null, text) }
+    item { T("In queue (${inQ.size})", 13.sp, C.dim, FontWeight.SemiBold, modifier = Modifier.padding(start = 20.dp, top = 10.dp, bottom = 4.dp)) }
+    if (inQ.isNotEmpty()) item {
+        Card(Modifier.padding(horizontal = 16.dp, vertical = 2.dp).fillMaxWidth(), pad = 0.dp) {
+            inQ.forEachIndexed { n, i ->
+                QueueRow(st, items[i], etas.getOrNull(i)?.first)
+                if (n < inQ.lastIndex) HLineDivider(Modifier.padding(horizontal = 14.dp))
+            }
+        }
+    }
+    item { T("Done (${inDone.size})" + (d?.let { " · last ${it.days} days" } ?: ""), 13.sp, C.dim, FontWeight.SemiBold,
+        modifier = Modifier.padding(start = 20.dp, top = 14.dp, bottom = 4.dp)) }
+    if (inDone.isNotEmpty()) item {
+        Card(Modifier.padding(horizontal = 16.dp, vertical = 2.dp).fillMaxWidth(), pad = 0.dp) {
+            inDone.forEachIndexed { n, (r, x) ->
+                DoneRow(st, x, doneRunTime(r))
+                if (n < inDone.lastIndex) HLineDivider(Modifier.padding(horizontal = 14.dp))
+            }
+        }
+    }
+    if (inQ.isEmpty() && inDone.isEmpty()) item { Empty("No stock in the queue or in completed work matches \"${text.trim()}\".") }
 }
 
 // Research runs (RESEARCH.md / KNOWLEDGE.md): full reviews and flags in the 5 review slots, at most 8 a run; rechecks and
@@ -860,43 +944,111 @@ fun doneGroupColor(g: String): Color = when (g) {
     "Pass" -> TierC.darkGreen; "Caution" -> C.amber; "Fail" -> C.red; "Recheck" -> C.grey; "Catalyst" -> TierC.lime; "Flags checked" -> C.white; else -> C.dim
 }
 
-@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+/** A research run's start in IST, "27 Nov 04:05" (the raw start when it does not parse). */
+fun doneRunTime(r: DoneRun): String {
+    val t = runCatching { java.time.OffsetDateTime.parse(r.start.replace("+00:00", "Z").let { if (it.length == 17) it.dropLast(1) + ":00Z" else it })
+        .atZoneSameInstant(java.time.ZoneId.of("Asia/Kolkata")) }.getOrNull()
+    return t?.let { "${skDay(it.toLocalDate().toString())} ${it.toLocalTime().toString().take(5)}" } ?: r.start.take(16)
+}
+
+/** One completed item: result colour, symbol (or industry reasons), task, result word; [time] on the right in search results. */
+@Composable
+private fun DoneRow(st: AppState, it: DoneItem, time: String? = null) {
+    val o = doneOutcome(it)
+    val sym = it.s
+    Row(Modifier.fillMaxWidth().then(if (sym != null) Modifier.clickable { st.go(Screen.Stock(sym)) } else Modifier)
+        .defaultMinSize(minHeight = 48.dp).padding(horizontal = 14.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.padding(end = 12.dp).size(3.dp, 28.dp).clip(rr(2.dp)).background(o.color))
+        Column(Modifier.weight(1f)) {
+            T(sym?.substringBeforeLast(".") ?: "Industry notes", 15.sp, weight = FontWeight.SemiBold, maxLines = 1)
+            Text(buildAnnotatedString {
+                withStyle(SpanStyle(color = if (o.open) C.amber else TierC.lightGreen, fontWeight = FontWeight.Bold)) { append(if (o.open) "⚠ " else "✓ ") }
+                append(o.what)
+                if (o.result.isNotEmpty()) {
+                    append(" · ")
+                    withStyle(SpanStyle(color = o.color, fontWeight = FontWeight.SemiBold)) { append(o.result) }
+                }
+            }, fontSize = 12.sp, color = C.dim, lineHeight = 16.sp, maxLines = 2)
+        }
+        time?.let { t -> T(t, 11.sp, C.dim, maxLines = 1, modifier = Modifier.padding(start = 8.dp)) }
+    }
+}
+
+/** Names of the red-flag checks (funnel.py A / G items), for the Completed rows. */
+private val FLAG_NAMES = mapOf("A1" to "negative equity", "A2" to "loan default", "A3" to "audit qualification", "A4" to "insolvency",
+    "A5" to "rating downgrade", "A6" to "suspension", "G1" to "regulator order", "G2" to "fraud probe", "G3" to "auditor resignation",
+    "G4" to "CEO and CFO exits", "G5" to "promoter stake cut", "G6" to "loans to the promoter group", "G7" to "fund use deviation")
+
+private data class DoneOutcome(val what: String, val result: String, val color: Color, val open: Boolean = false)
+
+/** A run-log result ("fail (A5 confirmed)", "review_flag (G1 dismissed, G2 confirmed)", "recheck+driver", "enrich none found")
+ *  in plain words: what was done and what came out of it (owner, 27 Nov 2026: "recheck" read like a task still waiting). */
+private fun doneOutcome(it: DoneItem): DoneOutcome {
+    it.industries?.let { return DoneOutcome("Industry notes updated", it, C.blue) }
+    val raw = (it.r ?: "").trim()
+    val word = raw.lowercase().split(' ', '(', '+', ':').firstOrNull().orEmpty()
+    val inner = raw.substringAfter("(", "").substringBeforeLast(")", "")
+    val rest = raw.drop(word.length).trim()
+    fun names(codes: String) = Regex("[AG]\\d").findAll(codes).map { m -> FLAG_NAMES[m.value] ?: m.value }.toList()
+    return when (word) {
+        "pass" -> DoneOutcome("Full review done", "Pass", TierC.darkGreen)
+        "caution" -> DoneOutcome("Full review done", "Caution", C.amber)
+        "fail" -> {
+            val conf = names(inner)
+            DoneOutcome("Full review done", "Fail" + if (conf.isNotEmpty()) ": ${conf.joinToString(", ")} confirmed" else "", C.red)
+        }
+        "review_flag", "dismissed", "confirmed" -> {
+            val parts = inner.split(";").map { p -> p.trim() }.filter { p -> p.isNotEmpty() }
+            val confirmed = mutableListOf<String>(); val dismissed = mutableListOf<String>(); val open = mutableListOf<String>()
+            parts.forEach { p ->
+                // "A2, G2 confirmed" / "G1 dismissed, G2 confirmed" / "G3 not reviewed: filing is a zip"
+                p.split(Regex(",\\s*(?=[AG]\\d)")).forEach { seg ->
+                    when {
+                        seg.contains("not reviewed") -> open += names(seg)
+                        seg.contains("dismissed") -> dismissed += names(seg)
+                        seg.contains("confirmed") -> confirmed += names(seg)
+                    }
+                }
+            }
+            if (confirmed.isEmpty() && dismissed.isEmpty() && open.isNotEmpty())
+                return DoneOutcome("Red flag still open", "filing could not be read", C.amber, open = true)
+            val out = listOfNotNull(confirmed.takeIf { c -> c.isNotEmpty() }?.let { c -> "${c.joinToString(", ")} confirmed" },
+                dismissed.takeIf { d -> d.isNotEmpty() }?.let { d -> "${d.joinToString(", ")}: false alarm" },
+                open.takeIf { o -> o.isNotEmpty() }?.let { o -> "${o.joinToString(", ")} still open" })
+            DoneOutcome(if (confirmed.size + dismissed.size + open.size > 1) "Red flags checked" else "Red flag checked",
+                out.joinToString("; ").ifEmpty { "checked" }, if (confirmed.isNotEmpty()) C.red else TierC.darkGreen)
+        }
+        "recheck" -> DoneOutcome("Research refreshed", when {
+            raw.contains("+driver") -> "new dated driver found"
+            rest.isNotEmpty() -> rest.trimStart('+', ' ')
+            else -> ""
+        }, C.blue)
+        "enrich" -> when {
+            raw.contains("none found") -> DoneOutcome("Looked for a dated driver", "none found", C.dim)
+            raw.contains("already had") -> DoneOutcome("Dated driver", "already on record", C.blue)
+            else -> DoneOutcome("Dated driver found", "", TierC.darkGreen)
+        }
+        else -> DoneOutcome(QUEUE_TASKS[word]?.first ?: "Research done", rest, C.blue)
+    }
+}
+
 fun LazyListScope.completedList(st: AppState, d: DoneFile?, filter: String = "All", onFilter: (String) -> Unit = {}) {
     if (d == null) { item { LoadingCard(3) }; return }
     if (d.runs.isEmpty()) { item { Empty("Nothing completed in the last ${d.days} days.") }; return }
     val all = d.runs.flatMap { it.items }
     val cnt = all.groupingBy { doneGroup(it.r) }.eachCount()
     item {
-        // feedback #115: name and count of each result as a filter, in its colour (was a "Last 7 days: …" line)
-        androidx.compose.foundation.layout.FlowRow(Modifier.padding(horizontal = 16.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            ToggleChip("All", filter == "All", { onFilter("All") }, count = all.size)
-            listOf("Pass", "Caution", "Fail", "Flags checked", "Recheck", "Catalyst", "Other").forEach { g ->
-                cnt[g]?.let { n -> ToggleChip(g, filter == g, { onFilter(g) }, count = n, dot = doneGroupColor(g)) }
-            }
-        }
+        // owner, 27 Nov 2026: one filter button (was a row of result chips)
+        FilterMenu(listOf(Triple("All", "All", all.size)) + listOf("Pass", "Caution", "Fail", "Flags checked", "Recheck", "Catalyst", "Other")
+            .mapNotNull { g -> cnt[g]?.let { n -> Triple(g, g, n) } }, filter, { g -> doneGroupColor(g) }, onFilter)
     }
     d.runs.map { r -> r.copy(items = r.items.filter { filter == "All" || doneGroup(it.r) == filter }) }.filter { it.items.isNotEmpty() }.forEach { r ->
-        val t = runCatching { java.time.OffsetDateTime.parse(r.start.replace("+00:00", "Z").let { if (it.length == 17) it.dropLast(1) + ":00Z" else it })
-            .atZoneSameInstant(java.time.ZoneId.of("Asia/Kolkata")) }.getOrNull()
-        val head = (t?.let { "${skDay(it.toLocalDate().toString())} ${it.toLocalTime().toString().take(5)}" } ?: r.start.take(16)) +
-            " · ${r.items.size} done" + (r.task?.let { " · " + if (it == "catalyst") "catalysts" else "reviews" } ?: "")
+        val head = doneRunTime(r) + " · ${r.items.size} done" + (r.task?.let { " · " + if (it == "catalyst") "catalysts" else "reviews" } ?: "")
         item { T(head, 12.sp, C.dim, modifier = Modifier.padding(start = 20.dp, top = 10.dp, bottom = 2.dp)) }
         item {
             Card(Modifier.padding(horizontal = 16.dp, vertical = 2.dp).fillMaxWidth(), pad = 0.dp) {
                 r.items.forEachIndexed { n, it ->
-                    val res = it.r ?: ""
-                    val col = when (res) { "pass" -> TierC.darkGreen; "caution" -> C.amber; "fail" -> C.red; else -> C.blue }
-                    val sym = it.s
-                    Row(Modifier.fillMaxWidth().then(if (sym != null) Modifier.clickable { st.go(Screen.Stock(sym)) } else Modifier)
-                        .defaultMinSize(minHeight = 48.dp).padding(horizontal = 14.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.padding(end = 12.dp).size(3.dp, 28.dp).clip(rr(2.dp)).background(col))
-                        Column(Modifier.weight(1f)) {
-                            T(sym?.substringBeforeLast(".") ?: "Industry reasons", 15.sp, weight = FontWeight.SemiBold, maxLines = 1)
-                            T(if (it.industries != null) it.industries else if (res in setOf("pass", "caution", "fail")) "Full review" else QUEUE_TASKS[res]?.first ?: "Research", 12.sp, C.dim, maxLines = 1)
-                        }
-                        if (res.isNotEmpty()) T(res.replaceFirstChar { c -> c.uppercase() }, 12.sp, col, FontWeight.SemiBold, maxLines = 1)
-                    }
+                    DoneRow(st, it)
                     if (n < r.items.lastIndex) HLineDivider(Modifier.padding(horizontal = 14.dp))
                 }
             }

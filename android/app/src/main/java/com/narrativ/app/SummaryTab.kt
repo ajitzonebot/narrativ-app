@@ -291,7 +291,14 @@ fun SummaryTab(st: AppState, sym: String, p: P?, det: Detail?, chart: Chart?, lo
 @Composable
 private fun PaperChecks(st: AppState, p: P, openTab: (Int) -> Unit) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-        PaperLabel("The seven checks", size = 11.sp)
+        // owner, 27 Nov 2026 (board o-S-Score): the overall score in a ring beside the title, moved here from the Why sheet
+        Row(Modifier.fillMaxWidth().padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                PaperLabel("The seven checks", size = 11.sp)
+                T("Overall score, out of 100", 11.sp, C.dim, maxLines = 1, modifier = Modifier.padding(top = 2.dp))
+            }
+            ScoreRing(kotlin.math.round(p.pr).toInt())
+        }
         LEVEL_SHORT.forEachIndexed { i, name ->
             val t = p.tier(i)
             Row(Modifier.fillMaxWidth().clickable { openTab(i + 1) }, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -300,6 +307,31 @@ private fun PaperChecks(st: AppState, p: P, openTab: (Int) -> Unit) {
                 T(p.levelTierName(st, i), 12.sp, if (t == 0) C.dim else tierColor(t), FontWeight.SemiBold, maxLines = 1)
             }
         }
+    }
+}
+
+/** The overall score in a ring: a track, an arc from the top clockwise filled to the score in the verdict colour (70+ pass,
+ *  45-69 partly, below 45 miss: the conviction bands), the number centred in lining figures. */
+@Composable
+fun ScoreRing(score: Int, size: androidx.compose.ui.unit.Dp = 64.dp, stroke: androidx.compose.ui.unit.Dp = 6.dp) {
+    val v = score.coerceIn(0, 100)
+    val col = fillColor(if (v >= 70) "Pass" else if (v >= 45) "Partly" else "Miss")
+    val track = C.line
+    Box(Modifier.size(size).drawBehind {
+        val sw = stroke.toPx()
+        val d = this.size.minDimension - sw
+        val tl = Offset(sw / 2, sw / 2)
+        val sz = androidx.compose.ui.geometry.Size(d, d)
+        drawArc(track, 0f, 360f, false, tl, sz, style = androidx.compose.ui.graphics.drawscope.Stroke(sw))
+        if (v > 0) drawArc(col, -90f, 360f * v / 100f, false, tl, sz, style = androidx.compose.ui.graphics.drawscope.Stroke(sw, cap = StrokeCap.Round))
+    }, contentAlignment = Alignment.Center) {
+        // optical centre: a touch above the mathematical centre (owner, 27 Nov 2026), 2% of the ring
+        Text("$v", color = C.white, fontFamily = PaperFonts.headline, fontWeight = FontWeight.Black, fontSize = (size.value * 0.36f).sp, maxLines = 1,
+            modifier = Modifier.offset(y = -(size * 0.02f)),
+            style = androidx.compose.ui.text.TextStyle(fontFeatureSettings = "lnum",
+                platformStyle = androidx.compose.ui.text.PlatformTextStyle(includeFontPadding = false),
+                lineHeight = (size.value * 0.36f).sp, lineHeightStyle = androidx.compose.ui.text.style.LineHeightStyle(
+                    androidx.compose.ui.text.style.LineHeightStyle.Alignment.Center, androidx.compose.ui.text.style.LineHeightStyle.Trim.Both)))
     }
 }
 
@@ -798,6 +830,7 @@ fun DecisionDetailsSheet(st: AppState, sym: String, p: P?, det: Detail?, onDismi
     val audit = r?.audit
     val dn = dd?.d ?: "Not rated"
     BottomSheet(onDismiss, "Why " + if (dn == "Not rated") "not rated" else dn) {
+        if (Look.paper) { PaperWhyBody(st, sym, p, det, dd); return@BottomSheet }  // owner, 27 Nov 2026: boards o-A-Verdict + o-A2-Rest
         // feedback #165 (owner, 26 Nov 2026): "How sure are we?" first: the rule-built conviction and its seven checks
         val cv = det?.conviction
         val cvLevel = cv?.level
@@ -993,4 +1026,183 @@ fun DecisionDetailsSheet(st: AppState, sym: String, p: P?, det: Detail?, onDismi
 internal fun upside(target: Double, price: Double?): String? = price?.takeIf { it > 0 }?.let { pr ->
     val u = (target / pr - 1) * 100
     (if (u >= 0) "+" else "−") + fmt(kotlin.math.abs(u), 1) + "%"
+}
+
+// ---------------------------------------------------------------- Why sheet, Paper (owner, 27 Nov 2026: boards o-A-Verdict + o-A2-Rest)
+/** A small section head on the Paper Why sheet: the name in caps, an optional coloured tag beside it. */
+@Composable
+private fun WhyHead(text: String, tag: String? = null, tagColor: Color = C.grey) {
+    Row(Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        PaperLabel(text, C.dim, 10.sp)
+        tag?.let {
+            Text(it.uppercase(), fontSize = 9.5.sp, letterSpacing = 0.6.sp, color = C.card, fontFamily = PaperFonts.label, fontWeight = FontWeight.Bold,
+                maxLines = 1, modifier = Modifier.clip(rr(3.dp)).background(tagColor).padding(horizontal = 7.dp, vertical = 1.dp))
+        }
+    }
+}
+
+/** One line of the Why sheet: a coloured mark, a bold title and its evidence. */
+@Composable
+private fun WhyLine(mark: String, markColor: Color, title: String?, text: String?, onClick: (() -> Unit)? = null) {
+    Row(Modifier.fillMaxWidth().then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier).padding(vertical = 5.dp),
+        verticalAlignment = Alignment.Top) {
+        T(mark, 13.sp, markColor, FontWeight.Bold, maxLines = 1, modifier = Modifier.width(18.dp))
+        Text(buildAnnotatedString {
+            title?.takeIf { it.isNotBlank() }?.let { withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(it.trimEnd('.') + if (text.isNullOrBlank()) "" else ". ") } }
+            text?.takeIf { it.isNotBlank() }?.let { append(it) }
+        }, color = C.white, fontSize = 12.5.sp, lineHeight = 17.sp, fontFamily = PaperFonts.serif, modifier = Modifier.weight(1f))
+    }
+    HLineDivider()
+}
+
+/** A question card in the key-check card style: verdict band, the question, the answer large, one or two lines. */
+@Composable
+private fun QuestionCard(band: String, color: Color, question: String, answer: String, lines: List<String>, modifier: Modifier) {
+    val shape = RoundedCornerShape(6.dp)
+    Column(modifier.clip(shape).background(C.card).border(1.dp, C.line, shape)) {
+        Text(band, fontSize = 9.5.sp, letterSpacing = 0.7.sp, color = C.card, fontFamily = PaperFonts.label, fontWeight = FontWeight.Bold, maxLines = 1,
+            modifier = Modifier.fillMaxWidth().background(color).padding(horizontal = 8.dp, vertical = 4.dp))
+        Column(Modifier.padding(start = 8.dp, end = 8.dp, top = 7.dp, bottom = 9.dp)) {
+            T(question, 11.sp, C.dim, maxLines = 1)
+            Text(answer, fontSize = 17.sp, lineHeight = 20.sp, color = C.white, fontFamily = PaperFonts.headline, fontWeight = FontWeight.Black, maxLines = 2,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp, bottom = 4.dp))
+            lines.forEach { T(it, 10.5.sp, maxLines = 3, lineHeight = 14.sp) }
+        }
+    }
+}
+
+/** ✓ / ~ / ✗ and the band colour for a level tier (1-2 good, 3 middle, 4-5 weak, 0 not known). */
+private fun tierMark(t: Int): Pair<String, Color> = when {
+    t in 1..2 -> "✓" to fillColor("Pass"); t == 3 -> "~" to fillColor("Partly"); t >= 4 -> "✗" to fillColor("Miss"); else -> "–" to C.grey
+}
+
+@Composable
+private fun PaperWhyBody(st: AppState, sym: String, p: P?, det: Detail?, dd: Decision?) {
+    val ctx = LocalContext.current
+    val r = st.research[sym]
+    val audit = r?.audit
+    val dn = dd?.d ?: "Not rated"
+    val cv = det?.conviction
+    // 1 · the answer on one band: decision (verified or not), conviction level and score
+    val verified = dd?.verified == "pass" && dn in setOf("Buy", "Strong Buy")
+    val bandWord = when {
+        verified -> "Verified $dn"
+        dd?.candidate != null && dn !in setOf("Buy", "Strong Buy") -> "${dd.candidate} candidate · $dn"
+        else -> dn
+    }
+    Column(Modifier.fillMaxWidth().clip(rr(6.dp)).background(decisionColor(dn)).padding(horizontal = 14.dp, vertical = 12.dp)) {
+        Text(bandWord.uppercase(), fontSize = 10.sp, letterSpacing = 1.sp, color = C.card.copy(alpha = 0.85f), fontFamily = PaperFonts.label,
+            fontWeight = FontWeight.Bold, maxLines = 1)
+        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(cv?.level ?: dn, fontSize = 30.sp, color = C.card, fontFamily = PaperFonts.headline, fontWeight = FontWeight.Black, maxLines = 1)
+            cv?.score?.let {
+                Text("$it/100", fontSize = 20.sp, color = C.card, fontFamily = PaperFonts.headline, fontWeight = FontWeight.Bold, maxLines = 1,
+                    modifier = Modifier.padding(bottom = 3.dp))
+            }
+        }
+    }
+    // 2 · three questions as cards
+    val lv = det?.levels.orEmpty()
+    fun tierOf(i: Int): Int = lv[LEVELS[i]]?.t ?: p?.tier(i) ?: 0
+    fun nameOf(i: Int): String = lv[LEVELS[i]]?.name?.ifBlank { null } ?: p?.levelTierName(st, i) ?: "–"
+    Row(Modifier.fillMaxWidth().padding(top = 10.dp).height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        // business: the worse of stability and quality
+        val bt = listOf(tierOf(0), tierOf(1)).filter { it > 0 }.maxOrNull() ?: 0
+        val (bm, bc) = tierMark(bt)
+        QuestionCard("$bm BUSINESS", bc, "Good business?", when { bt == 0 -> "Not known"; bt <= 2 -> "Yes"; bt == 3 -> "Mixed"; else -> "No" },
+            listOf("Stability ${nameOf(0)}", "Quality ${nameOf(1)}"), Modifier.weight(1f).fillMaxHeight())
+        // price: the valuation multiple, then the verdict and the peer comparison (V2), else the own-history line (V1)
+        val v = lv["val"]
+        val vt = tierOf(2)
+        val (vm, vc) = tierMark(vt)
+        val vans = if (v?.mval != null && v.metric != null) "${mult(v.mval)} ${if (v.metric == "P/B") "book" else v.metric}" else nameOf(2)  // owner: "0.9× book"
+        val vline = (v?.item("V2")?.v ?: v?.item("V1")?.v)?.takeIf { it.isNotBlank() }
+        QuestionCard("$vm PRICE", vc, "Price right?", vans, listOfNotNull(nameOf(2), vline), Modifier.weight(1f).fillMaxHeight())
+        // timing: the entry setup and momentum
+        val s = det?.setup
+        val live = s != null && s.lo != null && s.type in setOf("Breakout", "Pullback", "Base")
+        val tc = if (live) fillColor("Pass") else fillColor("Partly")
+        val buy = if (live && s != null) { if (s.type == "Breakout") "buy above ${skRs(s.lo!!)}" else if (s.hi != null) "buy ${rangeStr(s.lo!!, s.hi)}" else null } else null
+        QuestionCard("${if (live) "✓" else "~"} TIMING", tc, "Now the time?", s?.let { planName(it) } ?: "No setup",
+            listOfNotNull("Momentum ${nameOf(4)}" + (buy?.let { "; $it" } ?: "")), Modifier.weight(1f).fillMaxHeight())
+    }
+    // 3 · conviction signals (no points), what is not there yet, what a verified Buy still needs
+    if (cv != null && (cv.proofs.isNotEmpty() || cv.notYet.isNotEmpty())) {
+        WhyHead("Conviction signals", cv.date?.let { skDay(it) }, C.grey)
+        cv.proofs.forEach { pr -> WhyLine("✓", fillColor("Pass"), pr.t, pr.v) }
+        cv.notYet.forEach { WhyLine("–", C.dim, null, it) }
+    }
+    val missing = dd?.missing.orEmpty()
+    if (missing.isNotEmpty()) {
+        WhyHead("Not a verified Buy yet")
+        missing.forEach { WhyLine("–", C.amber, null, it) }
+    }
+    // 4 · management: the level word as a tag, then what management said (quoted guidance)
+    val why = dd?.why.orEmpty()
+    val fwd = why.filter { isMgmtLine(it) }
+    val mt = tierOf(3)
+    if (fwd.isNotEmpty() || mt > 0) {
+        WhyHead("Management", "${tierMark(mt).first} ${nameOf(3)}", tierColor(mt))
+        fwd.forEach { w ->
+            Row(Modifier.padding(vertical = 3.dp)) {
+                if (w.contains(": ")) {
+                    T(w.substringBefore(": ").substringBefore(" ("), 10.5.sp, C.dim, maxLines = 2, modifier = Modifier.width(72.dp).padding(top = 2.dp))
+                    T(w.substringAfter(": "), 12.5.sp, lineHeight = 17.sp, modifier = Modifier.weight(1f))
+                } else T(w, 12.5.sp, lineHeight = 17.sp, modifier = Modifier.weight(1f))
+            }
+        }
+    }
+    // 5 · Narrativ.ai's check: verdict and date as a tag, up to 3 checks, the rest behind a toggle
+    if (audit == null) {
+        WhyHead("Checked by Narrativ.ai")
+        val rv = reviewState(st, sym)
+        T(when { rv.verdict != null -> "Narrativ.ai's review: ${reviewWord(rv.verdict)}"; rv.pos > 0 -> queueLabel(st, sym) ?: "In Narrativ.ai's review queue"; rv.pos != 0 -> "In Narrativ.ai's research queue"
+                 rv.studied != null -> "Narrativ.ai's notes only (${skDay(rv.studied)}), no full review yet"; else -> "Rules only: not studied by Narrativ.ai" }, 12.5.sp, C.dim)
+    } else {
+        val ok = audit.verdict == "pass"
+        WhyHead("Checked by Narrativ.ai", listOfNotNull((if (ok) "✓ " else if (audit.verdict == "fail") "✗ " else "~ ") + reviewWord(audit.verdict),
+            audit.date?.let { skDay(it) }).joinToString(" · "), reviewColor(audit.verdict))
+        var all by remember { mutableStateOf(false) }
+        val checks = audit.checks
+        (if (all) checks else checks.take(3)).forEach { c ->
+            fun f(k: String) = (c[k] as? JsonPrimitive)?.content
+            val good = f("ok") == "true"
+            WhyLine(if (good) "✓" else "✗", fillColor(if (good) "Pass" else "Miss"), f("item"), f("found"),
+                f("source")?.let { src -> { openUrl(ctx, src) } })
+        }
+        if (checks.size > 3) T(if (all) "Show fewer" else "All ${checks.size} checks ›", 12.sp, C.blue, maxLines = 1,
+            modifier = Modifier.padding(top = 4.dp).clickable { all = !all })
+    }
+    // 6 · what to watch: the stock's watch standouts, then other rule notes
+    val watch = det?.standouts?.watch.orEmpty()
+    val levelNames = LEVEL_SHORT.toSet()
+    val other = why.filter { it.substringBefore(":") !in levelNames && !isMgmtLine(it) && !it.startsWith("Verified") &&
+        !it.startsWith("R1 and R2 not applied") && !it.startsWith("Re-scored") && !it.contains("valuation", ignoreCase = true) &&
+        !it.contains("base case") && (cv?.proofs.isNullOrEmpty() || (!it.startsWith("Signal") && !it.startsWith("No entry setup") && !it.startsWith("Entry setup"))) }
+    if (watch.isNotEmpty() || other.isNotEmpty()) {
+        WhyHead("What to watch")
+        watch.forEach { WhyLine("~", C.amber, it.n, it.v) }
+        other.forEach { WhyLine("~", C.amber, null, it) }
+    }
+    // 7 · rating history: rating changes and this stock's calls, latest first; two shown, the rest behind a toggle
+    val cf by produceState(st.repo.peek<CallsFile>("data/calls.json")) { st.repo.cacheFirst<CallsFile>("data/calls.json") { if (it != null) value = it } }
+    val events = buildList {
+        det?.verdictLog.orEmpty().forEach { e ->
+            add(Triple(e.d, verdictColor(e.v), (e.from?.let { "$it → " } ?: "") + e.v + (if (e.from == null) " (first rating)" else e.cause?.let { " ($it)" } ?: "")))
+        }
+        cf?.calls.orEmpty().filter { it.symbol == sym }.forEach { c ->
+            val what = (if (c.kind == "verified") "Verified ${c.decision ?: "Buy"} call" else "${c.decision ?: "Buy"}-candidate call") +
+                (c.price?.let { " at ${skRs(it)}" } ?: "") +
+                (c.ended?.let { e -> ", ended ${skDay(e)}" + (c.toEnd?.let { " (${if (it >= 0) "+" else "−"}${fmt(kotlin.math.abs(it), 1)}%)" } ?: "") } ?: "")
+            add(Triple(c.date, if (c.ended == null) fillColor("Pass") else C.amber, what))
+        }
+    }.sortedByDescending { it.first }
+    if (events.isNotEmpty()) {
+        WhyHead("Rating history")
+        var more by remember { mutableStateOf(false) }
+        (if (more) events else events.take(2)).forEach { (d, c, t) -> WhyLine("●", c, skDay(d), t) }
+        if (events.size > 2) T(if (more) "Show fewer" else "Show ${events.size - 2} earlier ›", 12.sp, C.blue, maxLines = 1,
+            modifier = Modifier.padding(top = 4.dp).clickable { more = !more })
+    }
 }

@@ -4,6 +4,7 @@ package com.narrativ.app
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -152,8 +153,10 @@ fun ProgressLine(frac: Float, color: Color = C.muted, modifier: Modifier = Modif
  *  are kept for the rule texts; the bar fills from the left and its colour carries the verdict. */
 data class Bullet(val v: Double, val lo: Double, val hi: Double, val pass: Double, val higher: Boolean = true, val partly: Double? = null,
                   val unit: String = "")
-/** One row of "Key checks": status word, short name, figure, pass line and optional bullet. */
-data class KeyCheck(val status: String, val name: String, val figure: String, val pass: String? = null, val bullet: Bullet? = null)
+/** One row of "Key checks": status word, short name, figure, pass line, optional bullet and [says], the figure in plain words
+ *  ("Debt equals 2.4 years of operating profit"; Paper verdict cards, owner 27 Nov 2026). */
+data class KeyCheck(val status: String, val name: String, val figure: String, val pass: String? = null, val bullet: Bullet? = null,
+                    val says: String? = null)
 
 /** " ✓" / " ✗" / " ~" after a figure, by status word. */
 fun statusMark(status: String): String = when (status) { "Pass" -> " ✓"; "Miss" -> " ✗"; "Partly" -> " ~"; else -> "" }
@@ -180,7 +183,7 @@ fun BarCheckRow(r: KeyCheck, b: Bullet, divider: Boolean = true) {
 @Composable
 fun KeyChecksCard(rows: List<KeyCheck>, total: Int, onAll: () -> Unit) {
     SectionCard("Key checks", more = "All $total checks with formulas", onMore = onAll) {
-        if (Look.paper) { ZoneGrid(rows); return@SectionCard }
+        if (Look.paper) { VerdictGrid(rows); return@SectionCard }
         rows.forEach { r ->
             val b = r.bullet
             if (b != null) BarCheckRow(r, b) else CheckRow(r.status, r.name, r.figure, r.pass)
@@ -427,6 +430,55 @@ fun RatioRow(label: String, value: String, rule: KeyRule?, divider: Boolean = tr
             T(value, 13.sp, if (value == "n/m") C.white else ruleColor(rule), FontWeight.Bold, maxLines = 1)
         }
         if (divider) HLineDivider()
+    }
+}
+
+// ---------------------------------------------------------------- key checks as verdict cards (Paper, owner 27 Nov 2026, board B)
+/** The condition under a verdict card: the pass part of the line, sentence-cased ("Pass ≤ 3×"); a line with no pass part
+ *  ("12 months", "median growth") as it is. */
+internal fun passLine(p: String?): String? {
+    val parts = p?.split(" · ")?.map { it.trim() }?.filter { it.isNotBlank() } ?: return null
+    return (parts.firstOrNull { it.startsWith("pass") } ?: parts.joinToString(" · ")).takeIf { it.isNotBlank() }?.let { cap(it) }
+}
+
+/** Top key checks as cards two by two: the verdict on a coloured band, the figure in ink, one plain sentence, the pass line. */
+@Composable
+fun VerdictGrid(rows: List<KeyCheck>) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        rows.chunked(2).forEach { pair ->
+            Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                VerdictCard(pair[0], Modifier.weight(1f).fillMaxHeight())
+                if (pair.size > 1) VerdictCard(pair[1], Modifier.weight(1f).fillMaxHeight()) else Spacer(Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun VerdictCard(r: KeyCheck, modifier: Modifier) {
+    val band = fillColor(r.status)
+    val word = when (r.status) { "Pass" -> "✓ PASS"; "Partly" -> "~ PARTLY"; "Miss" -> "✗ MISS"; else -> "N/A" }
+    val shape = RoundedCornerShape(6.dp)
+    Column(modifier.clip(shape).background(C.card).border(1.dp, C.line, shape)) {
+        androidx.compose.material3.Text(word, fontSize = 10.sp, letterSpacing = 0.8.sp, color = C.card, fontFamily = PaperFonts.label,
+            fontWeight = FontWeight.Bold, maxLines = 1, modifier = Modifier.fillMaxWidth().background(band).padding(horizontal = 10.dp, vertical = 4.dp))
+        Column(Modifier.padding(start = 10.dp, end = 10.dp, top = 9.dp, bottom = 11.dp)) {
+            T(r.name, 12.5.sp, C.dim, maxLines = 2, lineHeight = 15.sp)
+            // the figure in ink, not in the verdict colour (the band carries the verdict); words ("None filed") smaller
+            val fig = r.figure.trim()
+            val pass = passLine(r.pass)
+            if (fig.isNotBlank()) {
+                val words = fig.length > 8 || fig.any { it.isLetter() }
+                androidx.compose.material3.Text(cap(fig), fontSize = if (words) 17.sp else 28.sp, lineHeight = if (words) 20.sp else 31.sp,
+                    color = C.white, fontFamily = PaperFonts.headline, fontWeight = FontWeight.Black, maxLines = if (words) 2 else 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.padding(top = 3.dp, bottom = 5.dp))
+                r.says?.let { T(it, 11.5.sp, maxLines = 3, lineHeight = 15.sp) }
+                pass?.let { T(it, 9.5.sp, C.dim, maxLines = 2, lineHeight = 12.sp, modifier = Modifier.padding(top = 6.dp)) }
+            } else {
+                // a generic check (other business kinds): its value is the sentence
+                (r.says ?: pass)?.let { T(cap(it), 11.5.sp, maxLines = 3, lineHeight = 15.sp, modifier = Modifier.padding(top = 4.dp)) }
+            }
+        }
     }
 }
 

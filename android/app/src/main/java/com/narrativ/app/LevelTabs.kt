@@ -157,13 +157,17 @@ private fun orGeneric(rows: List<KeyCheck>, lv: Level): List<KeyCheck> = if (row
 private fun StabilityBody(det: Detail, lv: Level, open: (String?) -> Unit, onAll: () -> Unit) {
     val rows = listOfNotNull(
         lv.item("B2")?.let { it0 -> val v = det.v("net_debt_ebitda")
-            KeyCheck(lv.status("B2"), "Net debt / EBITDA", v?.let { mult(it) } ?: short(it0.v), "pass ≤ 3× · miss > 5×", v?.let { Bullet(it, -1.0, 6.0, 3.0, higher = false, partly = 5.0, unit = "×") }) },
+            KeyCheck(lv.status("B2"), "Net debt / EBITDA", v?.let { mult(it) } ?: short(it0.v), "pass ≤ 3× · miss > 5×", v?.let { Bullet(it, -1.0, 6.0, 3.0, higher = false, partly = 5.0, unit = "×") },
+                says = v?.let { if (it < 0) "More cash than debt" else "Debt equals ${skFx(it, 1)} years of operating profit" }) },
         lv.item("B1")?.let { it0 -> val v = det.v("interest_cover")
-            KeyCheck(lv.status("B1"), "Interest cover", v?.let { mult(it, if (abs(it) >= 100) 0 else 1) } ?: short(it0.v), "pass ≥ 3× · miss < 1.5×", v?.let { Bullet(it, 0.0, 6.0, 3.0, partly = 1.5, unit = "×") }) },
+            KeyCheck(lv.status("B1"), "Interest cover", v?.let { mult(it, if (abs(it) >= 100) 0 else 1) } ?: short(it0.v), "pass ≥ 3× · miss < 1.5×", v?.let { Bullet(it, 0.0, 6.0, 3.0, partly = 1.5, unit = "×") },
+                says = v?.let { "Operating profit pays the interest ${skFx(it, if (abs(it) >= 100) 0 else 1)} times" }) },
         lv.item("B4")?.let { it0 -> val v = det.v("current_ratio")
-            KeyCheck(lv.status("B4"), "Current ratio", v?.let { skFx(it, 2) } ?: short(it0.v), "pass ≥ 1.0 · miss < 0.8 if short-term debt > cash", v?.let { Bullet(it, 0.0, 3.0, 1.0, partly = 0.8) }) },
+            KeyCheck(lv.status("B4"), "Current ratio", v?.let { skFx(it, 2) } ?: short(it0.v), "pass ≥ 1.0 · miss < 0.8 if short-term debt > cash", v?.let { Bullet(it, 0.0, 3.0, 1.0, partly = 0.8) },
+                says = v?.let { "₹${skFx(it, 2)} of current assets per ₹1 due" }) },
         lv.item("B5")?.let { it0 -> val v = skNums(it0.v).firstOrNull()
-            KeyCheck(lv.status("B5"), "Promoter pledge", v?.let { "${skFx(it, 1)}%" } ?: short(it0.v), "pass ≤ 10% · miss > 50%", v?.let { Bullet(it, 0.0, 100.0, 10.0, higher = false, partly = 50.0, unit = "%") }) },
+            KeyCheck(lv.status("B5"), "Promoter pledge", v?.let { "${skFx(it, 1)}%" } ?: short(it0.v), "pass ≤ 10% · miss > 50%", v?.let { Bullet(it, 0.0, 100.0, 10.0, higher = false, partly = 50.0, unit = "%") },
+                says = v?.let { if (it <= 0.0) "No promoter shares pledged" else "${skFx(it, 1)}% of promoter shares are pledged" }) },
     )
     KeyChecksCard(orGeneric(rows, lv), lv.items.size, onAll)
     val ncm = det.m("net_cash_pct_mcap")
@@ -284,20 +288,24 @@ private fun QualityBody(det: Detail, lv: Level, onAll: () -> Unit) {
     val cc = det.v("cfo_to_ebitda_pct"); val r3 = det.v("roce_3y_avg_pct"); val r4 = det.v("roce_pct"); val em = det.v("ebitda_margin_pct")
     val rg = det.v("rev_cagr_3y_pct"); val rt = det.v("rev_ttm_growth_pct")
     val rows = listOfNotNull(
-        if (lv.item("Q7") != null && cc != null) KeyCheck(lv.status("Q7"), "Cash conversion", "${skFx(cc, 0)}%", "pass ≥ 70%", Bullet(cc, 0.0, 100.0, 70.0, partly = 50.0, unit = "%")) else null,
+        if (lv.item("Q7") != null && cc != null) KeyCheck(lv.status("Q7"), "Cash conversion", "${skFx(cc, 0)}%", "pass ≥ 70%", Bullet(cc, 0.0, 100.0, 70.0, partly = 50.0, unit = "%"),
+            says = "Turns ${skFx(cc, 0)}% of operating profit into cash") else null,
         // the check scores the lower of the two: the figure printed is the one plotted, the other is named beside the pass line
         if (lv.item("Q1") != null && r3 != null) {
             val last = r4 != null && r4 < r3; val shown = if (last) r4!! else r3
             KeyCheck(lv.status("Q1"), if (last) "ROCE, last 4 quarters" else "ROCE, avg of filed years", "${skFx(shown, 1)}%",
                 "pass ≥ 15%" + (if (last) " · avg ${skFx(r3, 1)}%" else r4?.let { " · last 4Q ${skFx(it, 1)}%" } ?: ""),
-                Bullet(shown, 0.0, 30.0, 15.0, partly = 10.0, unit = "%"))
+                Bullet(shown, 0.0, 30.0, 15.0, partly = 10.0, unit = "%"), says = "Returns ${skFx(shown, 1)}% a year on capital employed")
         } else null,
-        if (lv.item("Q2") != null && em != null) KeyCheck(lv.status("Q2"), "EBITDA margin", "${skFx(em, 1)}%", "pass ≥ 12%", Bullet(em, 0.0, 40.0, 12.0, partly = 8.0, unit = "%")) else null,
+        if (lv.item("Q2") != null && em != null) KeyCheck(lv.status("Q2"), "EBITDA margin", "${skFx(em, 1)}%", "pass ≥ 12%", Bullet(em, 0.0, 40.0, 12.0, partly = 8.0, unit = "%"),
+            says = if (em >= 0) "Keeps ₹${skFx(em, 0)} of every ₹100 of sales as operating profit" else "Loses money on operations") else null,
         if (lv.item("Q3") != null && rg != null) {
             val last = rt != null && rt < rg; val shown = if (last) rt!! else rg
             KeyCheck(lv.status("Q3"), if (last) "Revenue growth, last 4 quarters" else "Revenue growth, 3-yr avg", "${skFx(shown, 1)}%",
                 "pass ≥ 10%" + (if (last) " · 3-yr avg ${skFx(rg, 1)}%" else rt?.let { " · last 4Q ${skFx(it, 1)}%" } ?: ""),
-                Bullet(shown, 0.0, 25.0, 10.0, partly = 5.0, unit = "%"))
+                Bullet(shown, 0.0, 25.0, 10.0, partly = 5.0, unit = "%"),
+                says = (if (shown >= 0) "Revenue grew ${skFx(shown, 1)}%" else "Revenue fell ${skFx(-shown, 1)}%") +
+                    if (last) " in the last 4 quarters" else " a year over 3 years")
         } else null,
     )
     KeyChecksCard(orGeneric(rows, lv), lv.items.size, onAll)
@@ -383,10 +391,12 @@ private fun ManagementBody(st: AppState, sym: String, det: Detail, lv: Level, on
             if (g.v?.matches(Regex("^\\d{4}-\\d{2}-\\d{2}.*")) == true) skDay(g.v) else short(g.v),
             r?.flagReviews?.get("G1")?.verdict?.let { "$it by Narrativ.ai" } ?: "24 months") },
         if (c8 != null && c8n.size >= 4) KeyCheck(lv.status("C8"), "ROCE held", skSgn(c8n[3] - c8n[1], 1, " pts"),
-            "FY${c8n[0].toInt()}→${c8n[2].toInt()} · pass ≥ −2 pts", Bullet(c8n[3] - c8n[1], -6.0, 2.0, -2.0, partly = -5.0, unit = " pts")) else null,
+            "FY${c8n[0].toInt()}→${c8n[2].toInt()} · pass ≥ −2 pts", Bullet(c8n[3] - c8n[1], -6.0, 2.0, -2.0, partly = -5.0, unit = " pts"),
+            says = "Return on capital ${skFx(c8n[1], 1)}% in FY${c8n[0].toInt()}, ${skFx(c8n[3], 1)}% in FY${c8n[2].toInt()}") else null,
         lv.item("C3")?.let { c -> KeyCheck(lv.status("C3"), "Promoter buying", if (c.v?.startsWith("no ") == true) "no trades" else short(c.v), "12 months") },
         lv.item("C1")?.let { c -> val v = skNums(c.v).firstOrNull()
-            KeyCheck(lv.status("C1"), "Promoter holding", v?.let { "${skFx(it, 1)}%" } ?: short(c.v), "pass ≥ 50%", v?.let { Bullet(it, 0.0, 100.0, 50.0, partly = 25.0, unit = "%") }) },
+            KeyCheck(lv.status("C1"), "Promoter holding", v?.let { "${skFx(it, 1)}%" } ?: short(c.v), "pass ≥ 50%", v?.let { Bullet(it, 0.0, 100.0, 50.0, partly = 25.0, unit = "%") },
+                says = v?.let { "Promoters own ${skFx(it, 1)}% of the company" }) },
     )
     KeyChecksCard(orGeneric(rows, lv), lv.items.size, onAll)
     val pro = det.stock.promoter.sortedBy { it.date }
@@ -514,10 +524,14 @@ private fun MomentumBody(st: AppState, p: P?, det: Detail, lv: Level, chart: Cha
     val p4 = skNums(lv.item("P4")?.v).firstOrNull(); val e2 = skNums(lv.item("E2")?.v).firstOrNull(); val p3 = skNums(lv.item("P3")?.v).firstOrNull()?.toInt()
     val e1 = skNums(lv.item("E1")?.v)
     val rows = listOfNotNull(
-        p4?.let { KeyCheck(lv.status("P4"), "52-week high", skSgn(it), "pass within −10%", Bullet(it, -40.0, 0.0, -10.0, unit = "%")) },
-        e2?.let { KeyCheck(lv.status("E2"), "Results reaction", skSgn(it), "3 days · pass > +5%", Bullet(it, -10.0, 10.0, 5.0, partly = -5.0, unit = "%")) },
-        p3?.let { KeyCheck(lv.status("P3"), "Industry rank", "${skOrd(it)} pct", "pass: top third", Bullet(it.toDouble(), 0.0, 100.0, 67.0, unit = "th")) },
-        if (e1.size >= 2) KeyCheck(lv.status("E1"), "Growth trend", "${skFx(e1[0], 1)}% vs ${skFx(e1[1], 1)}%", "revenue YoY, faster") else null,
+        p4?.let { KeyCheck(lv.status("P4"), "52-week high", skSgn(it), "pass within −10%", Bullet(it, -40.0, 0.0, -10.0, unit = "%"),
+            says = if (it >= 0) "At its 52-week high" else "${skFx(-it, 1)}% below its 52-week high") },
+        e2?.let { KeyCheck(lv.status("E2"), "Results reaction", skSgn(it), "3 days · pass > +5%", Bullet(it, -10.0, 10.0, 5.0, partly = -5.0, unit = "%"),
+            says = "Price moved ${skSgn(it)} in the 3 days after results") },
+        p3?.let { KeyCheck(lv.status("P3"), "Industry rank", "${skOrd(it)} pct", "pass: top third", Bullet(it.toDouble(), 0.0, 100.0, 67.0, unit = "th"),
+            says = "Price strength in the ${skOrd(it)} percentile of its industry") },
+        if (e1.size >= 2) KeyCheck(lv.status("E1"), "Growth trend", "${skFx(e1[0], 1)}% vs ${skFx(e1[1], 1)}%", "revenue YoY, faster",
+            says = "Revenue growth ${skFx(e1[0], 1)}% now, ${skFx(e1[1], 1)}% before") else null,
     )
     KeyChecksCard(orGeneric(rows, lv), lv.items.size, onAll)
     chart?.let { CrossCard(it, p?.let { pk -> st.picks?.date } ) }  // feedback #133: golden / death cross, shown not scored
@@ -585,13 +599,16 @@ private fun DiscoveryBody(p: P?, det: Detail, lv: Level, onAll: () -> Unit) {
     val inst = skNums(d5).firstOrNull(); val mf = skFind(d5, "MF (-?[\\d.]+)%"); val fii = skFind(d5, "foreign (-?[\\d.]+)%")
     val c1q = skFind(d5, "1Q (-?[\\d.]+) pts"); val c4q = skFind(d5, "4Q (-?[\\d.]+) pts")
     val rows = listOfNotNull(
-        c1q?.let { KeyCheck(lv.status("D5"), "Institutions, 1 quarter", skSgn(it, 1, " pts"), "pass ≥ +0.5 pts", Bullet(it, -1.0, 1.0, 0.5, partly = -2.0, unit = " pts")) },
-        lv.volRatio?.let { KeyCheck(lv.status("D3"), "Volume 50-day / 200-day", mult(it), "pass ≥ 1.3×", Bullet(it, 0.0, 2.0, 1.3, unit = "×")) },
+        c1q?.let { KeyCheck(lv.status("D5"), "Institutions, 1 quarter", skSgn(it, 1, " pts"), "pass ≥ +0.5 pts", Bullet(it, -1.0, 1.0, 0.5, partly = -2.0, unit = " pts"),
+            says = "Institutions' share changed ${skSgn(it, 1, " pts")} last quarter") },
+        lv.volRatio?.let { KeyCheck(lv.status("D3"), "Volume 50-day / 200-day", mult(it), "pass ≥ 1.3×", Bullet(it, 0.0, 2.0, 1.3, unit = "×"),
+            says = "50-day volume is ${skFx(it, 1)}× the 200-day average") },
         lv.item("D8")?.let { d -> KeyCheck(lv.status("D8"), "Index", short(d.v?.substringBefore(" (")?.removePrefix("Nifty ")), "pass: in no Nifty index") },
         // D1's own figure with D1's status, so figure and verdict agree (audit 26 Nov 2026); D1 reads NSE's shareholding
         // pattern since 26 Nov 2026 (owner), Yahoo only when no filing is loaded, and then says so
         skNums(lv.item("D1")?.v).firstOrNull()?.let { KeyCheck(lv.status("D1"),
-            "Institutional holding" + (if (lv.item("D1")?.note?.startsWith("Yahoo") == true) " (Yahoo)" else ""), "${skFx(it, 1)}%", "pass < 10%", Bullet(it, 0.0, 30.0, 10.0, higher = false, partly = 25.0, unit = "%")) },
+            "Institutional holding" + (if (lv.item("D1")?.note?.startsWith("Yahoo") == true) " (Yahoo)" else ""), "${skFx(it, 1)}%", "pass < 10%", Bullet(it, 0.0, 30.0, 10.0, higher = false, partly = 25.0, unit = "%"),
+            says = "Institutions own ${skFx(it, 1)}% of the shares") },
     )
     KeyChecksCard(orGeneric(rows, lv), lv.items.size, onAll)
     val pro = s.promoter.maxByOrNull { it.date }
@@ -684,7 +701,8 @@ private fun OutlookBody(st: AppState, sym: String, det: Detail, lv: Level, open:
     val cw = det.v("cwip_pct_ppe")
     val t7 = skNums(lv.item("T7")?.v)
     val rows = listOfNotNull(
-        if (lv.item("T4") != null && cw != null) KeyCheck(lv.status("T4"), "Capacity (CWIP)", "${skFx(cw, 0)}%", "pass ≥ 20%", Bullet(cw, 0.0, 50.0, 20.0, unit = "%")) else null,
+        if (lv.item("T4") != null && cw != null) KeyCheck(lv.status("T4"), "Capacity (CWIP)", "${skFx(cw, 0)}%", "pass ≥ 20%", Bullet(cw, 0.0, 50.0, 20.0, unit = "%"),
+            says = "Assets being built equal ${skFx(cw, 0)}% of fixed assets") else null,
         if (t7.size >= 5) KeyCheck(lv.status("T7"), "Acceleration", t7.take(3).joinToString("→") { skFx(it, 0) } + "%", "pass: margin ≥ +2 pts",
             Bullet(t7[4] - t7[3], -2.0, 4.0, 2.0, unit = " pts")) else null,
         lv.item("T8")?.let { KeyCheck(lv.status("T8"), "Guidance raised", short(it.v ?: "none"), "a raised promise") },

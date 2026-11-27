@@ -1,5 +1,35 @@
 [
  {
+  "version": "2.32.2",
+  "date": "2026-11-27",
+  "changes": [
+   {
+    "type": "new",
+    "text": "Research queue: search box that finds a stock in the queue and in completed work"
+   },
+   {
+    "type": "improved",
+    "text": "Key checks as verdict cards: the verdict on a coloured band, the figure in ink, one plain sentence and the pass line"
+   },
+   {
+    "type": "improved",
+    "text": "Why Buy: the answer first, three questions as cards, conviction signals, management, Narrativ.ai's check and what to watch; rating history latest first"
+   },
+   {
+    "type": "new",
+    "text": "Summary: overall score as a ring beside the seven checks"
+   },
+   {
+    "type": "improved",
+    "text": "Research queue › Completed: each row says it is done and what came out of it (full review Pass, red flag confirmed or false alarm, research refreshed, dated driver found)"
+   },
+   {
+    "type": "improved",
+    "text": "Research queue: one filter button for Waiting and Completed; waiting list in time order, first to last; no summary heading or task chart"
+   }
+  ]
+ },
+ {
   "version": "2.32.1",
   "date": "2026-11-26",
   "changes": [
