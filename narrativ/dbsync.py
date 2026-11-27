@@ -201,6 +201,9 @@ def upsert_changed(st: Store, man: Manifest, table: str, cols: list[str], rows: 
     return len(ok), len(rows) - len(todo)
 
 
+# forward_item columns added by the forward ledger, stage 1 (narrativ/ledger.py, 27 Nov 2026)
+FWD_NEW = (("ftype", "TEXT"), ("measure", "TEXT"), ("period", "TEXT"), ("amount", "REAL"), ("base", "REAL"), ("size_pct", "REAL"),
+           ("trend_pct", "REAL"), ("material", "INTEGER"), ("size_why", "TEXT"), ("prev_id", "TEXT"), ("change", "TEXT"))
 SNAP_NEW = (("decision", "TEXT"), ("candidate", "TEXT"), ("verified", "TEXT"), ("rk", "INTEGER"), ("mb", "INTEGER"), ("conviction", "TEXT"))
 
 
@@ -242,7 +245,7 @@ def sync(today: date, s0i, btypes: dict, lender: dict, picks: list, details: dic
             else:
                 print(f"[store] drift check skipped this run ({tb}: {err})")
             break
-        fp = Store.schema_fingerprint(repr(SNAP_NEW))
+        fp = Store.schema_fingerprint(repr((SNAP_NEW, FWD_NEW)))
         if man.data.get("schema") == fp:
             print("[store] schema unchanged since the last sync; skipping apply_schema")
         else:
@@ -252,6 +255,10 @@ def sync(today: date, s0i, btypes: dict, lender: dict, picks: list, details: dic
                 for c, t in SNAP_NEW:
                     if have and c not in have:
                         st.q(f"ALTER TABLE snapshot ADD COLUMN {c} {t}")
+                have = {r.get("name") for r in st.q("PRAGMA table_info(forward_item)")}
+                for c, t in FWD_NEW:
+                    if have and c not in have:
+                        st.q(f"ALTER TABLE forward_item ADD COLUMN {c} {t}")
                 man.data["schema"] = fp
                 man.dirty = True
             except Exception as e:  # noqa: BLE001
@@ -525,13 +532,16 @@ def sync(today: date, s0i, btypes: dict, lender: dict, picks: list, details: dic
             """forward_item: every forward-looking statement we hold. Claude's drivers (status verified when the verifier
             confirmed the due date from the quote, else open) and promises (their tracked status), and the free readers'
             rows from every document read (status unconfirmed). first_seen is kept from the first write."""
-            rows = []
+            rows, led = [], []
 
             def add(sym, origin, key, kind, text, value, unit, due, direction, status, quote, url, doc_date):
                 i = isin.get(sym)
                 if i and text:
-                    rows.append([digest([sym, origin.split(":")[0], key], 20), i, kind, text, value if isinstance(value, (int, float)) else None,
+                    rid = digest([sym, origin.split(":")[0], key], 20)
+                    rows.append([rid, i, kind, text, value if isinstance(value, (int, float)) else None,
                                  unit, due, direction, status, origin, quote, url, doc_date, d, d])
+                    led.append({"id": rid, "sym": sym, "grp": "reader" if origin.startswith("reader") else "narrativ", "kind": kind,
+                                "text": text, "value": value, "unit": unit, "due": due, "made": doc_date})
             for s, t in theses.items():
                 for x in t.get("drivers") or []:
                     add(s, "claude", [x.get("text"), x.get("due")], x.get("kind"), x.get("text"), x.get("value"), x.get("unit"), x.get("due"),
@@ -545,13 +555,27 @@ def sync(today: date, s0i, btypes: dict, lender: dict, picks: list, details: dic
                 for x in (r or {}).get("rows") or []:
                     add(e.get("s"), f"reader:{r.get('model')}", [url, x.get("text"), x.get("due")], x.get("kind"), x.get("text"), x.get("value"),
                         x.get("unit"), x.get("due"), x.get("direction"), "unconfirmed", x.get("quote") or x.get("text"), url, e.get("date"))
+            # ledger stage 1: type, base, size, materiality and the earlier version of each item (free-reader rows are linked
+            # among themselves only, so an unconfirmed row never restates Narrativ.ai's)
+            try:
+                from . import ledger as LG
+                bases = LG.Bases(fins)
+                for r in led:
+                    r.update(LG.size_item(r["sym"], r["kind"], r["text"], r["value"], r["unit"], r["due"], r["made"], bases))
+                for g in ("narrativ", "reader"):
+                    LG.link([r for r in led if r["grp"] == g])
+            except Exception as e:  # noqa: BLE001
+                print(f"[store] ledger sizing skipped: {e}")
+            lf = ("ftype", "measure", "period", "amount", "base", "size_pct", "trend_pct", "material", "why", "prev", "change")
+            for row, r in zip(rows, led):
+                row.extend(r.get(k) for k in lf)
             seen, uniq = set(), []
             for r in rows:
                 if r[0] not in seen:
                     seen.add(r[0])
                     uniq.append(r)
             cols = ["id", "isin", "kind", "metric", "value", "unit", "due", "direction", "status", "origin", "quote", "url", "doc_date",
-                    "first_seen", "last_checked"]
+                    "first_seen", "last_checked", *[c for c, _ in FWD_NEW]]
             old = man.rows("forward_item")
             n = upsert_changed(st, man, "forward_item", cols, uniq, ["id"], keep=("first_seen",), ignore=("first_seen", "last_checked"))[0]
             # an item the verifier dropped, or whose text changed (new id), is no longer held: status 'removed' instead of

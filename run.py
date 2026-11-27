@@ -1147,6 +1147,11 @@ def main(limit: int | None) -> None:
         except Exception as e:  # noqa: BLE001
             print(f"[holidays] failed: {e}")
     H.mark("charts")
+    try:  # forward ledger stage 1: Narrativ.ai's targets typed, sized against filed numbers, material or not, versions linked
+        from narrativ import ledger
+        print(f"[ledger] {ledger.build(theses, today, fins)}")
+    except Exception as e:  # noqa: BLE001
+        print(f"[ledger] failed: {e}")
     alerts.send([p for p in picks if not p.get("out")][:60], newly_due_all, changes, new_events)
     if not limit:  # D1 tables + R2 files (git JSON above stays the fallback during the switch-over)
         try:
