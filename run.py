@@ -1151,7 +1151,13 @@ def main(limit: int | None) -> None:
         from narrativ import ledger
         print(f"[ledger] {ledger.build(theses, today, fins)}")
         from narrativ import monitor  # stage 2: progress, resolution, restatements and silent drops of verified targets
-        print(f"[ledger monitor] {monitor.run(theses, today, fins)}")
+        from narrativ import orders as OR  # stage 3: filings and order wins linked to targets
+        recs = M.all_records()
+        tsyms = [s for s in theses if s in recs or s in (ann_st.get("rows") or {})]
+        evs = {s: (recs.get(s) or {}).get("events") or [] for s in tsyms}
+        ords = {s: OR.recent((bse_ann.get("rows") or {}).get(s, []) if s.endswith(".BO") else (ann_st.get("rows") or {}).get(s, []),
+                             today, days=548) for s in tsyms}
+        print(f"[ledger monitor] {monitor.run(theses, today, fins, evs, ords, {p['s']: p.get('n') for p in picks if p.get('s')})}")
     except Exception as e:  # noqa: BLE001
         print(f"[ledger] failed: {e}")
     alerts.send([p for p in picks if not p.get("out")][:60], newly_due_all, changes, new_events)

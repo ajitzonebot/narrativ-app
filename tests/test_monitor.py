@@ -88,3 +88,58 @@ def test_run_signals_restatement_and_target_not_restated(tmp_path, monkeypatch):
         {"text": "Plant to start by March 2027", "due": "2027-03-31", "date": "2026-11-12", "quote": "Plant by March 2027."}]}}
     out = MO.run(th2, date(2026, 12, 1), {"ACME.NS": FIN})
     assert out["flags"] == 1  # the FY27 revenue target of the Q1 call is not in the Q2 research
+
+
+# ---------- stage 3: filings and orders linked to targets ----------
+def row(text, measure="capacity", ftype="operational", made="2026-08-10", due="2027-03-31", material=1, target=None):
+    return {"id": text[:12], "sym": "ACME.NS", "src": "narrativ", "text": text, "measure": measure, "ftype": ftype, "made": made,
+            "due": due, "material": material, "target": target or {}}
+
+
+def ev(text, typ, sev, d="2026-11-01", url=None):
+    return {"date": d, "type": typ, "sev": sev, "text": text, "url": url or text[:30]}
+
+
+def test_commissioning_filing_that_names_the_plant_is_announced():
+    rows = [row("Naidupeta brownfield expansion commissioning in Q4 FY27")]
+    done = ev("Acme Limited has informed the Exchange that the Naidupeta brownfield expansion has been commissioned", "Capacity / commissioning", "green")
+    out = MO.link_events(rows, [done], [], 1000.0, set(), TODAY, "Acme Limited")
+    assert [(r["id"], s) for r, s, _ in out] == [(rows[0]["id"], "announced")]
+
+
+def test_a_plan_or_a_different_plant_is_not_announced():
+    rows = [row("Naidupeta brownfield expansion commissioning in Q4 FY27")]
+    plan = ev("Acme Limited plans Rs 280 crore Naidupeta brownfield capex", "Capacity / commissioning", "green")
+    other = ev("Acme Limited has informed the Exchange that the Hosur greenfield plant has been commissioned", "Capacity / commissioning", "green")
+    assert MO.link_events(rows, [plan, other], [], 1000.0, set(), TODAY, "Acme Limited") == []
+
+
+def test_red_filing_is_bad_for_the_open_targets_once():
+    rows = [row("Naidupeta brownfield expansion commissioning in Q4 FY27")]
+    red = ev("Acme Limited has informed the Exchange regarding Resignation of Mr. X as Chief Executive Officer", "Top management exit", "red")
+    dup = {**red, "url": "other-url"}
+    seen = set()
+    out = MO.link_events(rows, [red, dup], [], 1000.0, seen, TODAY, "Acme Limited")
+    assert len(out) == 1 and out[0][0] is None and out[0][1] == "red filing" and out[0][2]["targets"] == [rows[0]["id"]]
+    assert MO.link_events(rows, [red], [], 1000.0, seen, TODAY, "Acme Limited") == []   # each filing once
+
+
+def test_routine_watch_filings_are_not_flags_and_old_filings_are_ignored():
+    rows = [row("Naidupeta brownfield expansion commissioning in Q4 FY27")]
+    tax = ev("Acme Limited has informed the Exchange about orders passed by Assessing Officer", "Court / tax order", "watch")
+    pcb = ev("Acme Limited received a notice from the Pollution Control Board", "Pollution board notice", "watch")
+    old = ev("Acme Limited auditor resigned", "Auditor resigned", "red", d="2026-01-01")
+    out = MO.link_events(rows, [tax, pcb, old], [], 1000.0, set(), TODAY, "Acme Limited")
+    assert [s for _, s, _ in out] == ["check"]
+
+
+def test_order_wins_and_inflow_target_met_on_announcements():
+    t = {"measure": "order_book", "of": "company", "low": 3000, "high": 3000, "unit": "cr", "fy": "FY27"}
+    rows = [row("Order inflow of at least Rs 3,000 crore in FY27", measure="order_book", ftype="financial", target=t)]
+    rows[0]["period"] = "2027-03-31"
+    orders = [{"date": "2026-09-01", "cr": 1800.0, "text": "LoA worth Rs 1,800 crore", "url": "o1"},
+              {"date": "2026-10-15", "cr": 1300.0, "text": "Order worth Rs 1,300 crore", "url": "o2"},
+              {"date": "2026-10-20", "cr": 50.0, "text": "Order worth Rs 50 crore", "url": "o3"}]
+    out = MO.link_events(rows, [], orders, 4000.0, set(), TODAY, "Acme Limited")
+    sts = [s for _, s, _ in out]
+    assert sts.count("order win") == 2 and "met on orders" in sts   # 1,800 and 1,300 are 10%+ of 4,000; 3,150 >= 3,000
