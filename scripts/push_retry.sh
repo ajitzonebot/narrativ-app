@@ -65,7 +65,8 @@ app_r2() {
 }
 
 for i in $(seq 1 "$attempts"); do
-  if { git "${auth[@]}" pull --rebase "$@" origin main || resolve_mine; } && git "${auth[@]}" push origin HEAD:main; then
+  # --autostash: a run that leaves other files changed (caches, usage counters) must not block the push (story, 27 Nov 2026)
+  if { git "${auth[@]}" pull --rebase --autostash "$@" origin main || resolve_mine; } && git "${auth[@]}" push origin HEAD:main; then
     app_r2
     exit 0
   fi

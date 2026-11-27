@@ -179,7 +179,13 @@ def _c7(th, reader):
 
 # ---------------------------------------------------------------- proof score (owner, 26 Nov 2026, feedback #175)
 # Conviction is driven by proofs: each proof adds points, the total (0-100) sets the level. Weights approved by the owner.
-SCORE_RULE = "conviction score v2 (2026-11-26)"
+SCORE_RULE = "conviction score v3 (2026-11-27)"
+# v3 (owner, 27 Nov 2026, forward ledger stage 4): a verified target counts by its size (material 15, small 5, size not
+# known 10; +5 raised / beat / delivered; cap 35), scaled by size-weighted credibility once 2+ targets resolved (x0.5 at none
+# delivered .. x1.0 at all); the ledger's signals of the last 90 days: material good +5 each (max 10, "Targets delivering"),
+# material bad or a red filing caps the level at Medium, small bad -5 each (max -10)
+T_MATERIAL, T_SMALL, T_UNKNOWN = 15, 5, 10
+GOOD_MAX, BAD_SMALL, BAD_MAX = 10, 5, 10
 HIGH_AT, MEDIUM_AT = 70, 45
 SIZE = {"High": "full", "Medium": "half", "Low": "quarter"}  # option C: every verified Buy stays a Buy, sized by conviction
 TARGET_YEARS = 5  # a management target counts when its verified due date is within 5 years
@@ -235,14 +241,18 @@ def _same_target(a: dict, b: dict) -> bool:
     return small >= 3 and len(wa & wb) / small >= 0.6
 
 
-def management_targets(th: dict, today: date) -> list[dict]:
-    """Quoted management targets / guidance whose due date the verifier confirmed, due within TARGET_YEARS."""
+def management_targets(th: dict, today: date, sym: str | None = None) -> list[dict]:
+    """Quoted management targets / guidance whose due date the verifier confirmed, due within TARGET_YEARS. With `sym`, each
+    carries its forward-ledger id (ledger.item_id), so conviction can read its size and signals."""
     end = today + timedelta(days=365 * TARGET_YEARS)
     out, seen = [], set()
-    rows = [(d.get("text"), d.get("due"), None) for d in th.get("drivers") or [] if d.get("due_verified")]
-    rows += [(p.get("promise"), p.get("due"), p.get("status")) for p in th.get("promises") or []
+    rows = [(d.get("text"), d.get("due"), None, ("claude", [d.get("text"), d.get("due")])) for d in th.get("drivers") or []
+            if d.get("due_verified")]
+    rows += [(p.get("promise"), p.get("due"), p.get("status"), ("promise", [p.get("id") or p.get("promise")])) for p in th.get("promises") or []
              if p.get("due_verified") and p.get("status") in ("pending", "raised", "beat", "delivered")]  # RESEARCH.md promise statuses
-    for text, due, status in rows:
+    if sym:
+        from .ledger import item_id
+    for text, due, status, key in rows:
         dd = _d(due)
         if not dd or not (today <= dd <= end) or not text:
             continue
@@ -250,7 +260,8 @@ def management_targets(th: dict, today: date) -> list[dict]:
         if k in seen:
             continue
         seen.add(k)
-        row = {"text": str(text).rstrip("."), "due": str(due)[:10], "better": status in ("raised", "beat", "delivered")}
+        row = {"text": str(text).rstrip("."), "due": str(due)[:10], "better": status in ("raised", "beat", "delivered"),
+               "id": item_id(sym, *key) if sym else None}
         twin = next((x for x in out if _same_target(x, row)), None)
         if twin:
             twin["better"] = twin["better"] or row["better"]  # a raised / delivered restatement keeps its bonus
@@ -279,14 +290,29 @@ def _short_date(x: str) -> str:
 
 
 def score(dec: dict, L: dict, setup: dict | None, th: dict, Mx: dict | None, today: date, *, shp=None, open_issues=0,
-          reader=None, lender=False, checks: dict | None = None) -> dict:
-    """Proofs with points, what is missing (one statement each), total score, level and position size."""
+          reader=None, lender=False, checks: dict | None = None, sym: str | None = None, led: dict | None = None) -> dict:
+    """Proofs with points, what is missing (one statement each), total score, level and position size. `led`: the forward
+    ledger's view of the stock (monitor.context), read when `sym` is given and `led` is not."""
     proofs, not_yet = [], []
-    tg = management_targets(th, today)
+    if led is None and sym:
+        try:
+            from .monitor import context
+            led = context(sym, today)
+        except Exception:  # noqa: BLE001  no ledger yet: v2 points
+            led = None
+    items = (led or {}).get("items") or {}
+    tg = management_targets(th, today, sym)
     if tg:
-        pts = min(35, sum(10 + (5 if t["better"] else 0) for t in tg))
-        proofs.append({"k": "management", "pts": pts, "t": "Management targets with dates",
-                       "v": " · ".join(f"{t['text']} (due {_short_date(t['due'])})" for t in tg[:3])})
+        def tpts(t):
+            m = (items.get(t.get("id")) or {}).get("material") if items else None
+            return (T_MATERIAL if m == 1 else T_SMALL if m == 0 else T_UNKNOWN) + (5 if t["better"] else 0)
+        pts = min(35, sum(tpts(t) for t in tg))
+        cred = (led or {}).get("cred")
+        if cred:
+            pts = round(pts * (0.5 + cred["pct"] / 200))
+        lab = lambda t: {1: " · material", 0: " · small"}.get((items.get(t.get("id")) or {}).get("material"), "")  # noqa: E731
+        proofs.append({"k": "management", "pts": pts, "t": "Management targets with dates" + (f" (delivered {cred['pct']}% of {cred['n']})" if cred else ""),
+                       "v": " · ".join(f"{t['text']} (due {_short_date(t['due'])}{lab(t)})" for t in tg[:3])})
     elif (th or {}).get("no_concall"):
         not_yet.append("No call this quarter: no management target on record")
     else:
@@ -324,9 +350,23 @@ def score(dec: dict, L: dict, setup: dict | None, th: dict, Mx: dict | None, tod
         proofs.append({"k": "institutions", "pts": 10, "t": "Institutions adding", "v": v5})
     else:
         not_yet.append(f"Institutions not adding: {v5}" if "no shareholding" not in str(v5) else "No shareholding data yet")
-    total = min(100, sum(x["pts"] for x in proofs))
+    caps, minus = [], 0
+    sig = (led or {}).get("signals") or []
+    good = [x for x in sig if x.get("dir") == "good" and x.get("material") == 1]
+    if good:
+        proofs.append({"k": "delivering", "pts": min(GOOD_MAX, 5 * len(good)), "t": "Targets delivering",
+                       "v": " · ".join(f"{x['status']}: {str(x.get('text') or '')[:70]}" for x in good[:3])})
+    for x in sig:
+        if x.get("dir") != "bad":
+            continue
+        what = f"{x['status']}: {str((x.get('detail') or {}).get('filing') or x.get('text') or '')[:70]}"
+        if x.get("material") == 1 or x.get("status") == "red filing":
+            caps.append(f"forward target {what}")
+        else:
+            minus += BAD_SMALL
+            not_yet.append(f"Target {what}")
+    total = max(0, min(100, sum(x["pts"] for x in proofs) - min(BAD_MAX, minus)))
     level = "High" if total >= HIGH_AT else "Medium" if total >= MEDIUM_AT else "Low"
-    caps = []
     ok4, v4 = c.get("C4") or _c4(th, dec)
     integrity_open = not ok4 and "integrity item" in str(v4)  # C4's passing text can mention integrity (review 26 Nov 2026)
     if integrity_open:
@@ -343,7 +383,8 @@ def score(dec: dict, L: dict, setup: dict | None, th: dict, Mx: dict | None, tod
 
 
 def assess(dec: dict, L: dict, setup: dict | None, th: dict | None, Mx: dict | None, today: date, *,
-           shp: dict | None = None, open_issues: int = 0, reader: dict | None = None, lender: bool | None = None) -> dict | None:
+           shp: dict | None = None, open_issues: int = 0, reader: dict | None = None, lender: bool | None = None,
+           sym: str | None = None, led: dict | None = None) -> dict | None:
     """Conviction of one verified Buy / Strong Buy; None for any other decision (conviction never makes a Buy)."""
     if (dec or {}).get("d") not in BUY or dec.get("verified") != "pass":
         return None
@@ -352,7 +393,7 @@ def assess(dec: dict, L: dict, setup: dict | None, th: dict | None, Mx: dict | N
     res = {"C1": _c1(th, L, today), "C2": _c2(th, lender), "C3": _c3(L, setup), "C4": _c4(th, dec),
            "C5": _c5(L, shp), "C6": _c6(Mx, lender, open_issues), "C7": _c7(th, reader)}
     met = [k for k, (ok, _) in res.items() if ok]
-    sc = score(dec, L, setup, th, Mx, today, shp=shp, open_issues=open_issues, reader=reader, lender=lender, checks=res)
+    sc = score(dec, L, setup, th, Mx, today, shp=shp, open_issues=open_issues, reader=reader, lender=lender, checks=res, sym=sym, led=led)
     # the level is the proof score's (owner, 26 Nov 2026); met / of and the checks stay for app versions before 2.32
     why = f"{sc['score']} of 100 from proofs" + (f"; capped at Medium: {', '.join(sc['capped'])}" if sc["capped"] and sc["score"] >= HIGH_AT else "")
     return {"level": sc["level"], "score": sc["score"], "size": sc["size"], "proofs": sc["proofs"], "not_yet": sc["not_yet"],

@@ -327,3 +327,40 @@ def run(theses: dict, today: date, fins: dict | None = None, events: dict | None
             "flags": sum(x["dir"] == "flag" for x in sig), "tracked": len(tracked),
             "status": {k: sum((s.get("progress") or {}).get("status") == k for s in tracked)
                        for k in ("early", "ahead", "on track", "behind", "beat", "met", "missed")}}
+
+
+# ---------------------------------------------------------------- stage 4: what conviction and the queue read
+CONTEXT_DAYS = 90       # signals this recent count for conviction
+_CTX: dict = {}
+
+
+def _load_ctx() -> tuple[dict, list]:
+    key = tuple((p.stat().st_mtime if p.exists() else 0) for p in (STATE, SIGNALS))
+    if _CTX.get("key") != key:
+        st = json.loads(STATE.read_text()).get("items", {}) if STATE.exists() else {}
+        sg = json.loads(SIGNALS.read_text()).get("signals", []) if SIGNALS.exists() else []
+        by: dict = {}
+        for x in sg:
+            by.setdefault(x.get("sym"), []).append(x)
+        _CTX.update({"key": key, "items": st, "signals": by})
+    return _CTX["items"], _CTX["signals"]
+
+
+def context(sym: str, today: date) -> dict:
+    """The ledger as conviction sees it: {"items": {id: state}, "signals": [last CONTEXT_DAYS], "cred": {pct, n} | None}.
+    Credibility is size-weighted (owner, 27 Nov 2026): each resolved verified target counts 1.0 when material, 0.5 when not;
+    beat / met = delivered, missed = not."""
+    items, sigs = _load_ctx()
+    mine = {k: v for k, v in items.items() if v.get("sym") == sym}
+    cut = str(today - timedelta(days=CONTEXT_DAYS))
+    rec = [x for x in sigs.get(sym, []) if x.get("date", "") >= cut]
+    pts = w = 0.0
+    n = 0
+    for v in mine.values():
+        o = v.get("outcome")
+        if o in ("beat", "met", "missed") and v.get("src") == "narrativ":
+            wt = 1.0 if v.get("material") == 1 else 0.5
+            pts += wt * (o != "missed")
+            w += wt
+            n += 1
+    return {"items": mine, "signals": rec, "cred": {"pct": round(pts / w * 100), "n": n} if n >= 2 and w else None}

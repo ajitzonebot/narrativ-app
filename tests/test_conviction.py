@@ -231,3 +231,38 @@ def test_restated_target_keeps_raised_bonus():
                 promises=[{"due": "2027-05-31", "due_verified": True, "status": "raised", "promise": "FY27 EBITDA floor raised to at least INR 310 crores"}])
     t = CV.management_targets(th, TODAY)
     assert len(t) == 1 and t[0]["better"]
+
+
+# ---------- v3: the forward ledger in conviction (stage 4) ----------
+def _led(materials=(None, None), signals=(), cred=None):
+    from narrativ.ledger import item_id
+    th = thesis()
+    ids = [item_id("X.NS", "claude", [d["text"], d["due"]]) for d in th["drivers"]]
+    return {"items": {i: {"material": m} for i, m in zip(ids, materials)}, "signals": list(signals), "cred": cred}
+
+
+def test_targets_count_by_their_size():
+    base = run(sym="X.NS", led=_led())["score"]                                    # two targets of unknown size: 10 + 10
+    assert run(sym="X.NS", led=_led((1, 1)))["score"] == base + 10                  # 15 + 15
+    assert run(sym="X.NS", led=_led((0, 0)))["score"] == base - 10                  # 5 + 5
+
+
+def test_credibility_scales_target_points():
+    r = run(sym="X.NS", led=_led((1, 1), cred={"pct": 0, "n": 3}))                 # 30 x 0.5 = 15
+    assert next(p for p in r["proofs"] if p["k"] == "management")["pts"] == 15
+
+
+def test_material_good_signals_add_and_bad_ones_cap_or_subtract():
+    good = [{"dir": "good", "material": 1, "status": "ahead", "text": "FY27 EBITDA floor"}] * 3
+    r = run(sym="X.NS", led=_led(signals=good))
+    assert next(p for p in r["proofs"] if p["k"] == "delivering")["pts"] == 10      # max 10
+    L = levels(triggers=("T11", "T12", "T15"))
+    hi = run(L=L, sym="X.NS", led=_led((1, 1)))
+    assert hi["level"] == "High"
+    bad = [{"dir": "bad", "material": 1, "status": "behind", "text": "FY27 revenue"}]
+    capped = run(L=L, sym="X.NS", led=_led((1, 1), signals=bad))
+    assert capped["level"] == "Medium" and "forward target behind" in capped["why"]
+    red = [{"dir": "bad", "material": 0, "status": "red filing", "detail": {"filing": "CFO resigned"}}]
+    assert run(L=L, sym="X.NS", led=_led((1, 1), signals=red))["level"] == "Medium"
+    small = [{"dir": "bad", "material": 0, "status": "lowered", "text": "capex"}] * 3
+    assert run(sym="X.NS", led=_led(signals=small))["score"] == run(sym="X.NS", led=_led())["score"] - 10   # max -10

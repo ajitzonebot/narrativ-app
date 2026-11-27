@@ -690,6 +690,21 @@ def main(limit: int | None) -> None:
         return (ti, ts, -round(blend, 2), -ev[s]["pr"])
     rank_of = {s: i + 1 for i, s in enumerate(sorted(syms, key=readiness))}
 
+    # ---------- Forward ledger (narrativ/ledger.py, narrativ/monitor.py; owner, 27 Nov 2026) ----------
+    # before the queue and conviction: material bad signals queue a recheck (stage 4) and conviction reads the signals
+    try:
+        from narrativ import ledger, monitor
+        from narrativ import orders as OR
+        print(f"[ledger] {ledger.build(theses, today, fins)}")  # stage 1: typed, sized, material or not, versions linked
+        tsyms = [s for s in theses if s in mem or s in (ann_st.get("rows") or {})]
+        evs = {s: (mem.get(s) or {}).get("events") or [] for s in tsyms}  # stage 3: filings and order wins linked to targets
+        ords = {s: OR.recent((bse_ann.get("rows") or {}).get(s, []) if s.endswith(".BO") else (ann_st.get("rows") or {}).get(s, []),
+                             today, days=548) for s in tsyms}
+        names = {s: (s0i.loc[s, "longName"] if "longName" in s0i.columns and s in s0i.index else None) for s in tsyms}
+        print(f"[ledger monitor] {monitor.run(theses, today, fins, evs, ords, names)}")  # stage 2: progress, resolution, restatements
+    except Exception as e:  # noqa: BLE001
+        print(f"[ledger] failed: {e}")
+
     # ---------- Claude queue (PLAN.md section 4) ----------
     queue, seen = [], set()
 
@@ -774,6 +789,17 @@ def main(limit: int | None) -> None:
             evs = [e for e in (mem.get(s) or {}).get("events", []) if e["sev"] == sev and new_since(e, th)]
             if evs:
                 q(s, why, "recheck", {"events": evs[:5]})
+    try:  # ledger stage 4: a material target behind, missed, lowered or not restated since the last research -> recheck
+        from narrativ import monitor as _MO
+        for s, th in theses.items():
+            bad = [x for x in _MO.context(s, today)["signals"] if x.get("material") == 1 and x.get("dir") in ("bad", "flag")
+                   and x.get("kind") != "filing" and x.get("date", "") > researched_on(th)]
+            if bad:
+                q(s, "a material forward target went wrong since the last research (behind, missed, lowered or not restated): "
+                     "check it against the filings and the thesis", "recheck", {"targets": [{k: x.get(k) for k in ("status", "text", "date")}
+                                                                                         for x in bad[:5]]})
+    except Exception as e:  # noqa: BLE001
+        print(f"[ledger] queue: {e}")
     for s, th in theses.items():
         u = th.get("updated")
         new = [x for x in new_docs(s) if u and "transcript" in str(x.get("text", "")).lower()]
@@ -911,7 +937,8 @@ def main(limit: int | None) -> None:
                 th = theses.get(s) or {}
                 c = CV.assess(dec[s], ev[s]["L"], ev[s]["setup"], th, mx.get(s), today,
                               shp=(ext(s) or {}).get("shp"), reader=fwd_rows.get(s), lender=ev[s]["lender"],
-                              open_issues=sum(1 for x in di.values() if x.get("symbol") == s and x.get("status") == "open"))
+                              open_issues=sum(1 for x in di.values() if x.get("symbol") == s and x.get("status") == "open"),
+                              sym=s)
                 if c:
                     conv[s] = c
         print(f"[conviction] {pd.Series([c['level'] for c in conv.values()]).value_counts().to_dict() if conv else 'no verified Buys'}")
@@ -1147,19 +1174,6 @@ def main(limit: int | None) -> None:
         except Exception as e:  # noqa: BLE001
             print(f"[holidays] failed: {e}")
     H.mark("charts")
-    try:  # forward ledger stage 1: Narrativ.ai's targets typed, sized against filed numbers, material or not, versions linked
-        from narrativ import ledger
-        print(f"[ledger] {ledger.build(theses, today, fins)}")
-        from narrativ import monitor  # stage 2: progress, resolution, restatements and silent drops of verified targets
-        from narrativ import orders as OR  # stage 3: filings and order wins linked to targets
-        recs = M.all_records()
-        tsyms = [s for s in theses if s in recs or s in (ann_st.get("rows") or {})]
-        evs = {s: (recs.get(s) or {}).get("events") or [] for s in tsyms}
-        ords = {s: OR.recent((bse_ann.get("rows") or {}).get(s, []) if s.endswith(".BO") else (ann_st.get("rows") or {}).get(s, []),
-                             today, days=548) for s in tsyms}
-        print(f"[ledger monitor] {monitor.run(theses, today, fins, evs, ords, {p['s']: p.get('n') for p in picks if p.get('s')})}")
-    except Exception as e:  # noqa: BLE001
-        print(f"[ledger] failed: {e}")
     alerts.send([p for p in picks if not p.get("out")][:60], newly_due_all, changes, new_events)
     if not limit:  # D1 tables + R2 files (git JSON above stays the fallback during the switch-over)
         try:

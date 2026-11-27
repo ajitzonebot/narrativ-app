@@ -185,7 +185,7 @@ def main(before: str | None) -> None:
             cv = CV.assess(nd, det["levels"], det.get("setup"), ver[s], det.get("metrics"), today,
                            reader=fwd_rows.get(s), lender=(det.get("stock") or {}).get("lender"),
                            shp={"inst_down_q": (det.get("stock") or {}).get("inst_down_q")},
-                           open_issues=sum(1 for x in issues.values() if x.get("symbol") == s and x.get("status") == "open"))
+                           open_issues=sum(1 for x in issues.values() if x.get("symbol") == s and x.get("status") == "open"), sym=s)
         except Exception as e:  # noqa: BLE001
             print(f"[republish] conviction failed for {s}: {e}")
             cv = None
