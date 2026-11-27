@@ -1,8 +1,8 @@
 """Forward ledger, stage 1 (owner, 27 Nov 2026): every forward statement typed, sized against the company's filed numbers
 as of the day it was made, marked material or not, and linked to its earlier version.
 
-Stage 1 only describes; nothing here changes a rating, a gate or conviction. Later stages monitor progress, link events and
-feed conviction (see KNOWLEDGE.md, 27 Nov 2026).
+Stage 1 describes the targets; conviction v3 reads their size (narrativ/conviction.py, stage 4) and narrativ/monitor.py
+watches them (stages 2-3). Design: KNOWLEDGE.md, 27 Nov 2026.
 
 Fields per item (`size_item`):
   ftype     financial / operational / event

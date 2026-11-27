@@ -17,7 +17,8 @@ Seven checks, each met or not, each with a one-line reason (like the Buy gates):
 Level (v2, owner 26 Nov 2026, feedback #175): the proof score `score()` sets it, not the count of checks: management
 targets with dates (up to 35), signals (up to 25), Narrativ.ai checks C2 + C7 (up to 20), entry setup C3 (10),
 institutions C5 (10); High 70+, Medium 45-69, Low below 45; an open integrity item (C4) or incomplete data (C6) keeps it
-at Medium at most. The checks are still stored for app versions before 2.32.
+at Medium at most. v3 (27 Nov 2026, forward ledger stage 4): targets count by their verified size and credibility, the
+ledger's good signals add "Targets delivering", a material bad signal or red filing caps at Medium (see SCORE_RULE). The checks are still stored for app versions before 2.32.
 Tested and left out (narrativ/replay.py `conviction`): valuation Deep value / Undervalued lowered the win rate inside the
 margin-of-safety gate; price in stage 2 and strong momentum did not help inside the Top 10.
 """

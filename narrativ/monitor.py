@@ -16,8 +16,9 @@ Three monitors, run daily on the ledger (narrativ/ledger.py) and the filed quart
              filing that names a capacity or event target's plant, site or product = "announced" (good); a red filing (default,
              fraud, downgrade, adverse inspection, auditor or top-management exit ...) is bad for the stock's open targets,
              linked to the one it names; a watch filing is a flag when the stock has a material target. Each filing once.
-Only Narrativ.ai's verified targets (ledger src "narrativ") make signals; nothing here changes a rating, gate or conviction
-(stage 4 will). State in data/ledger_state.json (kept), signals in data/ledger_signals.json (last SIGNAL_DAYS).
+Only Narrativ.ai's verified targets (ledger src "narrativ") make signals. Stage 4: conviction v3 reads `context()` (size,
+credibility, the last CONTEXT_DAYS of signals) and run.py queues a recheck for a material target gone wrong; no rating or
+gate reads it. State in data/ledger_state.json (kept), signals in data/ledger_signals.json (last SIGNAL_DAYS).
 """
 import json
 import re
