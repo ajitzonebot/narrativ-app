@@ -1,18 +1,48 @@
 {
- "versionCode": 100,
- "versionName": "2.32.7",
- "date": "2026-11-27",
- "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.32.7-b100/narrativ-v2.32.7-b100.apk",
+ "versionCode": 102,
+ "versionName": "2.32.8",
+ "date": "2026-11-28",
+ "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.32.8-b102/narrativ-v2.32.8-b102.apk",
  "sizeMb": 12.3,
- "sha256": "58dd89b4f042c7157c4121d15e2fe82ef82703aa9b7e280c0cdd5bb2244e172d",
+ "sha256": "f15ec285aebb9143f575bc01233e20f1d3f46ef87666473ec90f3cec26113a4f",
  "changelog": [
+  {
+   "version": "2.32.8",
+   "date": "2026-11-28",
+   "changes": [
+    {
+     "type": "improved",
+     "text": "A Buy whose research is still being completed says \"Research pending\""
+    },
+    {
+     "type": "new",
+     "text": "Research queue \u203a Completed: an arrow on each row shows what happened (the dated drivers on record with their due dates and sources, the review, red flags, story and what is still pending); only the stock name opens the stock"
+    },
+    {
+     "type": "improved",
+     "text": "Reasons are in plain words: no internal rule or flag codes (for example \"rating downgrade\" instead of a flag code)"
+    },
+    {
+     "type": "removed",
+     "text": "The AlphaStreet \"Latest call\" card is gone: its AI summary numbers were not reliable"
+    },
+    {
+     "type": "fixed",
+     "text": "Track record: a Buy stays tracked until it turns Sell or breaks its exit level, instead of closing when it dips to Hold"
+    },
+    {
+     "type": "fixed",
+     "text": "Scan rubric items show their note again"
+    }
+   ]
+  },
   {
    "version": "2.32.7",
    "date": "2026-11-27",
    "changes": [
     {
      "type": "improved",
-     "text": "A Buy whose research is not complete stays a Buy but shows no verified badge; its page says \"Research incomplete\""
+     "text": "A Buy whose research is pending stays a Buy but shows no verified badge; its page says \"Research pending\""
     }
    ]
   },
