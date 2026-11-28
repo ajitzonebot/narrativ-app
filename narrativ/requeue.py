@@ -13,8 +13,6 @@ import json
 from pathlib import Path
 
 from . import config
-from . import funnel as FN
-from . import requests as scan_requests
 
 OUT = Path("docs/data")
 PACKS = OUT / "packs"
@@ -122,6 +120,7 @@ def _fin(sym: str) -> dict:
 
 def light_pack(sym: str, item: dict, theses: dict, research: dict | None = None) -> dict:
     """What a review needs that is on disk now: the dossier, Claude's own checks, the R8 gaps and the decision so far."""
+    from . import funnel as FN
     from .packs import machine_checks
     d = _fin(sym)
     Mx, lender = d.get("metrics") or {}, (d.get("stock") or {}).get("lender")
@@ -143,6 +142,8 @@ def light_pack(sym: str, item: dict, theses: dict, research: dict | None = None)
 def resort(queue: dict, picks: dict, theses: dict, requests: list[dict], cap: int = config.RESEARCH_PER_DAY,
            today: str | None = None) -> list[str]:
     """Re-order `queue` in place; returns the symbols added (they need a light pack). Pure apart from the dossier reads."""
+    from . import funnel as FN
+    from . import requests as scan_requests
     from datetime import date, timedelta
     t0 = date.fromisoformat(today) if today else date.today()
     recent = str(t0 - timedelta(days=7))
@@ -171,6 +172,10 @@ def resort(queue: dict, picks: dict, theses: dict, requests: list[dict], cap: in
             dec = _fin(s).get("decision") or {}
             gaps = dec.get("incomplete") or []
             it = next((x for x in items if x.get("symbol") == s and x.get("task") == "review"), None)
+            nd = str(((theses.get(s) or {}).get("no_dated_driver") or {}).get("date") or "")[:10]
+            if it is None and gaps and all(str(g).startswith("R8 no dated driver") for g in gaps) and nd and nd >= str(
+                    t0 - timedelta(days=config.RECENT_RESEARCH_DAYS)):
+                continue  # searched for a dated driver recently and none is filed: the daily run re-queues it on a new document
             if it is None and gaps:
                 it = {"symbol": s, "name": p.get("n") or s, "task": "review", "complete": gaps,
                       "reason": f"rules say {p['dc']}: the review passed but the research is not complete (RULES.md R8; no verified "
@@ -216,6 +221,7 @@ def main() -> dict:
     from . import republish, runlog
     n = republish.prune_queue(runlog.completed(theses=research) or {}, picks.get("updated"), q)
     n += republish.prune_done_research(q, theses, research)
+    from . import requests as scan_requests
     reqs = scan_requests.load({p["s"] for p in picks.get("picks") or []})
     added = resort(q, picks, theses, reqs)
     PACKS.mkdir(parents=True, exist_ok=True)

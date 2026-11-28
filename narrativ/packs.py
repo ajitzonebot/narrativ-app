@@ -130,7 +130,7 @@ def _pdf_bytes(url: str, ns) -> bytes | None:
     rq = __import__("requests")
     bh = {"User-Agent": "Mozilla/5.0", "Referer": "https://www.bseindia.com/"}
     r = ns.s.get(url, timeout=60) if "nseindia" in url else rq.get(url, headers=bh, timeout=60)
-    if r.status_code == 404 and "/AttachLive/" in url:  # BSE moves older attachments to its archive folder
+    if r.status_code in (403, 404, 406) and "/AttachLive/" in url:  # BSE moves older attachments to its archive folder (406 seen 28 Nov)
         r = rq.get(url.replace("/AttachLive/", "/AttachHis/"), headers=bh, timeout=60)
     return r.content if r.ok and r.content.startswith(b"%PDF") else None
 
@@ -445,6 +445,22 @@ def machine_checks(Mx: dict) -> tuple[list[dict], list[str]]:
     return mc, need
 
 
+_BSE_CODES: dict = {}
+
+
+def _no_link(sym: str, value: str) -> str:
+    """Where to find a flagged filing that came with no attachment link (issue log 2626cc8427, 28 Nov 2026)."""
+    if not _BSE_CODES:
+        try:
+            _BSE_CODES.update(json.loads(Path("data/bse_codes.json").read_text()))
+        except (OSError, ValueError):
+            _BSE_CODES["_"] = ""
+    d = str(value or "")[:10]
+    if sym.endswith(".BO") and _BSE_CODES.get(sym):
+        return f"no attachment link: open the company's BSE announcements (scrip {_BSE_CODES[sym]}) dated {d}"
+    return f"no attachment link: open the company's exchange announcements dated {d}"
+
+
 def build(queue: list[dict], today: date, ann_st: dict, ex: dict, dec: dict, ev: dict, mx: dict, annc: dict, theses: dict,
           mem: dict, val, aflags: dict | None = None, max_minutes: float = 12, calls: dict | None = None,
           sites: dict | None = None, blocked: set | None = None) -> dict:
@@ -462,7 +478,8 @@ def build(queue: list[dict], today: date, ann_st: dict, ex: dict, dec: dict, ev:
         L = (ev.get(s) or {}).get("L") or {}
         gaps = [{"level": k, "id": i["id"], "name": i["n"], "note": i.get("note")} for k, lv in L.items() for i in lv.get("items", [])
                 if i.get("m") is None and (i.get("note") in ("needs research", "no order book quoted", "source not connected yet") or k == "out")]
-        flags = [{"id": k, "value": v[1], "url": v[3]} for k, v in (annc.get(s) or {}).items()
+        flags = [{"id": k, "value": v[1], "url": v[3]} | ({} if v[3] else {"where": _no_link(s, v[1])})
+                 for k, v in (annc.get(s) or {}).items()
                  if v and v[0] == 1 and k in ("A2", "A4", "A5", "G1", "G2", "G3", "G4")
                  and k not in ((theses.get(s) or {}).get("flag_reviews") or {})]
         docs, thin = [], []

@@ -32,8 +32,11 @@ def _rs(series: pd.Series, bench_w: pd.Series) -> dict | None:
     def ret(n):
         return round((d.iloc[-1] / d.iloc[-1 - n] - 1) * 100, 1) if len(d) > n else None
     r, m = round(float(ratio.iloc[-1]), 2), round(float(mom.iloc[-1]), 2)
+    lo = d.iloc[-126:]  # the move's start: the lowest close of the last 6 months (narrativ/industrywhy.py "before" test)
+    lo_at = lo.idxmin() if len(lo) else None
     return {"ratio": r, "mom": m, "q": _quad(r, m), "r1w": ret(5), "r1m": ret(21), "r3m": ret(63),
-            "asof": str(d.index[-1].date())}
+            "asof": str(d.index[-1].date()), "low_date": str(lo_at.date()) if lo_at is not None else None,
+            "from_low_pct": round((d.iloc[-1] / lo.min() - 1) * 100, 1) if len(lo) and lo.min() > 0 else None}
 
 
 def sectors(today=None) -> tuple[dict, pd.Series | None]:

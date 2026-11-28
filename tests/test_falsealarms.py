@@ -35,3 +35,18 @@ def test_verifier_reads_zip_filings():
         z.writestr("note.txt", "Effective close of business hours")
     t = V._doc_text(b.getvalue(), "https://nsearchives.nseindia.com/x_Doc.zip")
     assert V.quoted_in("Resigned due to pre-occupation with other assignments", t) and "close of business" in t
+
+
+def test_due_periods_fy_then_quarter_and_month_ranges():
+    from datetime import date
+    d = date(2026, 11, 10)
+    assert V.due_periods("revenue in financial year '29, Q1", d) == [("financial year '29, q1", date(2028, 6, 30))]
+    assert V.due_periods("deliveries from October to December", d) == [("october to december", date(2026, 12, 31))]
+    assert V.due_periods("January to March shipments", d) == [("january to march", date(2027, 3, 31))]
+
+
+def test_reader_quote_widened_to_whole_words():
+    from narrativ.reader import whole_words
+    t = "We expect revenue of Rs 900-1,000 crores by FY30 from the new\n plant at Pune."
+    assert whole_words("revenue of Rs 900-1,000 crore", t) == "revenue of Rs 900-1,000 crores"
+    assert whole_words("new plant", t) == "new plant" and whole_words("absent", t) == "absent"

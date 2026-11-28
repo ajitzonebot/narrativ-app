@@ -185,6 +185,27 @@ def fetch_text(url: str) -> str | None:
     return t + "\n" + extra if t and extra else t or extra
 
 
+_NSE_HOSTS = ("nsearchives.nseindia.com", "nsearchives.nseindia.in")
+
+
+def _get(url: str):
+    """GET with one retry on the other NSE archive host (issue log ba6f426bfb, 28 Nov 2026: one host failed through a run's
+    proxy while the other served; both serve the same files)."""
+    try:
+        r = requests.get(url, headers=UA, timeout=60)
+        if r.status_code < 500:
+            return r
+        err = None
+    except requests.RequestException as e:
+        r, err = None, e
+    alt = next((url.replace(h, o) for h in _NSE_HOSTS for o in _NSE_HOSTS if o != h and f"//{h}/" in url), None)
+    if alt:
+        return requests.get(alt, headers=UA, timeout=60)
+    if err:
+        raise err
+    return r
+
+
 def _fetch_text(url: str) -> str | None:
     if url.startswith("https://api.alphastreet.co.in/"):  # AlphaStreet transcript: the same text the pack showed
         from .alphastreet import text as as_text
@@ -197,8 +218,8 @@ def _fetch_text(url: str) -> str | None:
     if url in DEAD:
         return None
     try:
-        r = requests.get(url, headers=UA, timeout=60)
-        if r.status_code == 404 and "/AttachLive/" in url:  # BSE moves older attachments to its archive folder
+        r = _get(url)
+        if r.status_code in (403, 404, 406) and "/AttachLive/" in url:  # BSE moves older attachments to its archive folder (406 seen 28 Nov)
             r = requests.get(url.replace("/AttachLive/", "/AttachHis/"), headers=UA, timeout=60)
         r.raise_for_status()
     except Exception as e:  # noqa: BLE001
@@ -343,6 +364,25 @@ def check(item: dict, display_keys: tuple[str, ...]) -> str | None:
     return None
 
 
+# the same number written in another word of the same counting system (issue log 9e29b9c983, 28 Nov 2026: HUDCO's
+# "INR3 lakh crores" is 300000 crore). Indian and international words are never converted into each other: the quote
+# may be in another currency ("$120 million" is not 12 crore)
+SCALE = {"lakh crore": ("in", 1e12), "crore": ("in", 1e7), "lakh": ("in", 1e5),
+         "trillion": ("intl", 1e12), "billion": ("intl", 1e9), "million": ("intl", 1e6), "thousand": ("intl", 1e3)}
+
+
+def scaled_in(f: float, u: str, quote: str) -> str | None:
+    """The quote's number and unit (e.g. '3 lakh crore') that equal f in unit u, or None."""
+    if u not in SCALE:
+        return None
+    sys_, mul = SCALE[u]
+    for qn, qus in num_units(quote).items():
+        for qu in qus - {None, u}:
+            if qu in SCALE and SCALE[qu][0] == sys_ and abs(float(qn) * SCALE[qu][1] / mul - f) <= 1e-6 * max(abs(f), 1):
+                return f"{qn} {UNIT_TEXT[qu]}"
+    return None
+
+
 def value_check(value, unit, quote: str, doc: str = "") -> str | None:
     """A field's number (`value`, `found_value`, `value_cr`) must sit in the quote, with its unit when the unit changes
     the number's size or meaning (crore, lakh, million, %, bps): None if it does, else the reason."""
@@ -353,9 +393,9 @@ def value_check(value, unit, quote: str, doc: str = "") -> str | None:
     except ValueError:
         return f"value {value} is not a number"
     n = str(int(f)) if f == int(f) else repr(f)
-    if n not in {_numkey(x) for x in nums(quote)}:
-        return f"value {value} not in quote"
     u = unit_of(unit)
+    if n not in {_numkey(x) for x in nums(quote)}:
+        return None if u and scaled_in(f, u, quote) else f"value {value} not in quote"
     bad = unit_mismatch(f"{n} {UNIT_TEXT[u]}", quote, doc) if u else []
     return f"value {value} {unit}: the quote has {n} with another unit or none" if bad else None
 
@@ -468,6 +508,10 @@ def due_periods(quote: str, said_on: date | None) -> list[tuple[str, date]]:
     # quarter / half of a fiscal year: Q3 FY27, Q3FY27, 3QFY27, Q4 of FY'27, H1 FY2027, fourth quarter of FY27
     for m in re.finditer(_QH + r"\s*(?:of\s+)?(?:the\s+)?" + _FYW + r"\s*" + _YR, q):
         add(m, _qh_end(m, fy_year(m)))
+    # fiscal year first, then the quarter / half (catalyst run of 28 Nov 2026): FY29 Q1, financial year '29, Q1, FY'29 first half
+    for m in re.finditer(r"(?<![a-z0-9])" + _FYW + r"\s*" + _YR + r"\s*,?\s*(?:the\s+)?" + _QH, q):
+        if free(m):
+            add(m, _qh_end(m, fy_year(m)))
     # quarter of a calendar year: Q2 2027, Q2 CY27, second quarter of 2027, second quarter of next calendar year
     for m in re.finditer(r"(?<![a-z0-9])(?:q([1-4])|(first|second|third|fourth|1st|2nd|3rd|4th)\s+quarter)\s*(?:of\s+)?(?:the\s+)?"
                          r"(?:(?:cy|calendar(?:\s+year)?)\s*'?\s*(\d{4}|\d{2})|(\d{4})|(next|this|current)\s+calendar\s+year)(?![\d-])", q):
@@ -528,6 +572,14 @@ def due_periods(quote: str, said_on: date | None) -> list[tuple[str, date]]:
         if free(m):
             n = int(m.group(1)) if m.group(1).isdigit() else _WORDN[m.group(1)]
             add(m, _month_end(said_on.year, said_on.month + n * (12 if m.group(2).startswith("year") else 1)))
+    # a month range with no year ('October to December', 'Oct-Dec'): to the end of its last month, next occurrence from the date
+    # said on, counted from the first month (catalyst run of 28 Nov 2026)
+    for m in re.finditer(r"(?<![a-z])" + _MONTH + r"\s*(?:to|till|until|through|-|–)\s*" + _MONTH.replace("(jan", "(?P<m2>jan", 1)
+                         + r"(?![a-z\d'-])", q):
+        if free(m) and m.group(1) != "may":
+            a, b = _MON[m.group(1)], _MON[m.group("m2")]
+            end = _month_end(said_on.year + (b < a), b)  # this year's range unless it has already ended
+            add(m, end if end >= said_on else _month_end(said_on.year + 1 + (b < a), b))
     # a month with no year after a time word ('from November', 'by March'): its next occurrence from the date said on.
     # 'may' only as 'month of May' (otherwise it is the verb)
     for m in re.finditer(r"(?<![a-z])(?:from|by|in|till|until|before|since|starting|during|end\s+of|mid(?:-|\s+of)?|middle\s+of|"
@@ -923,6 +975,14 @@ def verify_all(theses: dict) -> tuple[dict, dict]:
         if th.get("scan"):
             v["scan_raw"], rj = verify_scan(th["scan"], all_quotes)
             rej += rj
+        nd = th.get("no_dated_driver")  # searched, none filed (owner run of 28 Nov 2026): holds the R8 driver gap off the queue
+        if nd:
+            if not str(nd.get("date") or "")[:10] or not [u for u in nd.get("read") or [] if str(u).startswith("http")]:
+                rej.append({"id": "no_dated_driver", "field": "no_dated_driver", "reason": "date and read (the documents read, urls) are needed"})
+            elif nums(nd.get("note", "")) and (w := check(nd, ("note",))):
+                rej.append({"id": "no_dated_driver", "field": "note", "reason": w})
+            else:
+                v["no_dated_driver"] = {k: nd.get(k) for k in ("date", "read", "note", "quote", "source") if nd.get(k)}
         tr = th.get("triage")  # first-study quick check (live feed phase 2, owner 28 Nov 2026; RESEARCH.md "Quick check")
         if tr:
             why = None
@@ -995,6 +1055,11 @@ def audit_r7(au: dict, rej: list) -> dict:
 
 if __name__ == "__main__":
     import sys
+    if sys.argv[1:2] == ["--text"]:  # research runs: a document's text the way the verifier reads it (cache, docling, other NSE host)
+        for u in sys.argv[2:]:
+            t = fetch_text(u)
+            print(t if t else f"[verify] no text for {u}")
+        sys.exit(0)
     th = json.loads(Path("docs/data/theses.json").read_text())
     only = {a if a.endswith((".NS", ".BO")) else a + ".NS" for a in sys.argv[1:] if a != "--only"}
     if only:  # research runs: check just the stocks edited this run; files are not written (the daily run writes them)

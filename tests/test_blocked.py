@@ -64,3 +64,9 @@ def test_website_docs_finds_transcripts_one_level_deep(monkeypatch):
     assert [d["url"].rsplit("/", 1)[-1] for d in got] == ["Q2FY27-Concall-Transcript.pdf", "Q1FY26-Concall-Transcript.pdf",
                                                          "Investor-Presentation-Q2FY27.pdf"]
     assert got[0]["kind"] == "transcript" and got[0]["page"] == "https://co.in/investors"
+
+
+def test_request_suffix_maps_to_the_scored_listing():
+    from narrativ.requests import _norm
+    assert _norm("BONDADA.BO", {"BONDADA.NS"}) == "BONDADA.NS"
+    assert _norm("X.BO", {"X.BO", "X.NS"}) == "X.BO" and _norm("Y.BO", set()) == "Y.BO"

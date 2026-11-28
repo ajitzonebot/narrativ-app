@@ -241,6 +241,23 @@ IST = timezone(timedelta(hours=5, minutes=30))
 DUE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
+def whole_words(q: str, text: str) -> str:
+    """The quote widened to whole words where the document has it cut mid-word ("crore" for "crores": the catalyst run of 28 Nov
+    2026 had to re-copy such quotes). Whitespace between words may differ; the document's own words are returned."""
+    toks = q.split()
+    if not toks:
+        return q
+    m = re.search(r"\s+".join(re.escape(t) for t in toks), text)
+    if not m:
+        return q
+    i, j = m.start(), m.end()
+    while i > 0 and text[i - 1].isalnum() and text[i].isalnum():
+        i -= 1
+    while j < len(text) and text[j].isalnum() and text[j - 1].isalnum():
+        j += 1
+    return re.sub(r"\s+", " ", text[i:j]) if (i, j) != m.span() else q
+
+
 def clean(rows: list[dict], text: str) -> tuple[list[dict], dict]:
     """Keep a row only if its quote is verbatim in the document. A number in the model's text that is not in the quote is
     flagged (`text_not_in_quote`): the quote is the fact, the text is the model's summary."""
@@ -250,6 +267,7 @@ def clean(rows: list[dict], text: str) -> tuple[list[dict], dict]:
         if not q or not quoted_in(q, text):
             drop["quote not verbatim"] += 1
             continue
+        r["quote"] = q = whole_words(q, text)
         extra = sorted(nums(str(r.get("text") or "")) - nums(q))
         if extra:  # the model added context from elsewhere (e.g. "FY27"): kept for Claude, flagged; show the quote, not the text
             drop["flagged: number in text not in quote"] += 1

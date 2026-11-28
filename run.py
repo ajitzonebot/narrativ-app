@@ -757,6 +757,7 @@ def main(limit: int | None) -> None:
             print(f"[calls] intimation {url[-40:]}: {str(e)[:80]}")
             return None
     from narrativ.packs import _text as PK_text
+    from narrativ.packs import new_documents as PK_new
     for s in to_audit:  # idea 2: results due soon, a scheduled call, or results out and the call not yet: review after it
         rd = (cal.get(s) or {}).get("date")
         sc = LC.scheduled_call(s, ann_st, today, intimation_text) if (calls.get(s) or call_of(s) or {}).get("state") != "found" else None
@@ -768,6 +769,14 @@ def main(limit: int | None) -> None:
         if dec[s].get("incomplete") or dec[s].get("verified") == "pending":  # R7 / R8: complete what the passed review lacks
             gaps = dec[s].get("incomplete") or [m.replace("Verification pending: ", "") for m in dec[s].get("missing") or []
                                                 if m.startswith("Verification pending: ")]
+            nd = (theses.get(s) or {}).get("no_dated_driver") or {}
+            ndd = iso_date(nd.get("date"))
+            if (gaps and all(str(g).startswith("R8 no dated driver") for g in gaps) and ndd
+                    and (today - ndd).days < config.RECENT_RESEARCH_DAYS
+                    and not PK_new((ex.get(s) or {}).get("filings"), (raw_theses.get(s) or theses.get(s) or {}).get("updated"))):
+                dec[s]["missing"] = [f"No dated driver in the filings Narrativ.ai read on {ndd}: back in the research queue when a new "
+                                     "document is filed"] + list(dec[s].get("missing") or [])
+                continue
             q(s, f"rules say {dec[s].get('candidate') or dec[s]['d']}: the review passed but the research is not complete "
                  "(RULES.md R7, R8; no verified badge until it is): " + "; ".join(gaps[:6]), "review", {"checks": aflags[s], "complete": gaps}, "complete")
             continue
@@ -1124,6 +1133,11 @@ def main(limit: int | None) -> None:
         from narrativ import news as NW
         since30 = str(today - timedelta(days=30))
         facts = {}
+        # the whole market's share of companies growing over 10%: an industry's numbers test is measured against it
+        mk_rev = [mx[x]["rev_yoy_pct"]["v"] for x in syms if (mx[x].get("rev_yoy_pct") or {}).get("v") is not None]
+        mk_pat = [mx[x]["pat_yoy_pct"]["v"] for x in syms if (mx[x].get("pat_yoy_pct") or {}).get("v") is not None]
+        mk_ = {"market_revenue_growth_pct": round(100 * sum(v_ > 10 for v_ in mk_rev) / len(mk_rev)) if mk_rev else None,
+               "market_profit_growth_pct": round(100 * sum(v_ > 10 for v_ in mk_pat) / len(mk_pat)) if mk_pat else None}
         for ind_, r_ in rot_ind.items():
             if r_.get("q") not in ("Leading", "Improving"):
                 continue
@@ -1133,7 +1147,7 @@ def main(limit: int | None) -> None:
             for x in mem_:
                 try:
                     for e_ in ANN.recent_events(bse_ann if x.endswith(".BO") else ann_st, x, limit=None):
-                        if str(e_.get("date") or "") >= since30 and re.search(r"order|contract|award", str(e_.get("type") or ""), re.I):
+                        if str(e_.get("date") or "") >= since30 and e_.get("type") == "Order / contract win":  # not "Court / tax order" (penalties, GST demands)
                             orders.append(x); urls.append(e_.get("url"))
                             break
                 except Exception:  # noqa: BLE001
@@ -1143,7 +1157,13 @@ def main(limit: int | None) -> None:
             for x in mem_:
                 for c_ in (CM.for_industry(cm, basic_of.get(x)) if CM else None) or []:
                     comm[c_["series"]] = c_
+            pgrow = [x for x in mem_ if (mx[x].get("pat_yoy_pct") or {}).get("v") is not None]
+            r3 = sorted(v_ for v_ in ((tech.get(x) or {}).get("ret_3m") for x in mem_) if v_ is not None)
             facts[ind_] = {"members": len(mem_), "rev_growth_over_10pct": sum(1 for x in grow if mx[x]["rev_yoy_pct"]["v"] > 10), "rev_reported": len(grow),
+                           # narrativ/industrywhy.py tests: profit growth, typical member move, when the move began
+                           "profit_growth_over_10pct": sum(1 for x in pgrow if mx[x]["pat_yoy_pct"]["v"] > 10), "profit_reported": len(pgrow),
+                           "median_ret_3m": round(r3[len(r3) // 2], 1) if r3 else None,
+                           "move_start": r_.get("low_date"), "from_low_pct": r_.get("from_low_pct"), **mk_,
                            "above_200_day": sum(1 for x in mem_ if ((tech.get(x) or {}).get("dist200_pct") or -1) > 0),
                            "order_wins_30d": sorted(set(orders)), "rating_upgrades_30d": ups, "commodities": list(comm.values()), "urls": [u for u in urls if u]}
         news_of = NW.build([{"s": p_["s"], "n": p_.get("n"), "i": p_.get("i")} for p_ in picks], {"industries": rot_ind}, None, today, facts)
@@ -1270,6 +1290,16 @@ def main(limit: int | None) -> None:
     except Exception as e:  # noqa: BLE001
         print(f"[run] research_done.json failed: {e}")
     H.write(today, details, {"universe": len(syms), "in_funnel": len(infunnel), "decisions": funnel.get("decisions")})
+    try:  # the daily run's own failures go to the shared issue log (narrativ/issuelog.py): one row per failing step, a sighting a day
+        import re as _re
+        from narrativ import health as _HL
+        from narrativ import issuelog as IL
+        tags = {m.group(1) for m in (_re.match(r"\[([\w .-]+)\][^\n]*\bfailed\b", ln) for ln in _HL.problems) if m}
+        for tag in sorted(tags) if not limit else []:
+            lines = [x for x in _HL.problems if x.startswith(f"[{tag}]")]
+            IL.auto("daily", "pipeline", f"daily run: {tag} failed", "\n".join(lines[:5]), "medium", run=str(today))
+    except Exception as e:  # noqa: BLE001
+        print(f"[issuelog] failed: {e}")
     print(f"[run] funnel {funnel} mood {md.get('score')} {md.get('zone')} queue {[x['symbol'] for x in queue]}")
 
 

@@ -252,32 +252,38 @@ def industry_packs(rows, rotation, commodities, per, items, today, extra) -> dic
         heads.sort(key=lambda h: h.get("time") or "", reverse=True)
         p = prev.get(name) or {}
         written = str(p.get("date") or "")
-        due = not written or written < str(today - timedelta(days=7)) or p.get("quadrant") != v.get("q")
+        old_format = any("type" not in r for r in p.get("reasons") or [])  # written before the four tests (28 Nov 2026)
+        due = not written or written < str(today - timedelta(days=7)) or p.get("quadrant") != v.get("q") or old_format
         out[name] = {"quadrant": v.get("q"), "r1m": v.get("r1m"), "r3m": v.get("r3m"), "ratio": v.get("ratio"), "mom": v.get("mom"),
                      "stocks": len(syms), "due": due, "facts": (extra.get(name) or {}),
                      "commodity": ((commodities or {}).get("industries") or {}).get(name),
                      "headlines": heads[:30]}
     pk = {"date": str(today), "policy": policy, "industries": out,
-          "how": "Write up to 3 dated reasons per due industry in docs/data/industry_why.json; each reason's url must be one in this pack (a headline, a policy release) or a filing url in facts."}
+          "how": "tasks/catalyst.md 8b and RESEARCH.md 'Why an industry leads': up to 3 typed, quoted reasons per due industry in docs/data/industry_why.json; each url in this pack or a primary source; check with python3 -m narrativ.industrywhy check."}
     Path("docs/data/industry_packs.json").write_text(json.dumps(pk, ensure_ascii=False, indent=0))
     return pk
 
 
 def reasons(packs: dict, today: date) -> dict:
-    """Keep Claude's reasons only when each links to a source in that industry's pack (or the policy list)."""
+    """Claude's reasons, each checked by narrativ/industrywhy.py (linked to the pack or a primary source, not the price move
+    or a broker tip, quote found in the source), and the four-test verdict on whether the lead is legitimate."""
+    from . import industrywhy as IW
     try:
         why = json.loads(Path("docs/data/industry_why.json").read_text())
     except Exception:  # noqa: BLE001
         why = {"industries": {}}
-    allowed_policy = {p["url"] for p in packs.get("policy", [])}
     out = {}
     for name, w in (why.get("industries") or {}).items():
         pk = (packs.get("industries") or {}).get(name) or {}
-        ok_urls = allowed_policy | {h["url"] for h in pk.get("headlines", [])} | set((pk.get("facts") or {}).get("urls") or [])
-        rs = [r for r in w.get("reasons") or [] if r.get("url") in ok_urls or str(r.get("url", "")).startswith("https://nsearchives.nseindia.com/")]
-        out[name] = {"date": w.get("date"), "quadrant": w.get("quadrant"), "reasons": rs[:3],
-                     "none_found": bool(w.get("none_found")) and not rs, "dropped": len(w.get("reasons") or []) - len(rs)}
-    doc = {"date": str(today), "industries": out, "source": "Narrativ.ai, from the linked releases, headlines and filings"}
+        try:
+            out[name] = IW.judge(name, w, pk, packs.get("policy") or [], today)
+        except Exception as e:  # noqa: BLE001
+            print(f"[news] industry reasons {name}: {e}")
+    doc = {"date": str(today), "industries": out, "source": "Narrativ.ai, from the linked releases, headlines and filings",
+           "tests": {"cause": "a real dated event (not the price move or a broker tip), quote found in the opened source",
+                     "broad": f"at least {IW.BROAD_PCT}% of members above their 200-day average",
+                     "numbers": f"more members grew revenue or profit over 10% than in the whole market, by {IW.NUMBERS_EDGE}+ points",
+                     "before": f"a cause dated no later than {IW.GRACE_DAYS} days after the industry's 6-month low"}}
     Path("docs/data/industry_reasons.json").write_text(json.dumps(doc, ensure_ascii=False, indent=0))
     return doc
 

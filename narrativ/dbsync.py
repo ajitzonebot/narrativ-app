@@ -659,8 +659,12 @@ def sync(today: date, s0i, btypes: dict, lender: dict, picks: list, details: dic
                     st.budget = b0
             return run_
 
+        def issue_log():  # narrativ/issuelog.py: the shared issue log, every row (small)
+            from . import issuelog as IL
+            return upsert_changed(st, man, "issue_log", IL.COLS, IL.d1_rows(), ["id"])[0]
+
         # daily essentials first (new events and filings included); the history backfills use what is left, each capped
-        for name, fn in (("snapshot", snapshot), ("stock_detail", detail), ("market_day", market), ("research", research),
+        for name, fn in (("snapshot", snapshot), ("stock_detail", detail), ("market_day", market), ("research", research), ("issue_log", issue_log),
                          ("checkpoint", checkpoint), ("forward_item", forward), ("forward_signal", signals), ("narrativ_sheet", sheets), ("verdict_log", verdicts),
                          ("company", company), ("document", document), ("event", event), ("quarter", quarter),
                          ("industry_breadth", capped(breadth)), ("event_backfill", event_backfill)):

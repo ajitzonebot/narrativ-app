@@ -10,11 +10,12 @@ One ladder over queue.json (today's 60) and backlog.json (items past the cap, th
 the daily run's groups in order (narrativ/requeue.py POS), with first studies after old-research rechecks and before the
 forward-driver hunts on stocks without a driver. A review run takes full reviews and red flags first; a catalyst run never
 takes them (only the review task sets `audit`). Skipped: a stock already worked today (theses.json `updated`), a first study
-of a stock researched since, a stock another run took in the last config.CLAIM_MINUTES (docs/data/claims.json, committed with
-the research), and first studies or driver hunts whose pack found no readable call transcript or presentation.
+of a stock researched since, a stock any run took in the last config.CLAIM_MINUTES (docs/data/claims/<run>.json, one file per
+run so two runs never conflict on a rebase; committed with the research), and first studies or driver hunts whose pack found no readable call transcript or presentation.
 """
 import argparse
 import json
+import re
 from collections import Counter
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -97,6 +98,26 @@ def ladder(queue: dict, backlog: dict, theses: dict, claims: dict, pack_of, task
     return [x[3] for x in out], skipped
 
 
+CLAIMS = OUT / "claims"
+
+
+def load_claims(now: datetime) -> dict:
+    """Every run's claims of the last CLAIM_MINUTES, merged (docs/data/claims/*.json; the old single file too)."""
+    cut = (now - timedelta(minutes=config.CLAIM_MINUTES)).isoformat(timespec="minutes")
+    out = {}
+    for f in sorted(CLAIMS.glob("*.json")) + [OUT / "claims.json"]:
+        for s, c in (_load(f, {}).get("items") or {}).items():
+            if str(c.get("at") or "") >= cut and str(c.get("at") or "") >= str((out.get(s) or {}).get("at") or ""):
+                out[s] = c
+    return {"items": out}
+
+
+def run_file(task: str, run: str | None, now: datetime) -> Path:
+    """This run's claims file: --run (the run's start time) names it; without it, the task and today's date."""
+    tag = re.sub(r"[^0-9A-Za-z]+", "-", run or now.strftime("%Y-%m-%d")).strip("-")
+    return CLAIMS / f"{task}-{tag}.json"
+
+
 def claim(claims: dict, sym: str, task: str, now: datetime) -> dict:
     cut = (now - timedelta(minutes=config.CLAIM_MINUTES)).isoformat(timespec="minutes")
     keep = {s: c for s, c in (claims.get("items") or {}).items() if str(c.get("at") or "") >= cut}
@@ -108,11 +129,12 @@ def main(argv=None) -> dict:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--task", choices=("review", "catalyst"), required=True)
     ap.add_argument("--peek", type=int, default=0, help="list the first N waiting items; claim nothing")
+    ap.add_argument("--run", help="this run's start time (ISO), names its claims file docs/data/claims/<task>-<run>.json")
     a = ap.parse_args(argv)
     now = datetime.now(IST)
     today = str(now.date())
     queue, backlog = _load(OUT / "queue.json", {}), _load(OUT / "backlog.json", {})
-    theses, claims = _load(OUT / "theses.json", {}), _load(OUT / "claims.json", {})
+    theses, claims = _load(OUT / "theses.json", {}), load_claims(now)
 
     def pack_of(s):
         return _load(OUT / "packs" / f"{s}.json", None)
@@ -127,7 +149,9 @@ def main(argv=None) -> dict:
         r = {**stats, "none": True}
     else:
         it = items[0]
-        (OUT / "claims.json").write_text(json.dumps(claim(claims, it["symbol"], a.task, now), indent=1))
+        f = run_file(a.task, a.run, now)
+        CLAIMS.mkdir(parents=True, exist_ok=True)
+        f.write_text(json.dumps(claim(_load(f, {}), it["symbol"], a.task, now), indent=1))
         r = {**stats, "waiting": len(items) - 1, "item": {**it, "group": _group(it)}, "pack": f"docs/data/packs/{it['symbol']}.json"}
     print(json.dumps(r, ensure_ascii=False, default=str))
     return r

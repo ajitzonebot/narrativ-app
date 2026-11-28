@@ -1,5 +1,23 @@
 [
  {
+  "version": "2.33.2",
+  "date": "2026-11-28",
+  "changes": [
+   {
+    "type": "new",
+    "text": "Market › industry Why: is the lead legitimate? Four checks (a real event behind it, most of its stocks rising, it shows in results versus the whole market, the cause came before the rally) and a verdict: Earnings-led, Partly explained, or Flow or narrative"
+   },
+   {
+    "type": "improved",
+    "text": "Industry reasons say their type (policy, interest rates, demand, prices, supply, orders, global, fund flows), how the event helps the industry, whether it came before the rally, and whether it is lasting or one-time"
+   },
+   {
+    "type": "fixed",
+    "text": "Industry reasons no longer count the price move itself, broker tips, or penalty and tax orders as reasons"
+   }
+  ]
+ },
+ {
   "version": "2.33.1",
   "date": "2026-11-28",
   "changes": [

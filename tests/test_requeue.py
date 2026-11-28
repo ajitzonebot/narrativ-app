@@ -53,3 +53,12 @@ def test_last_group_and_unknown_items():
     requeue.label_positions(items)
     assert items[0]["why_pos"].endswith("Comes after other forward-driver hunts; last in the order.")
     assert "why_pos" not in items[1]
+
+
+def test_dated_driver_searched_recently_is_not_requeued(monkeypatch):
+    monkeypatch.setattr(requeue, "_fin", lambda s: {"decision": {"incomplete": ["R8 no dated driver with a verified due date"]}})
+    q = {"date": "2026-11-28", "items": []}
+    picks = {"picks": [{"s": "A.NS", "dc": "Buy", "vf": "pass", "ic": 1}, {"s": "B.NS", "dc": "Buy", "vf": "pass", "ic": 1}]}
+    th = {"A.NS": {"no_dated_driver": {"date": "2026-11-28", "read": ["https://x/y.pdf"]}}}
+    requeue.resort(q, picks, th, [], today="2026-11-29")
+    assert [x["symbol"] for x in q["items"]] == ["B.NS"]

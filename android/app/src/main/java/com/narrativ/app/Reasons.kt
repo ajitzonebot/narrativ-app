@@ -15,9 +15,21 @@ import kotlinx.serialization.Serializable
 
 // ================================================================ industry "Why" (feedback #90)
 // data/industry_reasons.json: real-world reasons Claude wrote for each rising industry, every one with a source.
-@Serializable data class IndReason(val date: String? = null, val text: String = "", val url: String? = null, val source: String? = null)
+// Since 28 Nov 2026 each reason has a type, a mechanism and code labels, and each industry the four-test verdict
+// (narrativ/industrywhy.py: cause, broad, numbers, before).
+@Serializable data class IndReason(val date: String? = null, val text: String = "", val url: String? = null, val source: String? = null,
+                                   val type: String? = null, val mechanism: String? = null, val timing: String? = null,
+                                   val checked: Boolean? = null, val lasting: String? = null)
+@Serializable data class IndTests(val cause: Boolean = false, val broad: Boolean = false, val numbers: Boolean = false, val before: Boolean = false)
+@Serializable data class IndNumbers(@SerialName("breadth_pct") val breadth: Int? = null, @SerialName("revenue_growth_pct") val rev: Int? = null,
+                                    @SerialName("profit_growth_pct") val pat: Int? = null,
+                                    @SerialName("market_revenue_growth_pct") val mRev: Int? = null,
+                                    @SerialName("market_profit_growth_pct") val mPat: Int? = null,
+                                    @SerialName("move_start") val moveStart: String? = null, @SerialName("from_low_pct") val fromLow: Double? = null)
 @Serializable data class IndReasons(val date: String? = null, val quadrant: String? = null, val reasons: List<IndReason> = emptyList(),
-                                    @SerialName("none_found") val noneFound: Boolean = false, val dropped: Int? = null)
+                                    @SerialName("none_found") val noneFound: Boolean = false, val dropped: Int? = null,
+                                    val tests: IndTests? = null, val score: Int? = null, val verdict: String? = null, val lasting: String? = null,
+                                    val notes: List<String> = emptyList(), val numbers: IndNumbers? = null)
 @Serializable data class IndReasonsFile(val date: String? = null, val industries: Map<String, IndReasons> = emptyMap(), val source: String? = null)
 
 // data/industry_packs.json: the numbers the reasons were written from (only the parts the app shows are decoded).
@@ -86,6 +98,7 @@ fun IndustryWhySheet(st: AppState, name: String, rot: Rot?, data: IndustryWhyDat
     val pack = data.packs?.industries?.get(name)
     val q = rot?.q?.takeIf { it.isNotBlank() } ?: entry?.quadrant ?: pack?.quadrant
     BottomSheet(onDismiss, title = name, titleExtra = if (q != null) { { QuadPill(q) } } else null) {
+        entry?.takeIf { it.tests != null && it.verdict != null }?.let { IndustryVerdict(it) }
         T("What's driving it", 15.sp, weight = FontWeight.SemiBold, modifier = Modifier.padding(bottom = 8.dp))
         val shown = entry?.reasons.orEmpty().filter { it.text.isNotBlank() && !it.url.isNullOrBlank() }
         when {
@@ -93,7 +106,10 @@ fun IndustryWhySheet(st: AppState, name: String, rot: Rot?, data: IndustryWhyDat
                 Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.Top) {
                     T(skDay(rs.date), 12.sp, C.dim, modifier = Modifier.width(52.dp).padding(top = 1.dp), maxLines = 1)
                     Column(Modifier.weight(1f)) {
+                        reasonTag(rs)?.let { T(it, 11.sp, C.dim, FontWeight.SemiBold, maxLines = 1, modifier = Modifier.padding(bottom = 2.dp)) }
                         T(rs.text, 13.sp, C.muted, lineHeight = 19.sp)
+                        rs.mechanism?.takeIf { it.isNotBlank() }?.let { T("How it helps: $it", 12.sp, C.dim, lineHeight = 17.sp, modifier = Modifier.padding(top = 2.dp)) }
+                        if (rs.checked == false) T("Source could not be read to check the quote, so it is not counted as the cause.", 12.sp, C.dim, lineHeight = 17.sp)
                         T("Source ›", 13.sp, C.blue, maxLines = 1,
                             modifier = Modifier.padding(top = 2.dp).clickable { rs.url?.let { openUrl(ctx, it) } })
                     }
@@ -113,4 +129,45 @@ fun IndustryWhySheet(st: AppState, name: String, rot: Rot?, data: IndustryWhyDat
         val n = st.picks?.picks?.count { Filt(industry = name, industryExact = true).match(it) }?.takeIf { it > 0 } ?: rot?.n ?: pack?.facts?.members
         MoreLink(if (n != null) "See the $n stocks" else "See the stocks") { onDismiss(); st.go(Screen.Screener("ind:$name")) }
     }
+}
+
+private val REASON_TYPE = mapOf("policy" to "Policy", "rates" to "Interest rates", "demand" to "Demand", "prices" to "Prices and margins",
+    "supply" to "Supply", "orders" to "Orders", "global" to "Global cycle", "flow" to "Fund flows")
+
+/** "Policy · before the rally · lasting": the reason's type and the code's labels. */
+fun reasonTag(r: IndReason): String? {
+    val parts = listOfNotNull(r.type?.let { REASON_TYPE[it] ?: it },
+        when (r.timing) { "before" -> "before the rally"; "after" -> "after the rally began"; else -> null },
+        when (r.lasting) { "structural" -> "lasting"; "one_time" -> "one-time"; else -> null })
+    return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
+}
+
+/** The four tests behind "is this lead legitimate?" (narrativ/industrywhy.py), with the numbers they used. */
+@Composable
+fun IndustryVerdict(e: IndReasons) {
+    val t = e.tests ?: return
+    val n = e.numbers
+    val col = when (e.score ?: 0) { 4 -> C.teal; 2, 3 -> C.amber; else -> C.red }
+    val head = (e.verdict ?: "") + when (e.lasting) { "structural" -> " · lasting"; "one_time" -> " · one-time"; else -> "" }
+    T(head, 15.sp, col, FontWeight.SemiBold, modifier = Modifier.padding(bottom = 6.dp))
+    fun pct(x: Int?) = x?.let { "$it%" }
+    val rows = listOf(
+        Triple(t.cause, "A real event behind it", "not the price move or a broker tip; quote checked in the source"),
+        Triple(t.broad, "Most of its stocks are rising", pct(n?.breadth)?.let { "$it above their 200-day average" } ?: ""),
+        Triple(t.numbers, "It shows in results", listOfNotNull(
+            n?.rev?.let { "$it% grew revenue over 10%" + (n?.mRev?.let { m -> " (market $m%)" } ?: "") },
+            n?.pat?.let { "$it% grew profit over 10%" + (n?.mPat?.let { m -> " (market $m%)" } ?: "") }).joinToString("; ")),
+        Triple(t.before, "The cause came before the rally", n?.moveStart?.let { "rally from ${skDay(it)}" + (n?.fromLow?.let { f -> ", ${skSgn(f)} since" } ?: "") } ?: ""),
+    )
+    rows.forEach { (ok, label, sub) ->
+        Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.Top) {
+            T(if (ok) "✓" else "✗", 13.sp, if (ok) C.teal else C.red, FontWeight.SemiBold, modifier = Modifier.width(20.dp))
+            Column(Modifier.weight(1f)) {
+                T(label, 13.sp, C.muted)
+                if (sub.isNotBlank()) T(sub, 12.sp, C.dim, lineHeight = 16.sp)
+            }
+        }
+    }
+    e.notes.forEach { T(it.replaceFirstChar { c -> c.uppercase() } + ".", 12.sp, C.dim, lineHeight = 17.sp, modifier = Modifier.padding(top = 4.dp)) }
+    Spacer(Modifier.height(14.dp))
 }

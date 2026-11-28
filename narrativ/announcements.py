@@ -304,8 +304,8 @@ def checks(st: dict, sym: str, today: date, bse: dict | None = None) -> dict | N
     res = {}
 
     def put(id_, hits, window):
-        if hits:
-            h = hits[0]
+        if hits:  # the newest hit with a link (issue log 2626cc8427: a BSE filing with no attachment left the flag unreviewable)
+            h = next((x for x in hits if x["u"]), hits[0])
             more = f" (+{len(hits) - 1} more)" if len(hits) > 1 else ""
             res[id_] = (1, f"{h['d']}: {h['t'][:110]}{more}", "filing found; subject line only, open the filing", h["u"])
         else:

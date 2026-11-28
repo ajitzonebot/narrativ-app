@@ -20,8 +20,12 @@ URL = "https://ibbi.gov.in/public-announcement"
 STORE = Path("data/source_cache/ibbi.json.gz")
 UA = {"User-Agent": "Mozilla/5.0 (personal research; daily, a few pages)"}
 BACKFILL_PAGES = 80
+PDF_PAGES = 60
 PAUSE = 1.0
 _STOP = re.compile(r"\b(limited|ltd|private|pvt|the|and|company|co|corporation|corp|india|inc)\b|[^a-z0-9 ]")
+
+
+_PRIVATE = re.compile(r"\b(private|pvt)\b", re.I)
 
 
 def norm(name: str) -> str:
@@ -51,7 +55,7 @@ def page(n: int) -> list[dict] | None:
             d = datetime.strptime(c[1], "%d-%m-%Y").date().isoformat()
         except ValueError:
             continue
-        pdf = re.search(r'href="([^"]+\.pdf)"', tr)
+        pdf = re.search(r'href=["\']?([^"\'\s>]+\.pdf)', tr)  # the page writes the link unquoted (issue log 2776d3d5f0)
         out.append({"type": c[0], "date": d, "debtor": c[3], "applicant": c[4], "ip": c[5],
                     "pdf": pdf.group(1) if pdf else None})
     return out
@@ -93,6 +97,20 @@ def refresh(max_minutes: float = 4) -> dict:
         p += 1
         time.sleep(PAUSE)
     st["next_page"] = p
+    # notices stored before the link fix (28 Nov 2026) have no PDF: re-read pages from the newest, PDF_PAGES a run, until the
+    # pages are older than the 24-month match window
+    q = st.get("pdf_page", 1)
+    while q and time.time() - t0 < max_minutes * 60 and q < st.get("pdf_page", 1) + PDF_PAGES:
+        rows = page(q)
+        if not rows:
+            q = None if rows == [] else q
+            break
+        for x in rows:
+            if x.get("pdf") and not (st["rows"].get(_k(x)) or {}).get("pdf"):
+                st["rows"][_k(x)] = x
+        q = None if max(x["date"] for x in rows) < str(date(date.today().year - 2, date.today().month, 1)) else q + 1
+        time.sleep(PAUSE)
+    st["pdf_page"] = q
     STORE.parent.mkdir(parents=True, exist_ok=True)
     STORE.write_bytes(gzip.compress(json.dumps(st, separators=(",", ":"), ensure_ascii=False).encode(), mtime=0))  # same data, same bytes: R2 copy skipped
     print(f"[ibbi] {len(st['rows'])} notices ({new} new today), backfill {'done' if st.get('done') else f'at page {p}'}, {time.time() - t0:.0f}s")
@@ -112,6 +130,8 @@ def match(st: dict, names: dict[str, str], today: date, months: int = 24) -> dic
         if x["date"] < since:
             continue
         for role, who in (("as_debtor", x["debtor"]), ("as_applicant", x["applicant"])):
+            if role == "as_debtor" and _PRIVATE.search(who):
+                continue  # a private company is not the listed (public) company of the same name
             for s in idx.get(norm(who), []):
                 if role == "as_applicant" and norm(x["debtor"]) == norm(who):
                     continue  # voluntary liquidation: the company applies for itself

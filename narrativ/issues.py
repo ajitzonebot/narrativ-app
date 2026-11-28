@@ -96,6 +96,11 @@ def update(theses: dict, mx: dict, val, today, corrected: dict | None = None, sc
             fv = float(r["found_value"])
         except (TypeError, ValueError):
             continue
+        if fld.endswith("_cr"):  # found_value is in the filing's unit (issue log 28e675b3dc: "₹" rupees); app values are ₹ crore
+            from .corrections import to_cr
+            fv = to_cr(fv, r.get("unit"))
+            if fv is None:
+                continue
         if cur is not None and (abs(cur - fv) <= 0.05 * max(abs(fv), 1e-9)):
             r.update({"status": "fixed", "fixed_on": str(today), "now": cur})
         elif cur is not None:

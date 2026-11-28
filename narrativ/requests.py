@@ -18,7 +18,10 @@ def _norm(tok: str, known: set[str]) -> str | None:
     if not tok:
         return None
     if tok.endswith((".NS", ".BO")):
-        return tok
+        # a listing we do not score under that suffix but do under the other (BONDADA.BO asked, BONDADA.NS scored: the review
+        # run of 28 Nov 2026 found no dossier for the .BO symbol and was blocked)
+        alt = tok[:-3] + (".NS" if tok.endswith(".BO") else ".BO")
+        return alt if known and tok not in known and alt in known else tok
     for suf in (".NS", ".BO"):
         if tok + suf in known:
             return tok + suf

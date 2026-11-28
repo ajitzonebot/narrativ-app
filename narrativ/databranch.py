@@ -41,7 +41,7 @@ REF = f"refs/heads/{BRANCH}"
 TRACK = f"refs/remotes/origin/{BRANCH}"
 DATA_ROOTS = ("docs/data", "data")
 MAIN_OWNED = ("docs/data/theses.json", "docs/data/lessons.jsonl", "docs/data/research_runs.jsonl",
-              "docs/data/industry_why.json", "docs/data/schedule.json", "docs/data/claims.json", "data/doc_rules.json", "data/scan_requests.txt")
+              "docs/data/industry_why.json", "docs/data/schedule.json", "docs/data/claims.json", "docs/data/claims", "docs/data/issues", "data/industry_sources", "data/doc_rules.json", "data/scan_requests.txt")
 NEVER = ("data/source_cache", "data/news_cache", "data/exchange_tmp", "data/study_cache")
 TRIES = 5
 DAYS = 7
