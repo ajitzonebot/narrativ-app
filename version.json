@@ -1,11 +1,45 @@
 {
- "versionCode": 102,
- "versionName": "2.32.8",
+ "versionCode": 103,
+ "versionName": "2.33.0",
  "date": "2026-11-28",
- "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.32.8-b102/narrativ-v2.32.8-b102.apk",
- "sizeMb": 12.3,
- "sha256": "f15ec285aebb9143f575bc01233e20f1d3f46ef87666473ec90f3cec26113a4f",
+ "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.33.0-b103/narrativ-v2.33.0-b103.apk",
+ "sizeMb": 12.4,
+ "sha256": "569aa35cd64357fe8951bcdfc91b3f1d1719b2f2ec24fc1aa86e33787dc83a61",
  "changelog": [
+  {
+   "version": "2.33.0",
+   "date": "2026-11-28",
+   "changes": [
+    {
+     "type": "new",
+     "text": "Today's Knockout Funnel: tap Today's funnel on Home to see every listed company narrowed down to the verified Buys, with why each stage removed stocks"
+    },
+    {
+     "type": "new",
+     "text": "Stocks: filter by reading a sentence, starting from verified Buys with high conviction near the entry price; tap any part to change it, + to add more, save your sentences"
+    },
+    {
+     "type": "new",
+     "text": "Research queue \u203a Waiting: an arrow on each row explains why the stock is in the queue at that position"
+    },
+    {
+     "type": "improved",
+     "text": "Cards slide when you swipe, and the stock screen slides up when it opens"
+    },
+    {
+     "type": "improved",
+     "text": "Home funnel and headline count verified Buys only"
+    },
+    {
+     "type": "improved",
+     "text": "Sentence case across the app; portfolio chips are solid; the verified seal is the new style everywhere and no badge shows when a stock is not verified"
+    },
+    {
+     "type": "fixed",
+     "text": "IPO card: no repeated line under the headline"
+    }
+   ]
+  },
   {
    "version": "2.32.8",
    "date": "2026-11-28",
