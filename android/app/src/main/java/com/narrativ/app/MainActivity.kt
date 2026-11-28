@@ -8,6 +8,16 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -56,6 +66,8 @@ sealed class Screen {
     data object Settings : Screen()
     data object Calendar : Screen()
     data object Dates : Screen()  // Top 10 dates to watch (Paper mock-up)
+    /** Today's Knockout Funnel (FunnelScreen.kt), opened from Home's "Today's funnel" box. */
+    data object Funnel : Screen()
     data class Stock(val symbol: String) : Screen()
     data object Queue : Screen()
     data class Quadrant(val q: String, val sectors: Boolean) : Screen()
@@ -258,6 +270,7 @@ fun decodeStack(text: String): List<Screen> = text.lines().filter { it.isNotBlan
         "Queue" -> Screen.Queue; "Notes" -> Screen.Notes; "Feedback" -> Screen.Feedback; "Sources" -> Screen.Sources
         "Pipeline" -> Screen.Pipeline; "Refresh" -> Screen.Refresh; "Alerts" -> Screen.Alerts; "Tracking" -> Screen.Tracking
         "Portfolio" -> Screen.Portfolio; "Search" -> Screen.Search; "Market" -> Screen.Market; "Advanced" -> Screen.Advanced; "TrackRecord" -> Screen.TrackRecord; "Dates" -> Screen.Dates
+        "Funnel" -> Screen.Funnel
         "Screener" -> Screen.Screener(f.getOrNull(1)?.ifBlank { null })
         "Stock" -> f.getOrNull(1)?.takeIf { it.isNotBlank() }?.let { Screen.Stock(it) }
         "Quadrant" -> Screen.Quadrant(f.getOrNull(1) ?: "Leading", f.getOrNull(2) == "true")
@@ -340,6 +353,7 @@ fun App(startRoute: String? = null, ci: Boolean = false) {
             "release" -> { st.tab(Screen.Settings); st.go(Screen.Advanced); st.go(Screen.Notes) }
             "calendar" -> { st.tab(Screen.Settings); st.go(Screen.Advanced); st.go(Screen.Calendar) }
             "dates" -> st.go(Screen.Dates)
+            "funnel" -> st.go(Screen.Funnel)
             "queue" -> { st.tab(Screen.Settings); st.go(Screen.Advanced); st.go(Screen.Queue) }
             "quadrant" -> { st.tab(Screen.Home); st.go(Screen.Market); st.go(Screen.Quadrant("Leading", false)) }
         }
@@ -362,14 +376,16 @@ fun App(startRoute: String? = null, ci: Boolean = false) {
     // rows and pagers that scroll sideways take the swipe first
     val roots = listOf<Screen>(Screen.Home, Screen.Screener(), Screen.Portfolio, Screen.Settings)
     fun rootIndex(s: Screen) = when (s) { is Screen.Screener -> 1; Screen.Portfolio -> 2; Screen.Settings -> 3; else -> 0 }
-    val swipeTabs = Modifier.pointerInput(st.stack.size, st.stack.firstOrNull()) {
-        if (st.stack.size != 1) return@pointerInput
-        var dx = 0f
-        detectHorizontalDragGestures(onDragStart = { dx = 0f }, onDragEnd = {
-            val i = rootIndex(st.stack.first())
-            if (dx < -160f && i < roots.lastIndex) st.tab(roots[i + 1]) else if (dx > 160f && i > 0) st.tab(roots[i - 1])
-        }) { _, d -> dx += d }
-    }
+    // owner, 28 Nov 2026: the tab content follows the finger like a card, slides out and the next tab slides in (Swipe.kt)
+    val tabSwipe = rememberCardSwipe()
+    val tabAt = rootIndex(st.stack.first())
+    val swipeTabs = Modifier.swipeGesture(tabSwipe, canPrev = tabAt > 0, canNext = tabAt < roots.lastIndex,
+        onPrev = { val i = rootIndex(st.stack.first()); if (st.stack.size == 1 && i > 0) st.tab(roots[i - 1]) },
+        onNext = { val i = rootIndex(st.stack.first()); if (st.stack.size == 1 && i < roots.lastIndex) st.tab(roots[i + 1]) },
+        threshold = 160f, enabled = st.stack.size == 1)
+    // owner, 28 Nov 2026: a stock page opens with a slide up and fade in; back reverses it. nav = last stack size, last move (1 push, -1 pop)
+    val nav = remember { intArrayOf(st.stack.size, 1) }
+    if (st.stack.size != nav[0]) { nav[1] = if (st.stack.size > nav[0]) 1 else -1; nav[0] = st.stack.size }
     Box(Modifier.fillMaxSize().background(C.bg).then(swipeTabs)) {
         if (st.picks == null) {
             Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
@@ -381,7 +397,17 @@ fun App(startRoute: String? = null, ci: Boolean = false) {
             }
             if (st.error == null) HomeSkeleton()  // placeholders in the shape of Home instead of a spinner (#19)
         } else {
-            when (val s = st.current) {
+            AnimatedContent(st.current, Modifier.fillMaxSize().swipeLayer(tabSwipe), transitionSpec = {
+                if (targetState is Screen.Stock && nav[1] > 0)
+                    (slideInVertically(tween(280, easing = FastOutSlowInEasing)) { it / 6 } + fadeIn(tween(240, easing = FastOutSlowInEasing))) togetherWith
+                        fadeOut(tween(280), targetAlpha = 0.85f)
+                else if (initialState is Screen.Stock && nav[1] < 0)
+                    (EnterTransition.None togetherWith (slideOutVertically(tween(250, easing = FastOutSlowInEasing)) { it / 6 } +
+                        fadeOut(tween(220, easing = FastOutSlowInEasing)))).apply { targetContentZIndex = -1f }
+                else EnterTransition.None togetherWith ExitTransition.None
+            }, label = "screen") { s ->
+            Box(Modifier.fillMaxSize().background(C.bg)) {
+            when (s) {
                 Screen.Home -> HomeScreen(st)
                 Screen.Money, Screen.Market -> MoneyScreen(st)
                 Screen.Advanced -> AdvancedScreen(st)
@@ -390,6 +416,7 @@ fun App(startRoute: String? = null, ci: Boolean = false) {
                 Screen.Settings -> SettingsScreen(st)
                 Screen.Calendar -> UpcomingScreen(st)
                 Screen.Dates -> DatesScreen(st)
+                Screen.Funnel -> FunnelScreen(st)
                 is Screen.Stock -> StockScreen(st, s.symbol, startTab(startRoute, s.symbol))
                 Screen.Queue -> ResearchQueueScreen(st)
                 is Screen.Quadrant -> QuadrantListScreen(st, s.q, s.sectors)
@@ -403,6 +430,8 @@ fun App(startRoute: String? = null, ci: Boolean = false) {
                 Screen.Portfolio -> PortfolioScreen(st)
                 is Screen.Ipo -> IpoDetailScreen(st, s.name)
                 Screen.Search -> SearchScreen(st)
+            }
+            }
             }
         }
         if (st.picks != null) {

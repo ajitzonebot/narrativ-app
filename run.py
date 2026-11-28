@@ -717,11 +717,13 @@ def main(limit: int | None) -> None:
     # ---------- Claude queue (PLAN.md section 4) ----------
     queue, seen = [], set()
 
-    def q(sym, why, task, extra=None):
+    def q(sym, why, task, extra=None, pos=None):
         if sym in seen or len(queue) >= config.RESEARCH_PER_DAY or sym not in s0i.index and sym not in mem:
             return
         seen.add(sym)
         item = {"symbol": sym, "name": (mem.get(sym) or {}).get("name") or sym, "reason": why, "task": task, **(extra or {})}
+        if pos:  # the queue group, for why_pos (narrativ/requeue.py POS)
+            item["pos"] = pos
         fil = (ex.get(sym) or {}).get("filings")
         if fil and "filings" not in item:
             item["filings"] = fil
@@ -739,7 +741,7 @@ def main(limit: int | None) -> None:
         a = ((raw_theses.get(r["symbol"]) or {}).get("audit") or {}).get("date")
         if not a or (today - date.fromisoformat(str(a)[:10])).days > 7:
             q(r["symbol"], f"requested ({r['via']}): full review (verify every number, connect the dots, verdict)", "review",
-              {"checks": aflags.get(r["symbol"]) or [], "requested": True})
+              {"checks": aflags.get(r["symbol"]) or [], "requested": True}, "requested")
     def researched_on(th):
         return max(x for x in (th.get("updated"), (th.get("scan") or {}).get("date"), (th.get("scan_raw") or {}).get("date"), "2000-01-01") if x)[:10]
 
@@ -766,10 +768,10 @@ def main(limit: int | None) -> None:
             gaps = dec[s].get("incomplete") or [m.replace("Verification pending: ", "") for m in dec[s].get("missing") or []
                                                 if m.startswith("Verification pending: ")]
             q(s, f"rules say {dec[s].get('candidate') or dec[s]['d']}: the review passed but the research is not complete "
-                 "(RULES.md R7, R8; no verified badge until it is): " + "; ".join(gaps[:6]), "review", {"checks": aflags[s], "complete": gaps})
+                 "(RULES.md R7, R8; no verified badge until it is): " + "; ".join(gaps[:6]), "review", {"checks": aflags[s], "complete": gaps}, "complete")
             continue
         q(s, f"rules say {dec[s]['candidate']}: full review (verify every number, connect the dots, verdict) before it is shown as buyable",
-          "review", {"checks": aflags[s]})
+          "review", {"checks": aflags[s]}, "candidate")
     # queue hygiene (narrativ/overdue.py): overdue kill switches / must-go-right items / promises go first among the rechecks,
     # and a recheck is only queued when there is something to check: a real new document (not a cover letter, audio link or
     # call intimation) filed since the thesis was updated, a new announcement, or an overdue item
@@ -785,7 +787,7 @@ def main(limit: int | None) -> None:
         for s, items, is_top in odp["overdue"]:
             if is_top == top:
                 nd = new_docs(s)
-                q(s, OD.reason(items), "recheck", {"overdue": items[:8], "filings": nd[:3]})
+                q(s, OD.reason(items), "recheck", {"overdue": items[:8], "filings": nd[:3]}, "overdue_top" if top else "overdue")
     q_overdue(True)  # a kill switch past due on a Buy / Hold: above everything except reviews
     # RULES.md R4: scores say Buy and only the dated trigger is missing: research can supply it (dated, quoted driver)
     # stocks where the free readers found a dated, verified forward statement go first (narrativ/reader.py; Claude still confirms)
@@ -793,7 +795,7 @@ def main(limit: int | None) -> None:
     for s in sorted([s for s in syms if [g[:2] for g in dec[s].get("gates") or []] == ["R4"]],
                     key=lambda s: (not (fwd.get(s) or {}).get("dated"), readiness(s)))[:6]:
         q(s, "scores say Buy but no dated trigger (RULES.md R4): find an order win, commissioning date or guidance raise with its date",
-          "enrich")
+          "enrich", pos="trigger")
     q_overdue(False)
     def new_since(e, th):
         """Filed after the last research, or re-typed red (red_seen, a rule fix) on or after it: research dates have no time,
@@ -804,7 +806,7 @@ def main(limit: int | None) -> None:
         for s, th in theses.items():
             evs = [e for e in (mem.get(s) or {}).get("events", []) if e["sev"] == sev and new_since(e, th)] or unread_bad_news(s)
             if evs:  # unread_bad_news: a Buy held by bad news stays queued until a recheck records news_read
-                q(s, why, "recheck", {"events": evs[:5]})
+                q(s, why, "recheck", {"events": evs[:5]}, "bad_news")
     try:  # ledger stage 4: a material target behind, missed, lowered or not restated since the last research -> recheck
         from narrativ import monitor as _MO
         for s, th in theses.items():
@@ -813,45 +815,45 @@ def main(limit: int | None) -> None:
             if bad:
                 q(s, "a material forward target went wrong since the last research (behind, missed, lowered or not restated): "
                      "check it against the filings and the thesis", "recheck", {"targets": [{k: x.get(k) for k in ("status", "text", "date")}
-                                                                                         for x in bad[:5]]})
+                                                                                         for x in bad[:5]]}, "target")
     except Exception as e:  # noqa: BLE001
         print(f"[ledger] queue: {e}")
     for s, th in theses.items():
         u = th.get("updated")
         new = [x for x in new_docs(s) if u and "transcript" in str(x.get("text", "")).lower()]
         if new:
-            q(s, "new transcript filed: re-check promises and kill switches", "recheck", {"filings": new[:3]})
+            q(s, "new transcript filed: re-check promises and kill switches", "recheck", {"filings": new[:3]}, "transcript")
     for s, th in theses.items():  # AlphaStreet removed (owner, 28 Nov 2026): quotes citing its transcription move to the company's own
         n_as = json.dumps(th).count("api.alphastreet.co.in")
         if n_as:
             q(s, f"{n_as} quote(s) cite AlphaStreet's transcription, which is no longer used: re-source each quote from the exchange or "
                  "company transcript of the same call (same words), or drop it if the official transcript does not have it", "recheck",
-              {"alphastreet_quotes": n_as})
+              {"alphastreet_quotes": n_as}, "resource")
     for s, rep in (vreport or {}).items():  # quotes whose source link is dead: research swaps in a live copy of the same document
         dead = sorted({r["reason"].split(": ", 1)[1].split(" -> ")[0] for r in (rep or {}).get("rejected") or [] if str(r.get("reason", "")).startswith("source not reachable: ")})
         if dead and s in theses:
-            q(s, "source link no longer opens: replace it with a live copy of the same document (NSE archive, BSE AttachHis, company site) and keep the quote", "recheck", {"dead_links": dead[:5]})
+            q(s, "source link no longer opens: replace it with a live copy of the same document (NSE archive, BSE AttachHis, company site) and keep the quote", "recheck", {"dead_links": dead[:5]}, "dead_link")
     for s, rec in sorted(mem.items(), key=lambda kv: -(ev.get(kv[0]) or {}).get("pr", 0)):
         due = [c for c in rec.get("checkpoints", []) if c["status"] == "due"]
         if due and s in theses and (s in od_syms or new_docs(s)):  # nothing new to read and nothing overdue: no recheck
-            q(s, "checkpoint due and a new document is filed", "recheck", {"checkpoints": due})
+            q(s, "checkpoint due and a new document is filed", "recheck", {"checkpoints": due}, "checkpoint")
     def evs_any(s, th):  # any announcement filed since the last research
         return any((e.get("date") or "") > researched_on(th) for e in (mem.get(s) or {}).get("events", []))
     for s, th in theses.items():  # watch: inspection observations (VAI, Form 483), court / tax / pollution board orders
         evs = [e for e in (mem.get(s) or {}).get("events", []) if e["sev"] == "watch" and new_since(e, th)]
         if evs:
             q(s, "possible bad news filed since the last research (inspection observations, court, tax or pollution board order): "
-                 "open the filing, check kill switches and the thesis", "recheck", {"events": evs[:5]})
+                 "open the filing, check kill switches and the thesis", "recheck", {"events": evs[:5]}, "watch")
     for s, th in theses.items():
         evs = [e for e in (mem.get(s) or {}).get("events", []) if e["sev"] == "green" and (e.get("date") or "") > researched_on(th)]
         if evs:
-            q(s, "new announcement since the last research (order, capacity, approval or corporate action): update triggers", "recheck", {"events": evs[:5]})
+            q(s, "new announcement since the last research (order, capacity, approval or corporate action): update triggers", "recheck", {"events": evs[:5]}, "news")
         d = px.get(s)
         if d is not None and len(d) > 11:
             c = d["Close"]
             r1, r10 = float(c.iloc[-1] / c.iloc[-2] - 1) * 100, float(c.iloc[-1] / c.iloc[-11] - 1) * 100
             if (r1 <= -10 or r10 <= -20) and (s in od_syms or new_docs(s) or evs_any(s, th)):  # a shock with nothing filed has nothing to check
-                q(s, f"price shock ({r1:+.1f}% today, {r10:+.1f}% in 10 sessions): look for a filed reason", "recheck")
+                q(s, f"price shock ({r1:+.1f}% today, {r10:+.1f}% in 10 sessions): look for a filed reason", "recheck", pos="shock")
     # decision-first: stocks that would be Buy-rated if a verified forward driver existed, then flagged filings to review,
     # then the rest of the funnel by priority (each gets a pack prepared by narrativ.packs)
     def has_driver(s):
@@ -863,39 +865,41 @@ def main(limit: int | None) -> None:
         r = researched_on(th)
         return r > "2000" and (today - date.fromisoformat(r)).days < config.RECENT_RESEARCH_DAYS
     n_enrich = [0]
-    def enrich(s, why):
+    def enrich(s, why, pos=None):
         if n_enrich[0] < config.ENRICH_PER_DAY and not fresh(s) and s not in seen:
             n_enrich[0] += 1
-            q(s, why, "enrich")
+            q(s, why, "enrich", pos=pos)
     near = [s for s in top if not has_driver(s) and all(0 < ev[s]["L"][k]["t"] <= 3 for k in ("surv", "qual", "val"))]
     near.sort(key=lambda s: not (fwd.get(s) or {}).get("dated"))  # stable: the free readers found a dated row -> first, then priority
     for s in near:
-        enrich(s, f"one forward driver away from a Buy/Hold call (priority {ev[s]['pr']})")
+        enrich(s, f"one forward driver away from a Buy/Hold call (priority {ev[s]['pr']})", "near")
     # researched but no outlook scan (consistency check K3, owner 28 Nov 2026: "every information ties back to the stock"):
     # drivers were added without the scan, so the Outlook level cannot be rated; Claude writes the scan, highest priority first
     no_scan = sorted([s for s, th in theses.items() if th.get("drivers") and not (th.get("scan_raw") or th.get("scan")) and s in ev],
                      key=lambda s: -ev[s]["pr"])
     for s in no_scan[:config.SCAN_GAP_PER_DAY]:
         q(s, "outlook scan missing: the research has drivers but no scan (guidance, order book, must-go-right items, kill switches, "
-             "bull / base / bear): write the scan from the latest call and results", "enrich", {"complete": ["outlook scan"]})
+             "bull / base / bear): write the scan from the latest call and results", "enrich", {"complete": ["outlook scan"]}, "no_scan")
     for s, gp in odp["gaps"][:config.GAP_ENRICH_PER_DAY]:  # scan items with no quote / source / due date: only Claude can fill them
-        q(s, OD.gap_reason(gp), "enrich", {"scan_gaps": gp[:8]})
+        q(s, OD.gap_reason(gp), "enrich", {"scan_gaps": gp[:8]}, "gaps")
     for s in top:
         fl = [k for k, v in (annc.get(s) or {}).items() if v and v[0] == 1 and k in ("A2", "A4", "G2")
               and k not in ((theses.get(s) or {}).get("flag_reviews") or {})]
         if fl:
-            q(s, f"subject-line red flag(s) {', '.join(fl)}: open the filing, confirm or dismiss", "review_flag", {"flags": fl})
+            q(s, f"subject-line red flag(s) {', '.join(fl)}: open the filing, confirm or dismiss", "review_flag", {"flags": fl}, "flag")
     for s in top:
         if not has_driver(s):
-            enrich(s, f"no forward driver yet (priority {ev[s]['pr']})")
+            enrich(s, f"no forward driver yet (priority {ev[s]['pr']})", "no_driver")
     for s, th in theses.items():
         u = iso_date(th.get("updated"))
         if u and (today - u).days > config.THESIS_STALE_DAYS and (s in od_syms or new_docs(s) or evs_any(s, th)):
-            q(s, "thesis older than 90 days and something new is filed", "recheck")
+            q(s, "thesis older than 90 days and something new is filed", "recheck", pos="stale")
     gap_of = dict(odp["gaps"])
     for x in queue:  # every queued stock carries its scan gaps into the pack
         if x["symbol"] in gap_of and "scan_gaps" not in x:
             x["scan_gaps"] = gap_of[x["symbol"]][:8]
+    from narrativ import requeue as RQ
+    RQ.label_positions(queue)  # why_pos: each item's group and place, in plain words (owner, 28 Nov 2026)
     queued = {x["symbol"] for x in queue if x["task"] in ("scan", "triage", "enrich", "review_flag", "audit", "review")} | set(req_syms)
     qpos = {x["symbol"]: i + 1 for i, x in reversed(list(enumerate(queue)))}
     for s in syms:  # Not rated: name the gap (filed data, research not done yet, or researched without a driver)
@@ -1002,6 +1006,7 @@ def main(limit: int | None) -> None:
         else:
             row["why"] = next((lv[k].get("w") for k in ("out", "qual", "val", "mom") if lv[k].get("w") and lv[k]["t"]), None)
             row["su"] = e["setup"]["type"]
+            row["ez"] = FN.entry_zone(e["setup"])  # entry zone [low, high]: the app's "priced in / near the entry zone" filter
             if str(e["setup"].get("note") or "").startswith("No entry: trend broken"):
                 row["tb"] = 1  # app: "Avoid · trend broken" in lists, same as the Plan card
             row["bt"] = e["L"]["val"].get("type")

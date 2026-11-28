@@ -238,7 +238,7 @@ private fun OwnerRing(parts: List<Triple<String, Double, Color>>, promoter: Doub
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             T("${skFx(promoter, 1)}%", 18.sp, weight = FontWeight.Bold, maxLines = 1)
-            T("promoter", LABEL, C.dim, maxLines = 1)
+            T("Promoter", LABEL, C.dim, maxLines = 1)
         }
     }
 }
@@ -315,7 +315,7 @@ private fun QualityBody(det: Detail, lv: Level, onAll: () -> Unit) {
         val withMargin = q.all { it.first.getOrNull(3) != null }
         RevenueProfitChart(q.map { it.first[1]!! }, q.map { it.first.getOrNull(2) }, if (withMargin) q.map { it.first[3] } else emptyList(), q.map { shortMonth(it.second) })
     }
-    RoceCard(det, det.v("roce_pct")?.let { "last 4 quarters ${skFx(it, 1)}%" })
+    RoceCard(det, det.v("roce_pct")?.let { "Last 4 quarters ${skFx(it, 1)}%" })
 }
 
 @Composable
@@ -393,7 +393,7 @@ private fun ManagementBody(st: AppState, sym: String, det: Detail, lv: Level, on
         if (c8 != null && c8n.size >= 4) KeyCheck(lv.status("C8"), "ROCE held", skSgn(c8n[3] - c8n[1], 1, " pts"),
             "FY${c8n[0].toInt()}→${c8n[2].toInt()} · pass ≥ −2 pts", Bullet(c8n[3] - c8n[1], -6.0, 2.0, -2.0, partly = -5.0, unit = " pts"),
             says = "Return on capital ${skFx(c8n[1], 1)}% in FY${c8n[0].toInt()}, ${skFx(c8n[3], 1)}% in FY${c8n[2].toInt()}") else null,
-        lv.item("C3")?.let { c -> KeyCheck(lv.status("C3"), "Promoter buying", if (c.v?.startsWith("no ") == true) "no trades" else short(c.v), "12 months") },
+        lv.item("C3")?.let { c -> KeyCheck(lv.status("C3"), "Promoter buying", if (c.v?.startsWith("no ") == true) "No trades" else short(c.v), "12 months") },
         lv.item("C1")?.let { c -> val v = skNums(c.v).firstOrNull()
             KeyCheck(lv.status("C1"), "Promoter holding", v?.let { "${skFx(it, 1)}%" } ?: short(c.v), "pass ≥ 50%", v?.let { Bullet(it, 0.0, 100.0, 50.0, partly = 25.0, unit = "%") },
                 says = v?.let { "Promoters own ${skFx(it, 1)}% of the company" }) },
@@ -406,7 +406,7 @@ private fun ManagementBody(st: AppState, sym: String, det: Detail, lv: Level, on
             lo = min(45.0, vs.min() - 5), hi = min(100.0, max(vs.max() + 10, 55.0)), median = 50.0, medianLabel = "50% pass line",
             endLabel = "${skFx(vs.last(), 2)}%", endLabelPos = EndLabel.Right, xLabels = listOf(shortMonth(pro.first().date), shortMonth(pro.last().date)))
     }
-    RoceCard(det, det.v("rev_cagr_3y_pct")?.let { "revenue ${skFx(it, 1)}%/yr meanwhile" })
+    RoceCard(det, det.v("rev_cagr_3y_pct")?.let { "Revenue ${skFx(it, 1)}%/yr meanwhile" })
     var sheet by remember { mutableStateOf(false) }
     val proms = r?.promises.orEmpty()
     val firstDue = proms.mapNotNull { it.due }.minOrNull()
@@ -428,7 +428,7 @@ private fun PromiseMeter(r: Research) {
         DotChip("$pending pending", C.grey); DotChip("$kept kept", TierC.lightGreen)
         if (partly > 0) DotChip("$partly partly or late", TierC.yellow)
         DotChip("$missed missed", TierC.lightRed)
-        ValChip(r.credibility?.let { "kept-rate ${it.pct}% of ${it.due}" } ?: "kept-rate after 2 resolve")
+        ValChip(r.credibility?.let { "Kept-rate ${it.pct}% of ${it.due}" } ?: "Kept-rate after 2 resolve")
     }
 }
 
@@ -575,7 +575,7 @@ private fun MomentumBody(st: AppState, p: P?, det: Detail, lv: Level, chart: Cha
         sec?.let { add(DivRow(secName, it.r3m, MUTED_BAR)) }; ir?.let { add(DivRow("Industry", it.r3m, MUTED_BAR)) }
         add(DivRow(code, s.ret6m, gainColor(s.ret6m), "6 months"))
     }
-    SectionCard("Returns", "price; sector and industry from rotation") {
+    SectionCard("Returns", "Price; sector and industry from rotation") {
         DivergingBars(rows2, mutedColor = MUTED_BAR)
         s.tradedValueCr?.let { T("Traded value ₹${skFx(it, 1)} cr a day (20-day avg)", 12.sp, C.dim, modifier = Modifier.padding(top = 6.dp)) }
     }
@@ -729,7 +729,7 @@ private fun OutlookBody(st: AppState, sym: String, det: Detail, lv: Level, open:
         val dues = drivers.mapNotNull { it.due }.toSet()
         r?.promises.orEmpty().filter { it.due != null && it.due !in dues }.forEach { add(Triple(it.due!!, it.promise, TimelineItem("", it.promise, "Promise · ${it.call}", C.grey, hollow = true))) }
     }.sortedBy { it.first }.map { (d, _, ti) -> ti.copy(date = skDue(d)) }
-    if (items.isNotEmpty()) SectionCard("Dated triggers", "drivers, checks, promises") {
+    if (items.isNotEmpty()) SectionCard("Dated triggers", "Drivers, checks, promises") {
         DotTimeline(listOf(TimelineItem(skDay(skToday().toString()), "Today", today = true)) + items)
     } else EmptyNote(if (lv.researched) "No dated trigger in filings or research yet." else "Dated triggers appear once Narrativ.ai researches this stock.")
     Card(Modifier.fillMaxWidth(), pad = S.cardPad) {
@@ -753,7 +753,7 @@ private fun OutlookBody(st: AppState, sym: String, det: Detail, lv: Level, open:
         }
         var bbb by remember { mutableStateOf(false) }
         val scen = scan?.scenarios.orEmpty()
-        ToggleRow("Bull · Base · Bear", if (scen.isEmpty()) "no price scenarios yet" else "${scen.size} scenarios", bbb, { bbb = !bbb })
+        ToggleRow("Bull · Base · Bear", if (scen.isEmpty()) "No price scenarios yet" else "${scen.size} scenarios", bbb, { bbb = !bbb })
         if (bbb && scen.isNotEmpty()) scen.forEach { sc ->
             val col = when (sc.name.lowercase()) { "bull" -> TierC.lightGreen; "bear" -> TierC.lightRed; else -> C.muted }
             Column(Modifier.padding(vertical = 6.dp)) {

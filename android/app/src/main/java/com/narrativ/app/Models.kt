@@ -31,7 +31,18 @@ import kotlinx.serialization.json.JsonPrimitive
 @Serializable data class RotationFile(val date: String? = null, val bench: String? = null, val sectors: Map<String, Rot> = emptyMap(),
                                       val industries: Map<String, Rot> = emptyMap(), val best: Map<String, List<String>> = emptyMap())
 
-@Serializable data class QItem(val symbol: String = "", val name: String? = null, val reason: String? = null, val task: String? = null)
+@Serializable data class QItem(val symbol: String = "", val name: String? = null, val reason: String? = null, val task: String? = null,
+                               /** Why it sits at this position in the queue, in plain words (owner, 28 Nov 2026); null in older files. */
+                               @SerialName("why_pos") val whyPos: String? = null,
+                               val complete: List<String> = emptyList(), val checks: List<String> = emptyList(),
+                               val events: List<QEvent> = emptyList(), val targets: List<QTarget> = emptyList(),
+                               val overdue: List<QOverdue> = emptyList(), val flags: List<String> = emptyList(),
+                               val requested: Boolean = false)
+@Serializable data class QEvent(val date: String? = null, val type: String? = null, val sev: String? = null, val text: String? = null,
+                                val url: String? = null)
+@Serializable data class QTarget(val status: String? = null, val text: String? = null, val date: String? = null)
+@Serializable data class QOverdue(val kind: String? = null, val what: String? = null, val due: String? = null,
+                                  @SerialName("days_late") val daysLate: Int? = null)
 @Serializable data class QueueFile(val date: String? = null, val items: List<QItem> = emptyList())
 
 /** One computed value with its formula, inputs and source. */
@@ -153,6 +164,8 @@ import kotlinx.serialization.json.JsonPrimitive
     val cand: String? = null, val rk: Int? = null, val mb: Boolean = false, val cv: String? = null, val tb: Int? = null,
     /** 50-day above the 200-day today (1 / 0) and trading days since the latest cross in the chart's year (feedback #170). */
     val ma: Int? = null, val gx: Int? = null,
+    /** Entry zone [low, high] of a live setup (breakout, pullback, base); null without one. */
+    val ez: List<Double>? = null,
 ) {
     fun tier(level: Int): Int = t.getOrElse(level) { 0 }
 }

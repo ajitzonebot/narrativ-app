@@ -1231,6 +1231,22 @@ def bands(su: dict | None, price) -> dict | None:
     return out
 
 
+def entry_zone(su: dict | None) -> list[float] | None:
+    """The entry zone [low, high] of a live setup (breakout, pullback, base) for the stock list (picks.json "ez"), 2
+    decimals; None without one. The app's filter "priced in / near / below the entry zone" reads it."""
+    su = su or {}
+    lo, hi = su.get("lo"), su.get("hi")
+    if lo is None or hi is None:
+        return None
+    try:
+        lo, hi = float(lo), float(hi)
+    except (TypeError, ValueError):
+        return None
+    if math.isnan(lo) or math.isnan(hi) or lo <= 0 or hi < lo:
+        return None
+    return [round(lo, 2), round(hi, 2)]
+
+
 # ------------------------------------------------------------------ industry statistics from our own filings
 def industry_stats(rows):
     """rows: [(industry, Mx)]. Q6 shrink test and L7 industry wind, from computed growth only."""

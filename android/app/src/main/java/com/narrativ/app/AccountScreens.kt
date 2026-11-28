@@ -238,7 +238,7 @@ private fun OnePortfolioCard(p: CallPortfolio?) {
     Card(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth(), pad = 16.dp) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             T("As one portfolio", 15.sp, weight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-            T(if (p != null) "sized by conviction · ${p.days} day${if (p.days == 1) "" else "s"}" else "sized by conviction", 12.sp, C.dim)
+            T(if (p != null) "Sized by conviction · ${p.days} day${if (p.days == 1) "" else "s"}" else "Sized by conviction", 12.sp, C.dim)
         }
         if (p == null || a.size < 2 || b.size != a.size) {
             T("Not enough history yet", 13.sp, C.dim, modifier = Modifier.padding(top = 10.dp, bottom = 2.dp))
@@ -258,7 +258,7 @@ private fun OnePortfolioCard(p: CallPortfolio?) {
         Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Cell("Worst fall", p.maxDdPct?.let { fmt(it, 1) + "%" } ?: "–", Modifier.weight(1f), note = p.niftyMaxDdPct?.let { "Nifty ${fmt(it, 1)}%" })
             Cell("Sharpe", p.sharpe?.let { fmt(it, 2) } ?: "–", Modifier.weight(1f),
-                note = if (p.sharpe == null) "after ${p.minDays} days (${p.days} of ${p.minDays})" else p.niftySharpe?.let { "Nifty ${fmt(it, 2)}" })
+                note = if (p.sharpe == null) "After ${p.minDays} days (${p.days} of ${p.minDays})" else p.niftySharpe?.let { "Nifty ${fmt(it, 2)}" })
         }
     }
 }
@@ -280,7 +280,7 @@ private fun EveryBuyCard(st: AppState, v: List<CallRec>) {
         Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
             Spacer(Modifier.width(100.dp))
             Row(Modifier.weight(1f)) {
-                T("← behind", 11.sp, C.dim, modifier = Modifier.weight(1f)); T("ahead →", 11.sp, C.dim)
+                T("← Behind", 11.sp, C.dim, modifier = Modifier.weight(1f)); T("Ahead →", 11.sp, C.dim)
             }
             T("pts", 11.sp, C.dim, modifier = Modifier.width(56.dp), align = TextAlign.End)
         }
@@ -342,7 +342,7 @@ private fun BuyBarRow(c: CallRec, mx: Double) {
     Row(Modifier.fillMaxWidth().defaultMinSize(minHeight = 46.dp).padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.width(100.dp)) {
             T(c.symbol.substringBeforeLast("."), 13.sp, weight = FontWeight.SemiBold, maxLines = 1)
-            T(skDay(c.date) + if (closed) " · closed" else "", 10.5.sp, C.dim, maxLines = 1)
+            T(skDay(c.date) + if (closed) " · Closed" else "", 10.5.sp, C.dim, maxLines = 1)
         }
         Box(Modifier.weight(1f).height(20.dp)) {
             Canvas(Modifier.fillMaxSize()) {
@@ -359,7 +359,7 @@ private fun BuyBarRow(c: CallRec, mx: Double) {
             }
             if (v == null) Row(Modifier.fillMaxSize()) {
                 Spacer(Modifier.weight(1f))
-                Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.CenterStart) { T("day 0", 11.sp, C.dim, modifier = Modifier.padding(start = 6.dp)) }
+                Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.CenterStart) { T("Day 0", 11.sp, C.dim, modifier = Modifier.padding(start = 6.dp)) }
             }
         }
         T(if (v == null) "–" else sg(v, 2, ""), 13.sp, col, FontWeight.SemiBold, modifier = Modifier.width(56.dp), maxLines = 1, align = TextAlign.End)
@@ -401,7 +401,7 @@ fun DataPipelineScreen(st: AppState) {
                     runs?.takeIf { it.size >= 2 }?.let { MiniRuns(it.reversed().takeLast(30), 120.dp, 22.dp) }
                 }
                 T(listOfNotNull(h?.let { "Last run ${istTime(it.finished)} IST" }, h?.minutes?.let { "${fmt(it, 1)} min" },
-                    "next daily run ${next.removePrefix("today ")}").joinToString(" · "),
+                    "Next daily run ${next.removePrefix("today ")}").joinToString(" · "),
                     12.5.sp, C.dim, lineHeight = 17.sp, modifier = Modifier.padding(top = 4.dp))
                 Row(Modifier.padding(top = 10.dp)) {
                     HeaderPill(Icons.Rounded.Refresh, "Check for data") {
@@ -415,7 +415,7 @@ fun DataPipelineScreen(st: AppState) {
                 }
             }
         }
-        item { SecHead("Sources", "coverage of the universe") }
+        item { SecHead("Sources", "Coverage of the universe") }
         item {
             val rows = if (hh == null) emptyList() else sourceRows(hh.first, hh.second)
             Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -470,9 +470,9 @@ fun DataPipelineScreen(st: AppState) {
                         Column(Modifier.padding(top = 8.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 T(d.symbol.substringBeforeLast("."), 13.sp, weight = FontWeight.SemiBold)
-                                TypeTag(d.scope, if (d.scope == "systemic") C.amber else C.grey)
+                                TypeTag(sentence(d.scope), if (d.scope == "systemic") C.amber else C.grey)
                                 val done = d.status == "corrected" || d.status == "fixed"
-                                T(if (done) d.status + (d.fixedOn?.let { " " + skDay(it) } ?: "") else d.status, 11.sp, if (done) TierC.lightGreen else TierC.lightRed)
+                                T(if (done) sentence(d.status) + (d.fixedOn?.let { " " + skDay(it) } ?: "") else sentence(d.status), 11.sp, if (done) TierC.lightGreen else TierC.lightRed)
                             }
                             T("${d.field}: app ${d.app ?: "–"} → filed ${d.found ?: "–"}", 12.sp, C.dim)
                             d.cause?.let { T(it.replaceFirstChar { c -> c.uppercase() }, 12.sp) }
@@ -487,7 +487,7 @@ fun DataPipelineScreen(st: AppState) {
                     val reviewsToday = st.research.values.count { it.updated == today }
                     s.jobs.forEach { j ->
                         val status = when {
-                            j.name.startsWith("Daily run") && st.picks?.date == today -> "done" to TierC.lightGreen
+                            j.name.startsWith("Daily run") && st.picks?.date == today -> "Done" to TierC.lightGreen
                             (j.by == "Claude" || j.by == "Narrativ.ai") && j.name.startsWith("Research") && reviewsToday > 0 -> "$reviewsToday stocks" to TierC.lightGreen
                             else -> null
                         }
@@ -608,18 +608,18 @@ fun ResearchQueueScreen(st: AppState) {
     val nDone = done?.runs.orEmpty().sumOf { r -> r.items.size }
     if (info) QueueInfoSheet { info = false }
     // feedback #116: swipe left / right switches Waiting and Completed
-    val swipe = Modifier.pointerInput(Unit) {
-        var dx = 0f
-        detectHorizontalDragGestures(onDragStart = { dx = 0f }, onDragEnd = {
-            if (dx < -120f) tab = "completed" else if (dx > 120f) tab = "waiting"
-        }) { _, d -> dx += d }
-    }
+    // owner, 28 Nov 2026: the list below the tabs moves like a card (follows the finger, slides out, the other tab slides in; Swipe.kt)
+    val cs = rememberCardSwipe()
+    val toDone = { tab = "completed" }
+    val toWaiting = { tab = "waiting" }
+    val swipe = Modifier.swipeGesture(cs, canPrev = tab == "completed", canNext = tab == "waiting", onPrev = toWaiting, onNext = toDone)
     AccScreen(st, "Research queue", q?.let { "${it.items.size} waiting · queue of ${shortDate(it.date)}" }, "Queue",
         actions = { InfoButton { info = true } }, modifier = swipe) {
         item {
             Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf("waiting" to "Waiting ${q?.items?.size ?: 0}", "completed" to "Completed $nDone").forEach { (k, lab) ->
-                    Box(Modifier.weight(1f).clip(rr(10.dp)).background(if (tab == k) C.teal else C.card).clickable { tab = k }.padding(vertical = 9.dp),
+                    Box(Modifier.weight(1f).clip(rr(10.dp)).background(if (tab == k) C.teal else C.card)
+                        .clickable { if (tab != k) cs.go(if (k == "completed") -1 else 1, toWaiting, toDone) }.padding(vertical = 9.dp),
                         contentAlignment = Alignment.Center) { T(lab, 13.sp, if (tab == k) C.onAccent else C.dim, if (tab == k) FontWeight.SemiBold else FontWeight.Normal) }
                 }
             }
@@ -635,20 +635,21 @@ fun ResearchQueueScreen(st: AppState) {
                 if (search.isNotEmpty()) Icon(Icons.Rounded.Close, "Clear", tint = C.dim, modifier = Modifier.clip(CircleShape).clickable { search = "" }.size(20.dp))
             }
         }
-        if (search.isNotBlank()) { queueSearch(st, q, done, search); return@AccScreen }
-        if (tab == "completed") { completedList(st, done, filter) { filter = it }; return@AccScreen }
-        if (q == null || q.items.isEmpty()) { item { Empty("The queue appears after the next daily run.") }; return@AccScreen }
+        val list = SwipeItems(this, cs)
+        if (search.isNotBlank()) { list.queueSearch(st, q, done, search); return@AccScreen }
+        if (tab == "completed") { list.completedList(st, done, filter) { filter = it }; return@AccScreen }
+        if (q == null || q.items.isEmpty()) { list.item { Empty("The queue appears after the next daily run.") }; return@AccScreen }
         // owner, 27 Nov 2026: no "All N done by" heading or task chart; one filter button; rows by expected time, first to last
         val etas = queueEtas(q.items.map { it.task })
         val rows = q.items.indices.map { q.items[it] to etas.getOrNull(it)?.first }
             .filter { (it, _) -> qFilter == "All" || (it.task ?: "scan") == qFilter }
             .sortedBy { (_, e) -> e }
-        item {
+        list.item {
             val mix = q.items.groupingBy { it.task ?: "scan" }.eachCount()
             FilterMenu(listOf(Triple("All", "All", q.items.size)) + mix.entries.sortedByDescending { it.value }.map { Triple(it.key, queueTaskName(it.key), it.value) },
                 qFilter, { k -> queueTaskColor(k) }) { qFilter = it }
         }
-        item {
+        list.item {
             Card(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth(), pad = 0.dp) {
                 rows.forEachIndexed { n, (it, e) ->
                     QueueRow(st, it, e)
@@ -682,21 +683,108 @@ fun FilterMenu(options: List<Triple<String, String, Int>>, selected: String, col
     }
 }
 
-/** One queued item: task colour, symbol, task name ("Review N of M" for a full review), expected run. */
+/** One queued item: task colour, symbol, task name ("Review N of M" for a full review), expected run.
+ *  Owner, 28 Nov 2026: as on Completed rows, only the stock name opens the stock; the arrow on the right expands the row to
+ *  show why the item sits at this position, what will be done and the item's details. */
 @Composable
 private fun QueueRow(st: AppState, it: QItem, eta: java.time.LocalDateTime?) {
     val col = queueTaskColor(it.task)
     // one count everywhere: a full review says "Review N of M" (its place among pending reviews, as on the stock page);
     // other tasks keep their own name, with no competing number
     val label = (if (it.task == "review") queueLabel(st, it.symbol) else null) ?: queueTaskName(it.task)
-    Row(Modifier.fillMaxWidth().clickable { st.go(Screen.Stock(it.symbol)) }.defaultMinSize(minHeight = 52.dp).padding(horizontal = 14.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.padding(end = 12.dp).size(3.dp, 30.dp).clip(rr(2.dp)).background(col))
-        Column(Modifier.weight(1f)) {
-            T(it.symbol.substringBeforeLast("."), 15.sp, weight = FontWeight.SemiBold, maxLines = 1)
-            T(label, 12.sp, col, FontWeight.SemiBold, maxLines = 1)  // #117: no "rules say Buy" line; meanings behind (i)
+    val canOpen = it.whyPos != null || !it.reason.isNullOrBlank()
+    var open by remember(it.symbol, it.task) { mutableStateOf(false) }
+    Column(Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth().defaultMinSize(minHeight = 52.dp).padding(start = 14.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.padding(end = 12.dp).size(3.dp, 30.dp).clip(rr(2.dp)).background(col))
+            Column(Modifier.weight(1f)) {
+                T(it.symbol.substringBeforeLast("."), 15.sp, weight = FontWeight.SemiBold, maxLines = 1,
+                    modifier = Modifier.clickable { st.go(Screen.Stock(it.symbol)) })
+                T(label, 12.sp, col, FontWeight.SemiBold, maxLines = 1)  // #117: no "rules say Buy" line; the reason is in the expanded row
+            }
+            eta?.let { e -> T(etaWords(e), 12.sp, C.blue.takeIf { Look.paper } ?: C.muted, maxLines = 1, modifier = Modifier.padding(start = 8.dp)) }
+            if (canOpen) {
+                Box(Modifier.size(40.dp).clip(rr(20.dp)).clickable { open = !open }, contentAlignment = Alignment.Center) {
+                    androidx.compose.material3.Icon(if (open) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                        if (open) "Hide details" else "Show details", tint = C.dim, modifier = Modifier.size(22.dp))
+                }
+            } else Spacer(Modifier.width(40.dp))
         }
-        eta?.let { e -> T(etaWords(e), 12.sp, C.blue.takeIf { Look.paper } ?: C.muted, maxLines = 1, modifier = Modifier.padding(start = 8.dp)) }
+        if (open && canOpen) QueueDetailCard(it)
+    }
+}
+
+/** A queue reason in plain words: no rule-book references, red-flag codes named. */
+private fun queuePlain(r: String): String {
+    val noRules = r.replace(Regex("""\s*\(RULES\.md[^)]*\)"""), "")
+    val named = Regex("""subject-line red flag\(s\) ([AG]\d(?:, [AG]\d)*)""").replace(noRules) { m ->
+        "red flag in a filing's subject line (" + m.groupValues[1].split(", ").joinToString(", ") { c -> FLAG_NAMES[c] ?: c } + ")"
+    }
+    return named.trim().replaceFirstChar { c -> c.uppercase() }
+}
+
+private val OVERDUE_KIND = mapOf("kill_switch" to "Kill switch", "must_go_right" to "Must-go-right item", "promise" to "Promise",
+    "results" to "Results checkpoint")
+
+/** The expanded queue row (same look as the Completed rows): why it is at this position, what will be done, its details. */
+@Composable
+private fun QueueDetailCard(q: QItem) {
+    val uri = androidx.compose.ui.platform.LocalUriHandler.current
+    Column(Modifier.fillMaxWidth().padding(start = 29.dp, end = 14.dp, bottom = 10.dp).clip(rr(6.dp)).background(C.card)
+        .padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        q.whyPos?.let { w ->
+            T("WHY AT THIS POSITION", 10.sp, C.dim, FontWeight.Bold)
+            T(w, 13.sp, lineHeight = 17.sp)
+        }
+        q.reason?.takeIf { r -> r.isNotBlank() }?.let { r ->
+            T("WHAT NARRATIV.AI WILL DO", 10.sp, C.dim, FontWeight.Bold, modifier = Modifier.padding(top = 2.dp))
+            T(queuePlain(r), 12.sp, lineHeight = 16.sp)
+        }
+        if (q.requested) T("Requested by you", 12.sp, C.white, FontWeight.SemiBold)
+        if (q.complete.isNotEmpty()) {
+            T("TO COMPLETE", 10.sp, C.amber, FontWeight.Bold, modifier = Modifier.padding(top = 2.dp))
+            q.complete.forEach { g -> T("· ${queuePlain(g)}", 12.sp, C.dim, lineHeight = 16.sp) }
+        }
+        if (q.overdue.isNotEmpty()) {
+            T("PAST DUE", 10.sp, C.dim, FontWeight.Bold, modifier = Modifier.padding(top = 2.dp))
+            q.overdue.forEach { o ->
+                Column {
+                    o.what?.takeIf { w -> w.isNotBlank() }?.let { w -> T(w, 12.sp, lineHeight = 16.sp) }
+                    T(listOfNotNull(OVERDUE_KIND[o.kind] ?: o.kind, o.due?.let { "due ${skDay(it)}" }, o.daysLate?.let { "$it days late" })
+                        .joinToString(" · "), 11.sp, C.dim, maxLines = 1)
+                }
+            }
+        }
+        if (q.events.isNotEmpty()) {
+            T("FILINGS", 10.sp, C.dim, FontWeight.Bold, modifier = Modifier.padding(top = 2.dp))
+            q.events.forEach { e ->
+                Column {
+                    T(listOfNotNull(e.date?.let { skDay(it) }, e.type).joinToString(" · "), 12.sp,
+                        if (e.sev == "red") C.red else if (e.sev == "watch") C.amber else C.white, FontWeight.SemiBold, maxLines = 1)
+                    e.text?.takeIf { t -> t.isNotBlank() }?.let { t -> T(t, 12.sp, C.dim, lineHeight = 16.sp, maxLines = 3) }
+                    e.url?.let { u -> T("Filing ›", 11.sp, C.blue, maxLines = 1, modifier = Modifier.clickable { runCatching { uri.openUri(u) } }) }
+                }
+            }
+        }
+        if (q.targets.isNotEmpty()) {
+            T("FORWARD TARGETS", 10.sp, C.dim, FontWeight.Bold, modifier = Modifier.padding(top = 2.dp))
+            q.targets.forEach { x ->
+                Column {
+                    x.text?.takeIf { t -> t.isNotBlank() }?.let { t -> T(t, 12.sp, lineHeight = 16.sp) }
+                    T(listOfNotNull(x.status?.replaceFirstChar { c -> c.uppercase() }, x.date?.let { skDay(it) }).joinToString(" · "),
+                        11.sp, C.amber, maxLines = 1)
+                }
+            }
+        }
+        if (q.flags.isNotEmpty()) {
+            T("RED FLAGS TO CHECK", 10.sp, C.dim, FontWeight.Bold, modifier = Modifier.padding(top = 2.dp))
+            T(q.flags.joinToString(", ") { f -> FLAG_NAMES[f] ?: f }.replaceFirstChar { c -> c.uppercase() }, 12.sp, lineHeight = 16.sp)
+        }
+        if (q.checks.isNotEmpty()) {
+            T("CHECKS FOR THE REVIEW (${q.checks.size})", 10.sp, C.dim, FontWeight.Bold, modifier = Modifier.padding(top = 2.dp))
+            q.checks.forEach { c -> T("· $c", 12.sp, C.dim, lineHeight = 16.sp) }
+        }
     }
 }
 
@@ -763,7 +851,7 @@ fun etaWords(t: java.time.LocalDateTime): String {
     val today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kolkata"))
     val hm = "%02d:%02d".format(t.hour, t.minute)
     return when (t.toLocalDate()) {
-        today -> "today $hm"; today.plusDays(1) -> "tomorrow $hm"
+        today -> "Today $hm"; today.plusDays(1) -> "Tomorrow $hm"
         else -> t.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.ENGLISH) + " " + skDay(t.toLocalDate().toString()) + " " + hm
     }
 }
@@ -837,7 +925,7 @@ fun ReleaseNotesScreen(st: AppState) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         T("v${BuildConfig.VERSION_NAME}", 26.sp, weight = FontWeight.ExtraBold)
-                        T("installed" + (v?.changelog?.firstOrNull { it.version == BuildConfig.VERSION_NAME }?.let { " · released ${skDay(it.date)}" } ?: ""), 12.sp, C.dim)
+                        T("Installed" + (v?.changelog?.firstOrNull { it.version == BuildConfig.VERSION_NAME }?.let { " · released ${skDay(it.date)}" } ?: ""), 12.sp, C.dim)
                     }
                     val col = if (newer) C.amber else TierC.lightGreen
                     Row(Modifier.clip(rr(12.dp)).background(col.copy(alpha = 0.13f)).padding(horizontal = 10.dp, vertical = 5.dp),

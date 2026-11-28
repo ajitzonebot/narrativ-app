@@ -159,7 +159,7 @@ private fun CpList(st: AppState, rows: List<Cp>, today: LocalDate, overdueList: 
                 }
                 Column(Modifier.padding(start = 10.dp), horizontalAlignment = Alignment.End) {
                     T(shortDate(x.c.due), 13.sp, weight = FontWeight.SemiBold, maxLines = 1)
-                    if (days != null) T(if (days > 0) "${days}d ago" else if (days == 0) "today" else "in ${-days}d", 12.sp,
+                    if (days != null) T(if (days > 0) "${days}d ago" else if (days == 0) "Today" else "In ${-days}d", 12.sp,
                         if (overdueList || days == 0) C.amber else C.dim, maxLines = 1)
                 }
             }

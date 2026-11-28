@@ -90,7 +90,7 @@ fun MoneyScreen(st: AppState) {
                 else RotationMap(src.values.map { RotPoint(it.ratio, it.mom, it.q) }, Modifier.fillMaxWidth().height(236.dp), colors = QUAD_COLORS,
                     onQuadrant = { q -> st.go(Screen.Quadrant(q, sectors)) })
                 Row(Modifier.fillMaxWidth().padding(top = 6.dp)) {
-                    T("← weaker trend · stronger →", 10.sp, C.dim, modifier = Modifier.weight(1f)); T("tap a box", 10.sp, C.dim)
+                    T("← Weaker trend · stronger →", 10.sp, C.dim, modifier = Modifier.weight(1f)); T("Tap a box", 10.sp, C.dim)
                 }
                 T("vs " + (if (sectors) rot.bench ?: "Nifty 500" else "our universe (equal weight)") + (if (sectors) " · NSE sector indices, weekly closes" else " · industries with 5+ stocks"),
                     10.sp, C.dim, modifier = Modifier.padding(top = 2.dp))
@@ -164,7 +164,7 @@ fun IndRow(ind: String, r: Rot) {
         val m = ((r.mom - 94) / 12).coerceIn(0.0, 1.0).toFloat()
         Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.weight(1f).height(4.dp).clip(rr(2.dp)).background(C.chip)) { Box(Modifier.fillMaxWidth(m).fillMaxHeight().background(quadC(r.q))) }
-            Spacer(Modifier.width(8.dp)); T("momentum ${fmt(r.mom, 1)}" + (r.n?.let { " · $it stocks" } ?: ""), 11.sp, C.dim)
+            Spacer(Modifier.width(8.dp)); T("Momentum ${fmt(r.mom, 1)}" + (r.n?.let { " · $it stocks" } ?: ""), 11.sp, C.dim)
         }
     }
 }
@@ -262,12 +262,12 @@ fun MoodInfoSheet(onDismiss: () -> Unit) {
 private fun MoodInputs(md: Mood, how: Boolean, onHow: () -> Unit) {
     Row(Modifier.padding(top = 12.dp, bottom = 4.dp), verticalAlignment = Alignment.Bottom) {
         if (!Look.paper) { T("Inputs", 14.sp, weight = FontWeight.SemiBold); T("  fear ← score → greed · line at 50", 11.sp, C.dim, maxLines = 1) }
-        else T("fear ← score → greed · line at 50", 11.sp, C.dim, maxLines = 1)
+        else T("Fear ← score → greed · line at 50", 11.sp, C.dim, maxLines = 1)
     }
     md.inputs.forEach { i ->
         Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             T(INPUT_SHORT[i.k] ?: i.name, 12.sp, C.muted, modifier = Modifier.width(118.dp), maxLines = 1)
-            if (i.score == null) T(i.note ?: "no data today", 11.sp, C.dim, modifier = Modifier.weight(1f), maxLines = 1)
+            if (i.score == null) T(i.note ?: "No data today", 11.sp, C.dim, modifier = Modifier.weight(1f), maxLines = 1)
             else HBar(i.score / 100.0, moodColor(i.score), Modifier.weight(1f), 6.dp, 0.5)
             T(if (i.score == null || i.value == null) "n/a" else inputValue(i), 12.sp, if (i.score == null) C.dim else C.white, FontWeight.SemiBold,
                 Modifier.width(56.dp), maxLines = 1, align = TextAlign.End)

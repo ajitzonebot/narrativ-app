@@ -4,7 +4,8 @@ Runs every 30 minutes with the research publish (republish.yml), also when no re
   1. drops items already done (republish.prune_queue by run time, prune_done_research by content);
   2. puts at the top, in this order: the owner's open review requests from the app ("scan: SYMBOL" issues) not yet worked
      on, Buys whose research is incomplete (RULES.md R8: no verified badge) and Buy candidates waiting for a review;
-  3. keeps the rest in the daily run's order and the queue at its cap (config.RESEARCH_PER_DAY), trimming from the end.
+  3. keeps the rest in the daily run's order and the queue at its cap (config.RESEARCH_PER_DAY), trimming from the end;
+  4. writes each item's `why_pos` (its group, the groups around it and its place in the group; label_positions).
 New items get a light pack (no document excerpts: those need the NSE fetches of the daily run); the evening run replaces
 it with the full pack. The daily run still builds and sorts the whole queue.
 """
@@ -18,6 +19,97 @@ from . import requests as scan_requests
 OUT = Path("docs/data")
 PACKS = OUT / "packs"
 TOP_TASKS = ("requested", "complete", "candidate")
+
+# Why an item sits where it does (owner, 28 Nov 2026: "explain why it's in the queue at that position"). The daily run
+# (run.py, "Claude queue") adds items group by group in this order; a stock is queued once, in its first group. Each item
+# carries its group as `pos` and a plain-words `why_pos` built from it. Groups on the same slot are added in one pass.
+POS_SLOTS = ["your requests", "unfinished Buys", "new Buy candidates", "overdue kill switches on Buys and Holds",
+             "Buys missing a dated trigger", "other overdue items", "bad news rechecks", "missed forward targets",
+             "new transcripts", "quotes to re-source", "dead source links", "due checkpoints", "possible bad news",
+             "new announcements and price falls", "forward-driver hunts close to a call", "missing outlook scans", "scan gaps",
+             "red flag checks", "other forward-driver hunts", "old research with new filings"]
+POS = {"requested": (0, "You asked for this review"),
+       "complete": (1, "A Buy whose research is not complete: it stays unverified until the research is finished"),
+       "candidate": (2, "Rules say {d}: a full review is needed before it is shown as buyable"),
+       "overdue_top": (3, "A kill switch on a Buy or Hold is past its date"),
+       "trigger": (4, "Scores say Buy but there is no dated trigger yet"),
+       "overdue": (5, "Items past their due date and not resolved"),
+       "bad_news": (6, "Bad news filed since the last research"),
+       "target": (7, "A forward target went wrong since the last research"),
+       "transcript": (8, "A new earnings call transcript is filed"),
+       "resource": (9, "Quotes cite a transcript source that is no longer used"),
+       "dead_link": (10, "A source link no longer opens"),
+       "checkpoint": (11, "A checkpoint is due and a new document is filed"),
+       "watch": (12, "Possible bad news filed since the last research"),
+       "news": (13, "New announcement since the last research"),
+       "shock": (13, "Sharp price fall with something new filed"),
+       "near": (14, "Forward-driver hunt: one driver away from a Buy or Hold call"),
+       "no_scan": (15, "The research has drivers but no outlook scan"),
+       "gaps": (16, "Scan items lack a quote, source or due date"),
+       "flag": (17, "Red flag in a filing's subject line"),
+       "no_driver": (18, "Forward-driver hunt: no forward driver yet"),
+       "stale": (19, f"Research older than {config.THESIS_STALE_DAYS} days and something new is filed")}
+POS_RANKED = ("complete", "candidate", "trigger")  # ordered by readiness inside the group: say "N of M"
+POS_BY_PRIORITY = ("checkpoint", "near", "no_scan", "no_driver")  # ordered by priority, highest first
+_POS_PREFIX = (("rules say", None), ("overdue:", "overdue"), ("scores say buy but no dated trigger", "trigger"),
+               ("bad news filed", "bad_news"), ("a material forward target", "target"), ("new transcript", "transcript"),
+               ("source link no longer opens", "dead_link"), ("checkpoint due", "checkpoint"), ("possible bad news", "watch"),
+               ("new announcement", "news"), ("price shock", "shock"), ("one forward driver away", "near"),
+               ("outlook scan missing", "no_scan"), ("scan gaps", "gaps"), ("subject-line red flag", "flag"),
+               ("no forward driver yet", "no_driver"), ("thesis older than", "stale"))
+
+
+def pos_group(it: dict) -> str | None:
+    """The item's queue group: `pos` when set, else read from the reason (queue files written before `pos` existed)."""
+    if it.get("pos") in POS:
+        return it["pos"]
+    if it.get("requested"):
+        return "requested"
+    r = str(it.get("reason") or "").lower()
+    if "alphastreet" in r:
+        return "resource"
+    for pre, g in _POS_PREFIX:
+        if r.startswith(pre):
+            return g or ("complete" if "not complete" in r else "candidate")
+    return None
+
+
+def why_pos(it: dict, rank: int | None = None, n: int | None = None) -> str | None:
+    """Plain words: the item's group, the groups just ahead of and behind it, and its place inside the group."""
+    g = pos_group(it)
+    if g is None:
+        return None
+    slot, title = POS[g]
+    d = "Strong Buy" if "rules say strong buy" in str(it.get("reason") or "").lower() else "Buy"
+    out = [title.format(d=d)]
+    if slot == 0:
+        out.append("Your requests go first")
+    elif slot == len(POS_SLOTS) - 1:
+        out.append(f"Comes after {POS_SLOTS[slot - 1]}; last in the order")
+    else:
+        out.append(f"Comes after {POS_SLOTS[slot - 1]}, before {POS_SLOTS[slot + 1]}")
+    if g in POS_RANKED and rank and n:
+        out.append(f"{rank} of {n} in this group, " + ("those with a dated statement already found in the filings first, then "
+                                                       if g == "trigger" else "") + "by how ready it is to buy")
+    od = [x.get("days_late") for x in it.get("overdue") or [] if isinstance(x, dict) and x.get("days_late")]
+    if g in ("overdue", "overdue_top") and od:
+        out.append(f"Oldest item {max(od)} days late")
+    if g in POS_BY_PRIORITY and isinstance(it.get("priority"), (int, float)):
+        out.append(f"Priority {it['priority']:g}, highest first")
+    return ". ".join(out) + "."
+
+
+def label_positions(items: list[dict]) -> list[dict]:
+    """Set `why_pos` on every item, in the order the items now stand (ranks inside the ranked groups are counted here)."""
+    groups = [pos_group(x) for x in items]
+    tot = {g: groups.count(g) for g in POS_RANKED}
+    seen: dict[str, int] = {}
+    for it, g in zip(items, groups):
+        seen[g] = seen.get(g, 0) + 1
+        w = why_pos(it, seen[g], tot.get(g)) if g in POS_RANKED else why_pos(it)
+        if w:
+            it["why_pos"] = w
+    return items
 
 
 def _fin(sym: str) -> dict:
@@ -91,12 +183,15 @@ def resort(queue: dict, picks: dict, theses: dict, requests: list[dict], cap: in
                   "reason": f"rules say {p['cand']}: full review (verify every number, connect the dots, verdict) before it is shown as buyable"}
             added.append(s)
             top["candidate"].append(it)
+    for k in ("complete", "candidate"):  # as the daily run: by how ready it is to buy (picks rk, 1 = readiest)
+        top[k].sort(key=lambda it: (rows.get(it["symbol"]) or {}).get("rk") or 10 ** 9)
     seen, lead = set(), []
     for k in TOP_TASKS:
         for it in top[k]:
             key = (it["symbol"], it["task"])
             if key not in seen:
                 seen.add(key)
+                it["pos"] = k
                 lead.append(it)
     rest = [x for x in items if (x.get("symbol"), x.get("task")) not in seen]
     out = lead + rest
@@ -106,7 +201,7 @@ def resort(queue: dict, picks: dict, theses: dict, requests: list[dict], cap: in
             if i is None:
                 break
             out.pop(i)
-    queue["items"] = out
+    queue["items"] = label_positions(out)
     kept = {x["symbol"] for x in queue["items"]}
     return [s for s in dict.fromkeys(added) if s in kept]
 

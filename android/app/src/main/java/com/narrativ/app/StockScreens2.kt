@@ -169,7 +169,7 @@ fun BarCheckRow(r: KeyCheck, b: Bullet, divider: Boolean = true) {
         Column(Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 T(r.name, 14.sp, modifier = Modifier.weight(1f), maxLines = 2, lineHeight = 18.sp)
-                T(r.figure + statusMark(r.status), 15.sp, if (r.status == "n/a") C.white else col, FontWeight.Bold, maxLines = 1,
+                T(cap(r.figure) + statusMark(r.status), 15.sp, if (r.status == "n/a") C.white else col, FontWeight.Bold, maxLines = 1,
                     modifier = Modifier.padding(start = 8.dp))
             }
             FillBar(b.v, b.lo, b.hi, b.pass, col, Modifier.fillMaxWidth().padding(top = 8.dp), unit = b.unit)
@@ -345,7 +345,7 @@ fun ResearchSheet(st: AppState, sym: String, det: Detail?, onDismiss: () -> Unit
                 Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            T(e.kind, 14.sp, weight = FontWeight.SemiBold, maxLines = 1)
+                            T(cap(e.kind), 14.sp, weight = FontWeight.SemiBold, maxLines = 1)
                             e.verdict?.let { v -> StatusChip(reviewWord(v), color = reviewColor(v), minWidth = 0.dp) }
                         }
                         if (e.text.isNotBlank()) T(e.text, 12.sp, C.dim)

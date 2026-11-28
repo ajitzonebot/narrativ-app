@@ -30,3 +30,18 @@ def test_no_live_setup_when_the_exit_level_is_above_the_price():
     su = FN.setup(frame([60] * 150 + [130] * 25 + [104] * 35), T, None)
     assert su["type"] == "No setup" and su["note"].startswith("Wait")
     assert "stop" not in su
+
+
+def test_entry_zone_for_the_stock_list():
+    assert FN.entry_zone({"type": "Base", "lo": 2050.1, "hi": 2152.614}) == [2050.1, 2152.61]
+    assert FN.entry_zone({"type": "Pullback", "lo": 426.774, "hi": 428.26}) == [426.77, 428.26]
+    # no live setup (only a watch band), a broken zone or no setup at all: no entry zone
+    assert FN.entry_zone({"type": "No setup", "watch_lo": 100.0, "watch_hi": 110.0}) is None
+    assert FN.entry_zone({"type": "Base", "lo": 120.0, "hi": 110.0}) is None
+    assert FN.entry_zone({"type": "Base", "lo": float("nan"), "hi": 110.0}) is None
+    assert FN.entry_zone(None) is None
+
+
+def test_live_setup_carries_an_entry_zone():
+    su = FN.setup(frame(list(np.linspace(50, 100, 240)) + [110] * 5 + [100] * 15), T, None)
+    assert FN.entry_zone(su) == [su["lo"], su["hi"]]

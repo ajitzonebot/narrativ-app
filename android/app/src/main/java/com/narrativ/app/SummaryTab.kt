@@ -198,7 +198,7 @@ fun ResearchLists(scan: Scan, nested: Boolean = false) {
     }
     if (scan.checklist.isNotEmpty()) {
         var mark by remember { mutableStateOf<Mark?>(null) }
-        SectionHeader2("Research checklist", "multibagger-scan rubric · tap a mark for its quote")
+        SectionHeader2("Research checklist", "Multibagger-scan rubric · tap a mark for its quote")
         ListBlock(nested) {
             listOf("fundamentals", "valuation", "management", "outlook", "flow").forEach { lens ->
                 val ms = scan.checklist[lens].orEmpty()
@@ -277,7 +277,7 @@ fun SummaryTab(st: AppState, sym: String, p: P?, det: Detail?, chart: Chart?, lo
         if (loading) Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             T("Narrativ.ai's research", 14.sp, modifier = Modifier.weight(1f), maxLines = 1); Skel(90.dp, 12.dp)
         }
-        else LinkRow("Narrativ.ai's research", if (log.isEmpty()) "not studied yet" else "${log.size} entr${if (log.size == 1) "y" else "ies"} · last ${skDay(log.maxOf { it.date })}") { sheet = "research" }
+        else LinkRow("Narrativ.ai's research", if (log.isEmpty()) "Not studied yet" else "${log.size} entr${if (log.size == 1) "y" else "ies"} · last ${skDay(log.maxOf { it.date })}") { sheet = "research" }
         if (det != null) LinkRow("All ratios and formulas", divider = true) { sheet = "ratios" }
     }
     when (sheet) {
@@ -409,7 +409,7 @@ private fun PaperDates(p: P) {
                         Box(Modifier.size(13.dp).clip(androidx.compose.foundation.shape.CircleShape)
                             .then(if (c.type == "shareholding") Modifier.background(C.bg).border(2.dp, C.white, androidx.compose.foundation.shape.CircleShape) else Modifier.background(ink)))
                         T("${d.dayOfMonth} ${d.month.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.ENGLISH)}", 10.sp, C.white, FontWeight.Bold, maxLines = 1)
-                        T(cpWord(c.type) + (c.what?.let { " $it" } ?: ""), 10.sp, if (ink == C.white) C.grey else ink, maxLines = 1)
+                        T(cap(cpWord(c.type) + (c.what?.let { " $it" } ?: "")), 10.sp, if (ink == C.white) C.grey else ink, maxLines = 1)
                     }
                 }
             }
@@ -533,7 +533,7 @@ private fun DecisionCard(st: AppState, sym: String, p: P?, det: Detail?, onOpen:
             if (k == "qual" && (l.turn || p?.turn == true)) "Turnaround watch" else l.name.ifBlank { null }
         }?.let { if (pre.isEmpty()) it else "$pre ${it.lowercase()}" }
         val tiers = listOfNotNull(tierWord("val", ""), tierWord("surv", "stability"), tierWord("qual", "quality")).joinToString(" · ")
-        val reasons = (if (fwd.isNotEmpty()) fwd else why.filter { !it.startsWith("Verified") }.take(2)) + listOfNotNull(tiers.ifBlank { null }) + missing.take(1)
+        val reasons = (if (fwd.isNotEmpty()) fwd else why.filter { !it.startsWith("Verified") }.take(2)) + listOfNotNull(tiers.ifBlank { null }?.let { cap(it) }) + missing.take(1)
         if (reasons.isNotEmpty()) Column(Modifier.padding(top = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             reasons.forEach { r ->
                 Row { T("•", 14.sp, C.white, modifier = Modifier.width(14.dp)); T(r, 14.sp, if (r in missing) C.amber else C.white, lineHeight = 20.sp) }
@@ -688,7 +688,7 @@ private fun PlanCard(s: Setup, an: Analyst? = null, exitHit: ExitHit? = null) {
         if (s.add == null && s.watchLo != null) s.sma50?.let { add(Triple("Weakens below (50-day)", skRs(it), C.amber)) }
         s.stop?.let { add(Triple("Exit if it closes below", skRs(it), TierC.lightRed)) }
         when {
-            s.rrNote == "Above analyst target" -> add(Triple("Upside vs risk", "above target", C.amber))
+            s.rrNote == "Above analyst target" -> add(Triple("Upside vs risk", "Above target", C.amber))
             s.rr != null -> add(Triple("Upside vs risk", mult(s.rr), C.white))
         }
         target?.let { a ->
@@ -774,7 +774,7 @@ private fun KeyTiles(det: Detail, open: (String?) -> Unit) {
             KeyTile(metric, mult(vnow), { open(vkey) }, checkColor(vl, "V1")) {
                 val c = if (vl?.item("V1")?.m != null) statusColor(vl.status("V1")) else C.muted
                 if (hist.size >= 2 && vnow != null) MiniRange(hist.min(), hist.max(), vnow, c)
-                if (hist.size >= 2) T("own ${skFx(hist.min(), 1)}–${mult(hist.max())}", LABEL, C.dim, maxLines = 1)
+                if (hist.size >= 2) T("Own ${skFx(hist.min(), 1)}–${mult(hist.max())}", LABEL, C.dim, maxLines = 1)
             }
             if (lender) KeyTile("ROE", det.v("roe_pct")?.let { "${skFx(it, 1)}%" } ?: "–", { open("roe_pct") }, checkColor(qual, "Q1"))
             else {
@@ -793,7 +793,7 @@ private fun KeyTiles(det: Detail, open: (String?) -> Unit) {
             KeyTile(METRIC_NAMES.getValue("rev_cagr_3y_pct"), det.v("rev_cagr_3y_pct")?.let { "${skFx(it, 1)}%" } ?: "–", { open("rev_cagr_3y_pct") }, checkColor(qual, "Q3")) {
                 if (rev.size >= 2) {
                     Sparkline(rev, Modifier.fillMaxWidth().height(26.dp), color = C.muted, area = true, endDot = true)
-                    T("revenue, last ${rev.size} quarters", LABEL, C.dim, maxLines = 1)
+                    T("Revenue, last ${rev.size} quarters", LABEL, C.dim, maxLines = 1)
                 }
             }
             if (lender) KeyTile("Gross NPA", det.v("gnpa_pct_advances")?.let { "${skFx(it, 1)}%" } ?: "–", { open("gnpa_pct_advances") }, checkColor(det.levels["surv"], "C1"))
@@ -801,7 +801,7 @@ private fun KeyTiles(det: Detail, open: (String?) -> Unit) {
                 val cc = det.v("cfo_to_ebitda_pct")
                 KeyTile("Cash conversion", cc?.let { "${skFx(it, 0)}%" } ?: "–", { open("cfo_to_ebitda_pct") }, checkColor(qual, "Q7")) {
                     if (cc != null) FillBar(cc, 0.0, 100.0, 70.0, fillColor(qual?.status("Q7") ?: "n/a"), Modifier.fillMaxWidth(), unit = "%")
-                    else T("pass ≥ 70%", LABEL, C.dim, maxLines = 1)
+                    else T("Pass ≥ 70%", LABEL, C.dim, maxLines = 1)
                 }
             }
         }
@@ -818,7 +818,7 @@ private fun WatchCard(st: AppState, sym: String, p: P?, det: Detail?) {
         if (nr != null && nd != null && !nd.isAfter(today)) {
             val filed = det.stock.events.any { e -> (skDate(e.date)?.let { d -> !d.isBefore(nd) } ?: false) &&
                 Regex("result", RegexOption.IGNORE_CASE).containsMatchIn(e.category ?: e.type) }
-            add(TimelineItem(skDay(nr.date), "Last results", if (filed) "filed" else nr.purpose, C.dim))
+            add(TimelineItem(skDay(nr.date), "Last results", if (filed) "Filed" else nr.purpose, C.dim))
         }
         add(TimelineItem(skDay(today.toString()), "Today", today = true))
         if (nr != null && nd != null && nd.isAfter(today)) add(TimelineItem(skDay(nr.date), "Results", nr.purpose, C.muted, hollow = true))

@@ -273,7 +273,7 @@ internal data class Dg(val group: String, val text: String, val color: Color)
 internal fun decisionOf(p: P?): Dg? = when {
     p == null -> null
     p.dc in setOf("Sell", "Strong Sell") -> Dg("Sell", p.dc ?: "Sell", decisionColor(p.dc))
-    p.vf in setOf("caution", "fail") -> Dg("Hold", "${p.dc ?: "Hold"} · caution", reviewColor("caution"))  // Claude's caution, its one colour
+    p.vf in setOf("caution", "fail") -> Dg("Hold", "${p.dc ?: "Hold"} · Caution", reviewColor("caution"))  // Claude's caution, its one colour
     p.dc in setOf("Buy", "Strong Buy") -> Dg("Buy", p.dc ?: "Buy", decisionColor(p.dc))
     p.dc == "Hold" -> Dg("Hold", "Hold", decisionColor("Hold"))
     else -> Dg("Not rated", p.dc ?: "Not rated", decisionColor(null))
@@ -412,14 +412,14 @@ fun PortfolioScreen(st: AppState) {
                     lineHeight = 16.sp, modifier = Modifier.padding(top = 6.dp))
                 Row(Modifier.fillMaxWidth().padding(top = 8.dp)) {
                     T(if (live.isNotEmpty()) "Prices: delayed quotes, ${quoteTime(live) ?: ""}" else "Prices: latest exchange close", 11.sp, C.dim, modifier = Modifier.weight(1f), maxLines = 1)
-                    T("data of ${shortDate(st.picks?.date)}", 11.sp, C.dim, maxLines = 1)
+                    T("Data of ${shortDate(st.picks?.date)}", 11.sp, C.dim, maxLines = 1)
                 }
             }
         }
         val scored = rows.filter { (h, _, _) -> decisionOf(Portfolio.pickFor(h.s, picks)) != null }
         if (scored.isNotEmpty()) item {
             val cnt = scored.groupingBy { (h, _, _) -> decisionOf(Portfolio.pickFor(h.s, picks))!!.group }.eachCount()
-            SectionCard("By Narrativ decision", "by count", Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+            SectionCard("By Narrativ decision", "By count", Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
                 SegmentedBar(DEC_BAR.keys.mapNotNull { k -> cnt[k]?.let { Segment(it.toDouble(), DEC_BAR.getValue(k), "$it $k") } }, height = 12.dp, gap = 3.dp, legend = SegLegend.Below)
             }
         }
@@ -477,7 +477,9 @@ fun ColumnScope.HoldingRows(st: AppState, rows: List<Triple<Holding, Double?, Do
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     T(h.s, 15.sp, weight = FontWeight.SemiBold, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
-                    if (dg != null) StatusChip(dg.text, color = dg.color, minWidth = 0.dp)
+                    if (dg != null) Box(Modifier.clip(rr(S.inner)).background(dg.color).padding(horizontal = 8.dp, vertical = 3.dp)) {
+                        T(dg.text, 11.sp, Color.White, FontWeight.Bold, maxLines = 1)
+                    }
                     else T(holdingLabel(null, h.s).first, 11.sp, C.dim, maxLines = 1)
                 }
                 T("${fmt(h.qty, 0)} × ${priceStr(h.avg)} · now ${priceStr(p)}", 11.sp, C.dim, maxLines = 1)
@@ -506,7 +508,7 @@ fun PaperLedgerFront(rows: List<Triple<Holding, Double?, Double?>>, picks: Map<S
                 androidx.compose.material3.Text(v, fontSize = 18.sp, color = c, fontFamily = PaperFonts.headline, fontWeight = FontWeight.Black, maxLines = 1)
                 sub?.let { T(it, 10.sp, C.dim, maxLines = 1) }
             }
-            cell("Value", rupees(value), "invested ${rupees(inv)}", C.white, Modifier.weight(1f))
+            cell("Value", rupees(value), "Invested ${rupees(inv)}", C.white, Modifier.weight(1f))
             Box(Modifier.width(1.dp).fillMaxHeight().background(C.line))
             cell("Today", (if (today >= 0) "▲ " else "▼ ") + rupees(kotlin.math.abs(today)), sg(todayPct, 1), plColor(today), Modifier.weight(1f))
             Box(Modifier.width(1.dp).fillMaxHeight().background(C.line))
@@ -548,9 +550,9 @@ fun PaperHoldingRow(st: AppState, h: Holding, p: Double?, d: Double?, pk: P?, pl
         }
         Column(Modifier.padding(horizontal = 8.dp), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
             T(if (pl == null) "–" else (if (pl >= 0) "▲ " else "▼ ") + fmt(kotlin.math.abs(pl), 1) + "%", 12.sp, plColor(pl), FontWeight.SemiBold, maxLines = 1)
-            T("today " + arrowPct(d), 10.sp, plColor(d), maxLines = 1)
+            T("Today " + arrowPct(d), 10.sp, plColor(d), maxLines = 1)
             share?.let { InkMeter(it.coerceAtMost(100.0), C.grey, Modifier.width(56.dp).height(5.dp)) }
         }
-        if (dg != null) PaperTag(dg.text, dg.color, 10.sp) else T(holdingLabel(null, h.s).first, 10.sp, C.dim, maxLines = 1)
+        if (dg != null) PaperSolidTag(dg.text, dg.color, 10.sp) else T(holdingLabel(null, h.s).first, 10.sp, C.dim, maxLines = 1)
     }
 }

@@ -552,7 +552,7 @@ fun DotTimeline(items: List<TimelineItem>, modifier: Modifier = Modifier.fillMax
                 }
                 Column(Modifier.weight(1f).padding(vertical = 7.dp)) {
                     T(it.title, 13.sp, weight = FontWeight.Medium, lineHeight = 17.sp)
-                    it.sub?.let { s -> T(s, 11.sp, C.dim, modifier = Modifier.padding(top = 1.dp)) }
+                    it.sub?.let { s -> T(cap(s), 11.sp, C.dim, modifier = Modifier.padding(top = 1.dp)) }
                 }
                 T(it.date, 12.sp, C.dim, modifier = Modifier.padding(start = 8.dp, top = 7.dp), maxLines = 1)
             }
@@ -697,7 +697,7 @@ private fun ChartsPreview() = NarrativTheme {
         Gauge(37, label = "Fear")
         SegmentedBar(listOf(Segment(69.6, TierC.darkGreen, "Promoter 69.6%"), Segment(3.1, C.muted, "Foreign 3.1%"), Segment(27.3, TierC.grey, "Public 27.3%")))
         TierScale(2)
-        DotTimeline(listOf(TimelineItem("12 Nov", "Last results", "filed"), TimelineItem("20 Nov", "Today", today = true),
+        DotTimeline(listOf(TimelineItem("12 Nov", "Last results", "Filed"), TimelineItem("20 Nov", "Today", today = true),
             TimelineItem("15 Feb 2028", "Thervoy oncology API unit not completed in CY27", "Kill switch", TierC.red)))
         val d0 = LocalDate.of(2026, 4, 1)
         DotStrip(listOf(StripDot(d0.plusDays(10), C.dim), StripDot(d0.plusDays(40), TierC.darkGreen), StripDot(d0.plusDays(40), C.dim)), d0, LocalDate.of(2026, 11, 20), window = 45)

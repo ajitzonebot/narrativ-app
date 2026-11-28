@@ -1,5 +1,39 @@
 [
  {
+  "version": "2.33.0",
+  "date": "2026-11-28",
+  "changes": [
+   {
+    "type": "new",
+    "text": "Today's Knockout Funnel: tap Today's funnel on Home to see every listed company narrowed down to the verified Buys, with why each stage removed stocks"
+   },
+   {
+    "type": "new",
+    "text": "Stocks: filter by reading a sentence, starting from verified Buys with high conviction near the entry price; tap any part to change it, + to add more, save your sentences"
+   },
+   {
+    "type": "new",
+    "text": "Research queue › Waiting: an arrow on each row explains why the stock is in the queue at that position"
+   },
+   {
+    "type": "improved",
+    "text": "Cards slide when you swipe, and the stock screen slides up when it opens"
+   },
+   {
+    "type": "improved",
+    "text": "Home funnel and headline count verified Buys only"
+   },
+   {
+    "type": "improved",
+    "text": "Sentence case across the app; portfolio chips are solid; the verified seal is the new style everywhere and no badge shows when a stock is not verified"
+   },
+   {
+    "type": "fixed",
+    "text": "IPO card: no repeated line under the headline"
+   }
+  ]
+ },
+ {
   "version": "2.32.8",
   "date": "2026-11-28",
   "changes": [

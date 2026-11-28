@@ -252,7 +252,7 @@ fun Quote(ctx: android.content.Context, q: String, src: String) {
     Row(Modifier.padding(top = 5.dp).clickable { openUrl(ctx, src) }) {
         T("“" + (if (q.length > 140) q.take(140) + "…" else q) + "”  ", 11.sp, C.dim, lineHeight = 15.sp,
             modifier = Modifier.weight(1f, fill = false))
-        T("source", 11.sp, C.blue)
+        T("Source", 11.sp, C.blue)
     }
 }
 

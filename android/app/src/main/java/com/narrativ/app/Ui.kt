@@ -111,7 +111,7 @@ fun LevelHead(level: String, tierName: String, tier: Int, score: Int?, line: Str
                 if (score != null) {
                     T("$score", 26.sp, weight = FontWeight.Bold, modifier = Modifier.alignByBaseline())
                     T("/100", 13.sp, C.dim, modifier = Modifier.alignByBaseline())
-                } else T("no score", 12.sp, C.dim, modifier = Modifier.padding(bottom = 6.dp))
+                } else T("No score", 12.sp, C.dim, modifier = Modifier.padding(bottom = 6.dp))
             }
         }
         TierScale(tier, Modifier.fillMaxWidth().padding(vertical = 10.dp))
@@ -132,7 +132,7 @@ fun CheckRow(status: String, name: String, figure: String, passLine: String? = n
             StatusChip(status)
             T(name, 14.sp, modifier = Modifier.weight(1f), maxLines = 2, lineHeight = 18.sp)
             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                T(figure, 15.sp, weight = FontWeight.Bold, maxLines = 1)
+                T(cap(figure), 15.sp, weight = FontWeight.Bold, maxLines = 1)
                 if (bullet != null || passLine != null) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     bullet?.invoke()
                     passLine?.let { T(cap(it), 11.sp, C.dim, maxLines = 1) }
@@ -415,7 +415,7 @@ fun MarketStrip(score: Int?, zone: String?, right: String?, onClick: () -> Unit,
         if (score != null) {
             T("$score ·", 13.sp, weight = FontWeight.SemiBold, maxLines = 1)
             T(zone ?: "", 13.sp, zoneColor(score.toDouble()), FontWeight.SemiBold, maxLines = 1)
-        } else T("mood after the next run", 13.sp, C.dim, maxLines = 1)
+        } else T("Mood after the next run", 13.sp, C.dim, maxLines = 1)
         T(right ?: "", 13.sp, C.muted, modifier = Modifier.weight(1f), maxLines = 1, align = androidx.compose.ui.text.style.TextAlign.End)
         Icon(Icons.Rounded.ChevronRight, null, tint = C.dim, modifier = Modifier.size(18.dp))
     }

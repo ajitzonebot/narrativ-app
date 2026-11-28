@@ -94,13 +94,12 @@ fun isBuy(p: P) = p.dc == "Buy" || p.dc == "Strong Buy"
 
 fun sentence(s: String): String = s.lowercase().replaceFirstChar { it.uppercase() }
 
-/** Claude's tick next to a code: filled = verified, outline = researched not verified, nothing otherwise. */
+/** The verified seal next to a code (same as the Stocks rows); nothing when the stock is not verified (owner, 28 Nov 2026:
+ *  "don't show any badge if not verified", the empty tick is gone). `st` kept for the callers. */
 @Composable
+@Suppress("UNUSED_PARAMETER")
 fun StockTick(st: AppState, p: P, size: Dp = 15.dp) {
-    when {
-        p.verified() -> VerifiedTick(true, Modifier.padding(start = 5.dp), size)
-        st.researched(p) -> VerifiedTick(false, Modifier.padding(start = 5.dp), size)
-    }
+    if (p.verified()) VerifiedSeal(size + 2.dp, Modifier.padding(start = 5.dp))
 }
 
 /** "Multibagger" tag (multibagger potential), yellow outline. */
@@ -353,15 +352,14 @@ fun IpoDetailScreen(st: AppState, name: String) {
     // feedback #210 (owner, 27 Nov 2026): swipe left / right moves to the next / previous IPO, in the Home list's order
     val all = (x?.actionable.orEmpty().map { it.name } + x?.laterToday.orEmpty().map { it.name } + x?.upcoming.orEmpty().map { it.name }).distinct()
     val at = all.indexOf(name)
-    val swipe = Modifier.pointerInput(name, all) {
-        var dx = 0f
-        detectHorizontalDragGestures(onDragStart = { dx = 0f }, onDragEnd = {
-            val to = if (dx < -120f) at + 1 else if (dx > 120f) at - 1 else at
-            if (at >= 0 && to != at && to in all.indices) st.stack[st.stack.lastIndex] = Screen.Ipo(all[to])
-        }) { _, d -> dx += d }
-    }
+    // owner, 28 Nov 2026: the page follows the finger like a card, slides out and the next IPO slides in (Swipe.kt; the new page is a new composition)
+    val cs = rememberCardSwipe(name, handoff = "ipo")
+    val toIpo: (Int) -> Unit = { to -> if (at >= 0 && to != at && to in all.indices && st.stack.lastOrNull() == Screen.Ipo(name)) st.stack[st.stack.lastIndex] = Screen.Ipo(all[to]) }
+    val toPrev = { toIpo(at - 1) }
+    val toNext = { toIpo(at + 1) }
+    val swipe = Modifier.swipeGesture(cs, canPrev = at > 0, canNext = at >= 0 && at < all.lastIndex, onPrev = toPrev, onNext = toNext, handoff = "ipo")
     Box(Modifier.fillMaxSize()) {
-    LazyColumn(Modifier.fillMaxSize().pageBackground().then(swipe), contentPadding = PaddingValues(bottom = 110.dp)) {
+    LazyColumn(Modifier.fillMaxSize().pageBackground().then(swipe).swipeLayer(cs), contentPadding = PaddingValues(bottom = 110.dp)) {
         item { TopBar(st, name, context = "IPO $name", subtitle = listOfNotNull(i?.board?.ifBlank { null }, i?.symbol,
             if (all.size > 1 && at >= 0) "${at + 1} of ${all.size} · swipe for the next" else null).joinToString(" · ")) }
         if (i == null) { item { Spacer(Modifier.height(8.dp)); Empty("Not in today's IPO list") }; return@LazyColumn }
@@ -464,7 +462,7 @@ fun IpoDetailScreen(st: AppState, name: String) {
     @Composable
     fun BoxScope.Edge(sym: String, al: Alignment, to: Int) =
         Box(Modifier.align(al).padding(horizontal = 2.dp).size(26.dp, 52.dp).clip(rr(6.dp)).background(C.card.copy(alpha = 0.85f))
-            .clickable { st.stack[st.stack.lastIndex] = Screen.Ipo(all[to]) }, contentAlignment = Alignment.Center) {
+            .clickable { cs.go(if (to > at) -1 else 1, toPrev, toNext, "ipo") }, contentAlignment = Alignment.Center) {
             Text(sym, fontSize = 24.sp, color = C.dim, fontWeight = FontWeight.Bold)
         }
     if (at > 0) Edge("‹", Alignment.CenterStart, at - 1)

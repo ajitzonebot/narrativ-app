@@ -106,7 +106,7 @@ fun HomeScreen(st: AppState) {
             item {
                 val md = pf.mood
                 val n200 = md?.inputs?.firstOrNull { it.k == "nifty_200" }?.value
-                if (Look.paper) PaperFrontBox(pf, n200) { st.go(Screen.Market) }
+                if (Look.paper) PaperFrontBox(pf, n200, onFunnel = { st.go(Screen.Funnel) }) { st.go(Screen.Market) }
                 else MarketStrip(md?.score, md?.zone, n200?.let { "Nifty ${sg1(it)} vs 200-day" }, { st.go(Screen.Market) },
                     Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 18.dp))
             }
@@ -282,7 +282,9 @@ private fun IpoRow(st: AppState, open: List<IpoOpen>) {
                     }
                     androidx.compose.material3.Text(head, fontSize = 20.sp, lineHeight = 24.sp, color = C.white, fontFamily = PaperFonts.headline, fontWeight = FontWeight.Black)
                 } else T("${open.size} IPO${if (open.size == 1) "" else "s"} open", 17.sp, weight = FontWeight.Bold)
-                T(pick?.let { "${it.name}: ${sentence(it.action)} · ${ipoCloses(it.lastDate).first}" } ?: "None to apply", 13.sp, C.dim, maxLines = 1)
+                // the paper headline already says none is worth applying for: no second line then
+                (pick?.let { "${it.name}: ${sentence(it.action)} · ${ipoCloses(it.lastDate).first}" } ?: if (Look.paper) null else "None to apply")
+                    ?.let { T(it, 13.sp, C.dim, maxLines = 1) }
             }
             Icon(if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ChevronRight, null, tint = C.dim, modifier = Modifier.size(18.dp))
         }
@@ -402,7 +404,7 @@ fun LevelBars(p: P) {
 
 /** Paper look, Home: mood dial on the left; the day's funnel and breadth on the right (mock-up "Narrativ on paper"). */
 @Composable
-fun PaperFrontBox(pf: PicksFile, n200: Double?, onMood: () -> Unit) {
+fun PaperFrontBox(pf: PicksFile, n200: Double?, onFunnel: () -> Unit = {}, onMood: () -> Unit) {
     val md = pf.mood; val fn = pf.funnel
     Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth().height(androidx.compose.foundation.layout.IntrinsicSize.Min)) {
         Column(Modifier.width(168.dp).clickable(onClick = onMood).padding(end = 10.dp)) {
@@ -421,11 +423,14 @@ fun PaperFrontBox(pf: PicksFile, n200: Double?, onMood: () -> Unit) {
         }
         Box(Modifier.width(1.dp).fillMaxHeight().background(C.line))
         Column(Modifier.weight(1f).padding(start = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            PaperLabel("Today's funnel", size = 10.sp)
-            val g1 = rememberGrow(0); val g2 = rememberGrow(250); val g3 = rememberGrow(500)
-            fn.companies?.let { FunnelBar("${fmt(it.toDouble(), 0)} companies", 1f, C.white, g1) }
-            fn.researched?.let { FunnelBar("$it stories studied", 0.62f, C.grey, g2) }
-            fn.decisions["Buy"]?.let { FunnelBar("$it Buy", 0.32f, TierC.darkGreen, g3) }
+            // the funnel part opens Today's Knockout Funnel (FunnelScreen.kt); the breadth meter below does not
+            Column(Modifier.fillMaxWidth().clickable(onClick = onFunnel), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                PaperLabel("Today's funnel", size = 10.sp)
+                val g1 = rememberGrow(0); val g2 = rememberGrow(250); val g3 = rememberGrow(500)
+                fn.companies?.let { FunnelBar("${fmt(it.toDouble(), 0)} companies", 1f, C.white, g1) }
+                fn.researched?.let { FunnelBar("$it stories studied", 0.62f, C.grey, g2) }
+                FunnelBar("${verifiedBuys(pf)} verified Buy", 0.32f, TierC.darkGreen, g3)
+            }
             pf.regime.breadthPct?.let { b ->
                 PaperLabel("Above 200-day avg", size = 10.sp, modifier = Modifier.padding(top = 4.dp))
                 InkMeter(b, dotInk(3))
@@ -521,6 +526,9 @@ fun cpWord(t: String?): String = when (t) {
     "promise" -> "promise due"; else -> t?.replace('_', ' ') ?: "event"
 }
 
+/** Buys whose review passed and whose research is complete (the verified badge): what the funnel and headline count. */
+fun verifiedBuys(pf: PicksFile): Int = pf.picks.count { (it.dc == "Buy" || it.dc == "Strong Buy") && it.verified() }
+
 /** Paper look: the front page's masthead, date line and a headline built from today's numbers (mood zone, Buy count). */
 @Composable
 fun PaperMasthead(pf: PicksFile) {
@@ -540,7 +548,7 @@ fun PaperMasthead(pf: PicksFile) {
         if (dataDate != null && dataDate.isBefore(expectedDataDate())) T("Data of ${skDay(dataDate.toString())}", 10.sp, C.amber,
             modifier = Modifier.align(Alignment.End).padding(bottom = 4.dp))
         Box(Modifier.fillMaxWidth().height(1.dp).background(C.white))
-        val zone = pf.mood?.zone; val score = pf.mood?.score; val buys = pf.funnel.decisions["Buy"]
+        val zone = pf.mood?.zone; val score = pf.mood?.score; val buys = pf.picks.takeIf { it.isNotEmpty() }?.let { verifiedBuys(pf) }
         if (zone != null || buys != null) {
             val ann = androidx.compose.ui.text.buildAnnotatedString {
                 if (zone != null && score != null) {
@@ -550,7 +558,7 @@ fun PaperMasthead(pf: PicksFile) {
                 }
                 if (buys != null) {
                     append("$buys stock${if (buys == 1) "" else "s"} ${if (zone != null) "still " else ""}earn${if (buys == 1) "s" else ""} a ")
-                    withStyle(androidx.compose.ui.text.SpanStyle(color = decisionColor("Buy"))) { append("Buy") }
+                    withStyle(androidx.compose.ui.text.SpanStyle(color = decisionColor("Buy"))) { append("verified Buy") }
                 }
             }
             androidx.compose.material3.Text(ann, fontSize = 24.sp, lineHeight = 28.sp, color = C.white, fontFamily = PaperFonts.headline,
@@ -613,8 +621,8 @@ fun RotationMap(pts: Map<String, Rot>, modifier: Modifier, labels: Boolean = tru
         drawLine(C.line, Offset(0f, cy), Offset(size.width, cy), 1.5f)
         val qStyle = { c: Color -> TextStyle(color = c, fontSize = 10.sp, fontWeight = FontWeight.Bold) }
         val sub = { c: Color -> TextStyle(color = c.copy(alpha = 0.7f), fontSize = 9.sp) }
-        listOf(Triple("Improving", "money starting to flow in", quadC("Improving")) to (false to false), Triple("Leading", "money flowing in", quadC("Leading")) to (true to false),
-            Triple("Lagging", "money flowing out", quadC("Lagging")) to (false to true), Triple("Weakening", "book profits · tighten stops", quadC("Weakening")) to (true to true)).forEach { (t, pos) ->
+        listOf(Triple("Improving", "Money starting to flow in", quadC("Improving")) to (false to false), Triple("Leading", "Money flowing in", quadC("Leading")) to (true to false),
+            Triple("Lagging", "Money flowing out", quadC("Lagging")) to (false to true), Triple("Weakening", "Book profits · tighten stops", quadC("Weakening")) to (true to true)).forEach { (t, pos) ->
             val a = tm.measure(t.first, qStyle(t.third)); val b = tm.measure(if (labels) t.second else " ", sub(t.third))
             val right = pos.first; val bottom = pos.second
             val x1 = if (right) size.width - a.size.width - 6f else 6f

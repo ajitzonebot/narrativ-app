@@ -56,17 +56,24 @@ data class Filt(
     val industryExact: Boolean = false,
     /** 50-day vs 200-day average (feedback #170): one of [CROSSES]. */
     val cross: String = "Any",
-    /** Conviction of Buys (feedback #205): Any / High / Medium / Low; anything but Any keeps Buys only. */
+    /** Conviction of Buys (feedback #205): one of [CONVICTIONS]; anything but Any keeps Buys only. */
     val cv: String = "Any",
+    /** The filter sentence's decision blank: one of [CALLS] (verified Buys, all Buys, Buys with research pending, Holds, any). */
+    val call: String = "Any",
+    /** Today's price against the entry zone (P.ez): one of [ZONES]. */
+    val zone: String = "Any",
 ) {
     /** How many filters beyond the category are set (shown on the Filters button). */
     fun active(): Int = minTier.count { it != 0 } + (if (disc.isNotEmpty()) 1 else 0) + (if (setup != "Any") 1 else 0) + (if (mcap != "Any") 1 else 0) +
         (if (industry.isNotBlank()) 1 else 0) + (if (includeGrey) 1 else 0) + (if (showRemoved) 1 else 0) + (if (turnaround) 1 else 0) +
-        (if (cross != "Any") 1 else 0) + (if (cv != "Any") 1 else 0)
+        (if (cross != "Any") 1 else 0) + (if (cv != "Any") 1 else 0) + (if (call != "Any") 1 else 0) + (if (zone != "Any") 1 else 0)
 
     /** Same filter as [o] apart from name, sort, search text and the chips outside the sheet (preset highlight). */
-    fun sameAs(o: Filt): Boolean = copy(name = "", sort = "Score", q = "", research = "Any", dc = null, syms = emptyList(), cv = "Any") ==
-        o.copy(name = "", sort = "Score", q = "", research = "Any", dc = null, syms = emptyList(), cv = "Any")
+    fun sameAs(o: Filt): Boolean = copy(name = "", sort = "Score", q = "", research = "Any", dc = null, syms = emptyList(), cv = "Any", call = "Any", zone = "Any") ==
+        o.copy(name = "", sort = "Score", q = "", research = "Any", dc = null, syms = emptyList(), cv = "Any", call = "Any", zone = "Any")
+
+    /** Same sentence as [o] (a saved card is highlighted while it is on screen): everything but name, sort and search text. */
+    fun sameSentence(o: Filt): Boolean = copy(name = "", sort = "Score", q = "") == o.copy(name = "", sort = "Score", q = "")
 }
 
 val PRESETS = listOf(
@@ -102,6 +109,7 @@ fun Filt.match(p: P, researched: (P) -> Boolean = { it.vf in setOf("pass", "caut
     if (q.isNotBlank() && !"${p.c} ${p.n} ${p.i ?: ""}".contains(q.trim(), true)) return false
     if (research == "Verified" && !p.verified()) return false
     if (research == "Researched" && !researched(p)) return false
+    if (!callMatch(p, call)) return false
     if (verdict != null && p.vd != verdict) return false
     if (turnaround && !p.turn) return false
     if (bq && p.bq == null) return false
@@ -115,7 +123,8 @@ fun Filt.match(p: P, researched: (P) -> Boolean = { it.vf in setOf("pass", "caut
     if (disc.isNotEmpty() && p.tier(5) !in disc) return false
     if (setup != "Any" && p.su != setup) return false
     if (!crossMatch(p, cross)) return false
-    if (cv != "Any" && (p.dc !in setOf("Buy", "Strong Buy") || p.cv != cv)) return false
+    if (!cvMatch(p, cv)) return false
+    if (!zoneMatch(p, zone)) return false
     val mc = p.mc
     if (mcap != "Any") {
         if (mc == null) return false
@@ -134,9 +143,10 @@ private fun Filt.sorted(l: List<P>): List<P> = when (sort) {
     else -> l.sortedByDescending { it.pr }
 }
 
-/** Filter a preset string opens with (Home Explore chips, Market, Search, quadrant list). Plain Stocks tab: verified only. */
+/** Filter a preset string opens with (Home Explore chips, Market, Search, quadrant list). Plain Stocks tab: the default
+ *  sentence, "Show me verified Buys with high conviction, priced near the entry price" (owner, 28 Nov 2026). */
 fun presetFilt(preset: String?, pf: PicksFile): Filt = when {
-    preset == null -> Filt()  // all stocks; "Verified only" is one tap (verified Buys are pending re-review after the 20 Nov rules)
+    preset == null -> DEFAULT_SENTENCE
     preset.startsWith("v:") -> Filt(verdict = preset.removePrefix("v:"))
     preset.startsWith("ind:") -> Filt(industry = preset.removePrefix("ind:"), industryExact = true)
     preset.startsWith("q:") -> Filt(q = preset.removePrefix("q:"))
@@ -144,6 +154,8 @@ fun presetFilt(preset: String?, pf: PicksFile): Filt = when {
     // feedback #213: Home's quick-filter chips open Stocks with the same chip on
     preset == "vf" -> Filt(research = "Verified")
     preset == "hcb" -> Filt(cv = "High")
+    // the funnel's tip (FunnelScreen.kt): every verified Buy, any conviction, anywhere against the entry price
+    preset == "vb" -> Filt(call = "Verified Buys")
     // Watchlist (Settings): every saved stock, removed ones too, so the list matches the count (review 26 Nov 2026)
     preset.startsWith("wl:") -> Filt(name = "Watchlist", syms = preset.removePrefix("wl:").split(",").filter { it.isNotBlank() }.ifEmpty { listOf("-") }, showRemoved = true)
     preset.startsWith("syms:") -> preset.removePrefix("syms:").let { s ->  // "syms:Title|A,B" or "syms:A,B"
@@ -157,8 +169,9 @@ fun presetFilt(preset: String?, pf: PicksFile): Filt = when {
 }
 
 /**
- * Stocks (mockup h06): search, "Verified only" and decision chips with counts, research coverage bar, count with Sort and
- * Filters (sheet, h07), rows (code, Claude tick, decision, setup · industry, seven level dots, sparkline, price, day move).
+ * Stocks: search, saved sentences (name, sentence, today's count), the filter sentence (owner, 28 Nov 2026, "say it as a
+ * sentence": tap a blank for its choices with counts, "+" to add more), count with Sort and More filters (sheet, h07), rows
+ * (code, seal, decision, setup · industry, seven level dots, sparkline, price, day move), then near misses when few match.
  * No funnel chart here (feedback #162: it stays on Home).
  */
 @Composable
@@ -167,23 +180,22 @@ fun ScreenerScreen(st: AppState, preset: String?) {
     val ctx = LocalContext.current
     val prefs = remember { ctx.getSharedPreferences("narrativ", Context.MODE_PRIVATE) }
     var saved by remember { mutableStateOf(runCatching { json.decodeFromString(ListSerializer(Filt.serializer()), prefs.getString("filters", "[]")!!) }.getOrDefault(emptyList())) }
+    val store: (List<Filt>) -> Unit = { l -> saved = l; prefs.edit().putString("filters", json.encodeToString(ListSerializer(Filt.serializer()), l)).apply() }
     var f by remember(preset) { mutableStateOf(presetFilt(preset, pf)) }
+    var open by remember(preset) { mutableStateOf<String?>(null) }
+    var extra by remember(preset) { mutableStateOf(setOf<String>()) }
     var sheet by remember { mutableStateOf(false) }
     var sortMenu by remember { mutableStateOf(false) }
     var limit by remember { mutableStateOf(60) }
     val researched: (P) -> Boolean = { st.researched(it) }
+    val names: (Int) -> List<String> = { i -> (1..5).map { tierName(st, i, it) } }
     val res = remember(f, pf, st.research) { f.sorted(pf.picks.filter { f.match(it, researched) }) }
-    val nVer = remember(pf) { pf.picks.count { it.verified() } }
-    val nRes = remember(pf, st.research) { pf.picks.count { st.researched(it) } }
-    // chip counts within the current list (search, preset, syms, sheet filters), each before its own filter
-    val dec = remember(f, pf, st.research) {
-        val base = pf.picks.filter { f.copy(dc = null).match(it, researched) }
-        val withRemoved = pf.picks.filter { f.copy(dc = null, showRemoved = true).match(it, researched) }  // a Sell chip also shows removed stocks
-        DECISION_ORDER.associateWith { d -> (if (d.endsWith("Sell")) withRemoved else base).count { (it.dc ?: "Not rated") == d } }
-    }
-    val nVerList = remember(f, pf, st.research) { pf.picks.count { it.verified() && f.copy(research = "Any").match(it, researched) } }
-    val nHighBuy = remember(f, pf, st.research) { pf.picks.count { f.copy(cv = "High").match(it, researched) } }
+    // when few match: stocks that miss exactly one blank, with what they miss
+    val misses = remember(f, pf, st.research) { if (res.size >= 3) emptyList() else nearMisses(st, f, pf.picks, researched, names) }
+    // a search finds nothing in this sentence: how many stocks it finds outside it
+    val outside = remember(f, pf, st.research) { if (f.q.isBlank() || res.isNotEmpty()) 0 else pf.picks.count { Filt(q = f.q).match(it, researched) } }
     val nLive = remember(pf) { pf.picks.count { it.out == null } }
+    val load: (Filt) -> Unit = { g -> f = g; extra = emptySet(); open = null; limit = 60 }
     LazyColumn(Modifier.fillMaxSize().pageBackground(), contentPadding = PaddingValues(bottom = 110.dp)) {
         item { TopBar(st, "Stocks", back = st.stack.size > 1, big = st.stack.size == 1) }
         item {
@@ -196,80 +208,83 @@ fun ScreenerScreen(st: AppState, preset: String?) {
                 if (f.q.isNotEmpty()) Icon(Icons.Rounded.Close, "Clear", tint = C.dim, modifier = Modifier.clickable { f = f.copy(q = "") }.size(20.dp))
             }
         }
-        item {
-            Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically) {
-                val on = f.research == "Verified"
-                ToggleChip("Verified only", on, { f = f.copy(research = if (on) "Any" else "Verified"); limit = 60 }, count = nVerList, accent = TierC.lightGreen, icon = Icons.Rounded.Check)
-                // feedback #205 (owner, 27 Nov 2026): one tap for Buys with High conviction
-                val hc = f.cv == "High"
-                if (nHighBuy > 0 || hc) ToggleChip("High conviction Buy", hc, { f = f.copy(cv = if (hc) "Any" else "High"); limit = 60 }, count = nHighBuy,
-                    accent = TierC.darkGreen, solidOn = true)
-                Box(Modifier.padding(horizontal = 2.dp).size(1.dp, 22.dp).background(C.line))
-                DECISION_ORDER.filter { (dec[it] ?: 0) > 0 || f.dc == it }.forEach { d ->
-                    ToggleChip(d, f.dc == d, { f = f.copy(dc = if (f.dc == d) null else d, showRemoved = if (f.dc == d) (if (d.endsWith("Sell")) false else f.showRemoved) else d.endsWith("Sell") || f.showRemoved); limit = 60 },
-                        count = dec[d], dot = decisionColor(d), accent = decisionColor(d))
-                }
-            }
+        if (saved.isNotEmpty()) item {
+            SavedSentences(st, saved, f, researched, onOpen = { s -> load(s.copy(q = f.q)) }, onDelete = { s ->
+                store(saved.filter { it !== s }); st.toast = "Removed ${s.name}"
+            }, onNew = { load(DEFAULT_SENTENCE.copy(sort = f.sort)) })
         }
-        if (nRes > 0) item {
-            Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
-                SegmentedBar(listOf(Segment(nVer.toDouble(), TierC.lightGreen), Segment((nRes - nVer).coerceAtLeast(0).toDouble(), C.hi.copy(alpha = 0.15f))),
-                    height = 6.dp, legend = SegLegend.None)
-                Row(Modifier.padding(top = 5.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    listOf(Triple("Verified by Narrativ.ai", nVer, TierC.lightGreen), Triple("Researched, not verified", nRes - nVer, C.hi.copy(alpha = 0.15f))).forEach { (k, n, c) ->
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(Modifier.size(8.dp).clip(rr(2.dp)).background(c)); T(" $k ", 11.sp, C.dim, maxLines = 1); T("$n", 11.sp, weight = FontWeight.SemiBold)
-                        }
-                    }
-                }
+        item {
+            SentenceBlock(st, f, open, extra, researched, savedAlready = saved.any { it.sameSentence(f) },
+                onFilt = { f = it; limit = 60 }, onOpen = { open = it }, onExtra = { extra = it }) { name ->
+                val nf = f.copy(name = name, q = "")
+                store(saved + nf)
+                st.toast = "Saved as ${nf.name}"
             }
         }
         item {
-            // what narrows the list besides the sheet: preset list, verdict, industry, Beaten-up (tap to clear)
+            // what narrows the list besides the sentence: a list that opened Stocks, a verdict, Beaten-up quality (tap to clear)
             val tags = listOfNotNull(
                 f.syms.takeIf { it.isNotEmpty() }?.let { (f.name.ifBlank { "Selected stocks" }) to { f = f.copy(syms = emptyList(), name = "") } },
                 f.verdict?.let { it to { f = f.copy(verdict = null) } },
-                f.bq.takeIf { it }?.let { "Beaten-up quality" to { f = f.copy(bq = false) } },
-                f.industry.takeIf { it.isNotBlank() }?.let { "Industry: $it" to { f = f.copy(industry = "") } })
-            if (tags.isNotEmpty()) Row(Modifier.horizontalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                f.bq.takeIf { it }?.let { "Beaten-up quality" to { f = f.copy(bq = false) } })
+            if (tags.isNotEmpty()) Row(Modifier.horizontalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 tags.forEach { (label, clear) -> ToggleChip(label, true, clear, icon = Icons.Rounded.Close) }
             }
         }
         item {
             Row(Modifier.padding(start = 18.dp, end = 16.dp, top = 12.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                T("${fmt(res.size.toDouble(), 0)} stocks", 17.sp, weight = FontWeight.SemiBold, modifier = Modifier.weight(1f), maxLines = 1)
+                T("${fmt(res.size.toDouble(), 0)} stock${if (res.size == 1) "" else "s"}", 17.sp, weight = FontWeight.SemiBold, modifier = Modifier.weight(1f), maxLines = 1)
                 Box {
                     CtlButton(Icons.AutoMirrored.Rounded.Sort, f.sort) { sortMenu = true }
                     DropdownMenu(sortMenu, { sortMenu = false }, containerColor = C.chip) {
                         SORTS.forEach { s -> DropdownMenuItem(text = { Text(s, color = if (s == f.sort) C.blue else C.white, fontSize = 14.sp) }, onClick = { f = f.copy(sort = s); sortMenu = false }) }
                     }
                 }
-                val n = f.active()
-                CtlButton(Icons.Rounded.Tune, if (n > 0) "Filters · $n" else "Filters", n > 0) { sheet = true }
+                CtlButton(Icons.Rounded.Tune, "More filters", f.includeGrey || f.showRemoved || (f.industry.isNotBlank() && !f.industryExact)) { sheet = true }
             }
         }
-        if (res.isEmpty()) item { Empty(if (f.research == "Verified") "No verified stock matches. Turn off “Verified only” to see every stock." else "No stock matches these filters.") }
+        if (res.isEmpty()) item {
+            if (outside > 0) Column {
+                Empty("No stock in this sentence matches “${f.q.trim()}”.")
+                MoreLink("Search all stocks ($outside)", Modifier.padding(horizontal = 18.dp, vertical = 4.dp)) { load(Filt(q = f.q, sort = f.sort)) }
+            } else Empty(if (misses.isEmpty()) "No stock matches this sentence today. Tap a blank to change it." else "No stock matches this sentence today.")
+        }
         val shown = res.take(limit)
         itemsIndexed(shown, key = { _, p -> p.s }) { k, p ->
-            val r = 20.dp
-            val shape = RoundedCornerShape(topStart = if (k == 0) r else 0.dp, topEnd = if (k == 0) r else 0.dp,
-                bottomStart = if (k == shown.lastIndex) r else 0.dp, bottomEnd = if (k == shown.lastIndex) r else 0.dp)
-            // Paper: rows sit on the paper under a rule (no panel), like the mock-up
-            Column(Modifier.padding(horizontal = 16.dp).fillMaxWidth().then(if (Look.paper) Modifier else Modifier.clip(shape).background(C.card))) {
-                if (Look.paper && k == 0) Box(Modifier.fillMaxWidth().height(1.dp).background(C.white))
-                StockRow(st, p, crossNote(p, f.cross))
-                if (k < shown.lastIndex) HLineDivider(Modifier.padding(horizontal = S.cardPad))
-            }
+            val zoneNote = if (f.zone != "Any") zoneWhere(p) else null
+            val cross = crossNote(p, f.cross)
+            StockListRow(st, p, k, shown.lastIndex, listOfNotNull(cross, zoneNote).joinToString(" · ").ifBlank { null },
+                if (cross == null && zoneNote != null) (if (zoneNote.startsWith("In ")) TierC.darkGreen else C.dim) else null)
         }
         if (res.size > limit) item {
             MoreLink("Show more (${res.size - limit})", Modifier.padding(horizontal = 18.dp, vertical = 8.dp)) { limit += 60 }
         }
+        if (misses.isNotEmpty()) {
+            item {
+                Box(Modifier.padding(start = 18.dp, end = 16.dp, top = 16.dp, bottom = 6.dp)) {
+                    if (Look.paper) PaperLabel("Close: one blank off", C.dim, 10.sp) else T("Close: one blank off", 13.sp, C.dim, FontWeight.SemiBold)
+                }
+            }
+            itemsIndexed(misses, key = { _, m -> "miss:" + m.first.s }) { k, (p, miss) -> StockListRow(st, p, k, misses.lastIndex, miss, null) }
+        }
     }
     if (sheet) FilterSheet(st, f, saved, onDismiss = { sheet = false }, onApply = { f = it; limit = 60; sheet = false }) { nf ->
-        saved = saved + nf
-        prefs.edit().putString("filters", json.encodeToString(ListSerializer(Filt.serializer()), saved)).apply()
+        store(saved + nf)
         st.toast = "Saved as ${nf.name}"
+    }
+}
+
+/** A row of the Stocks list in its panel (Classic) or on the paper under a rule (Paper). */
+@Composable
+private fun StockListRow(st: AppState, p: P, k: Int, last: Int, note: String?, noteColor: Color?) {
+    val r = 20.dp
+    val shape = RoundedCornerShape(topStart = if (k == 0) r else 0.dp, topEnd = if (k == 0) r else 0.dp,
+        bottomStart = if (k == last) r else 0.dp, bottomEnd = if (k == last) r else 0.dp)
+    // Paper: rows sit on the paper under a rule (no panel), like the mock-up
+    Column(Modifier.padding(horizontal = 16.dp).fillMaxWidth().then(if (Look.paper) Modifier else Modifier.clip(shape).background(C.card))) {
+        if (Look.paper && k == 0) Box(Modifier.fillMaxWidth().height(1.dp).background(C.white))
+        StockRow(st, p, note, noteColor)
+        if (k < last) HLineDivider(Modifier.padding(horizontal = S.cardPad))
     }
 }
 
@@ -284,22 +299,22 @@ internal fun CtlButton(icon: androidx.compose.ui.graphics.vector.ImageVector, la
 
 /** One stock in the list: code, Claude tick, decision; setup · industry (or why it was removed); seven level dots; sparkline, price, day move. */
 @Composable
-fun StockRow(st: AppState, p: P, note: String? = null) {
-    if (Look.paper) return PaperStockRow(st, p, note)
+fun StockRow(st: AppState, p: P, note: String? = null, noteColor: Color? = null) {
+    if (Look.paper) return PaperStockRow(st, p, note, noteColor)
     Row(Modifier.fillMaxWidth().clickable { st.go(Screen.Stock(p.s)) }.padding(horizontal = S.cardPad, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 T(p.c, 16.sp, weight = FontWeight.Bold, maxLines = 1, modifier = Modifier.weight(1f, false))
                 StockTick(st, p)
                 Spacer(Modifier.width(6.dp))
-                if (p.out != null) TierChip("Removed L${p.out.l}", TierC.red, 10.sp) else p.dc?.let { DecisionChip(it, 11.sp) }
+                if (p.out != null) TierChip("Removed: ${LEVEL_SHORT.getOrElse(p.out.l - 1) { "" }}", TierC.red, 10.sp) else p.dc?.let { DecisionChip(it, 11.sp) }
             }
             if (p.out != null) T(p.out.w ?: p.n, 12.sp, TierC.lightRed, maxLines = 1)
             else Text(androidx.compose.ui.text.buildAnnotatedString {
                 pushStyle(androidx.compose.ui.text.SpanStyle(color = C.white)); append(setupName(p.su, p.tb == 1)); pop(); append(" · " + (p.i ?: p.n))
             }, fontSize = 13.sp, color = C.dim, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Box(Modifier.padding(top = 5.dp)) { LevelDots(p, 7.dp) }
-            note?.let { T(it, 11.sp, if (it.startsWith("Golden")) TierC.lightGreen else TierC.lightRed, maxLines = 1, modifier = Modifier.padding(top = 3.dp)) }
+            note?.let { T(it, 11.sp, noteColor ?: if (it.startsWith("Golden")) TierC.lightGreen else TierC.lightRed, maxLines = 1, modifier = Modifier.padding(top = 3.dp)) }
         }
         Sparkline(p.sp, Modifier.padding(horizontal = 8.dp).size(52.dp, 26.dp))
         Column(Modifier.widthIn(min = 76.dp), horizontalAlignment = Alignment.End) {
@@ -314,7 +329,7 @@ fun StockRow(st: AppState, p: P, note: String? = null) {
 @Composable
 fun androidx.compose.foundation.layout.RowScope.CallTags(p: P) {
     if (p.verified()) VerifiedSeal(17.dp)
-    if (p.out != null) TierChip("Removed L${p.out.l}", TierC.red, 10.sp) else p.dc?.let { DecisionChip(it, 10.sp) }
+    if (p.out != null) TierChip("Removed: ${LEVEL_SHORT.getOrElse(p.out.l - 1) { "" }}", TierC.red, 10.sp) else p.dc?.let { DecisionChip(it, 10.sp) }
     if (p.out == null && p.dc in setOf("Buy", "Strong Buy")) p.cv?.let { cv ->
         // owner, 27 Nov 2026: when a long code leaves too little room, the word scrolls right to left instead of being cut
         Text(cv, fontSize = 10.5.sp, fontFamily = PaperFonts.label, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false,
@@ -325,7 +340,7 @@ fun androidx.compose.foundation.layout.RowScope.CallTags(p: P) {
 /** Paper look, one stock in the list (mock-up): code + verdict in its ink and the decision tag; seven dots, setup in capitals,
  *  conviction squares, industry; a 30-day line; price over the day's move with an arrow. Same facts as Classic's row. */
 @Composable
-fun PaperStockRow(st: AppState, p: P, note: String? = null) {
+fun PaperStockRow(st: AppState, p: P, note: String? = null, noteColor: Color? = null) {
     val col = if ((p.d1 ?: 0.0) >= 0) TierC.darkGreen else TierC.red
     Row(Modifier.fillMaxWidth().clickable { st.go(Screen.Stock(p.s)) }.padding(horizontal = S.cardPad, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -343,7 +358,7 @@ fun PaperStockRow(st: AppState, p: P, note: String? = null) {
                     append(p.i ?: p.n)
                 }, fontSize = 11.sp, color = C.dim, maxLines = 1, modifier = Modifier.weight(1f, false).rowMarquee())
             }
-            note?.let { T(it, 10.5.sp, if (it.startsWith("Golden")) TierC.darkGreen else TierC.red, maxLines = 1) }  // feedback #170
+            note?.let { T(it, 10.5.sp, noteColor ?: if (it.startsWith("Golden")) TierC.darkGreen else TierC.red, maxLines = 1) }  // feedback #170
         }
         InkSpark(p.sp, col, Modifier.padding(horizontal = 6.dp).size(54.dp, 22.dp))
         Column(Modifier.widthIn(min = 70.dp), horizontalAlignment = Alignment.End) {
@@ -361,7 +376,7 @@ fun FilterSheet(st: AppState, start: Filt, saved: List<Filt>, onDismiss: () -> U
     val n = remember(d, pf, st.research) { pf.picks.count { d.match(it) { p -> st.researched(p) } } }
     val nVer = remember(pf) { pf.picks.count { it.verified() } }
     val nRes = remember(pf, st.research) { pf.picks.count { st.researched(it) } }
-    BottomSheet(onDismiss, "Filters", titleExtra = {
+    BottomSheet(onDismiss, "More filters", titleExtra = {
         T("Reset", 14.sp, C.blue, modifier = Modifier.clip(rr(8.dp)).clickable { d = Filt(sort = d.sort, q = d.q) }.padding(4.dp))
     }) {
         Label("Narrativ.ai research")
@@ -380,18 +395,23 @@ fun FilterSheet(st: AppState, start: Filt, saved: List<Filt>, onDismiss: () -> U
         Label("Presets")
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             (PRESETS + saved).forEach { p ->
-                ToggleChip(p.name, d.sameAs(p), { d = p.copy(name = "", sort = d.sort, q = d.q, research = d.research, dc = d.dc, syms = d.syms) })
+                // a saved sentence comes back whole; a preset keeps the sentence's decision, conviction and price
+                val fromSaved = p in saved
+                ToggleChip(p.name, d.sameAs(p), {
+                    d = if (fromSaved) p.copy(name = "", sort = d.sort, q = d.q)
+                    else p.copy(name = "", sort = d.sort, q = d.q, research = d.research, dc = d.dc, syms = d.syms, call = d.call, zone = d.zone, cv = d.cv)
+                })
             }
         }
         Row(Modifier.padding(top = 14.dp, bottom = 4.dp)) { T("Level at least", 12.sp, C.dim); T(" · tiers best to worst", 12.sp, C.dim.copy(alpha = 0.7f)) }
         LEVELS.indices.forEach { i ->
             val names = (1..5).map { tierName(st, i, it) }
-            val sub = if (i == 5) (if (d.disc.isEmpty()) "any stage" else d.disc.sorted().joinToString(", ") { names[it - 1] })
+            val sub = if (i == 5) (if (d.disc.isEmpty()) "Any stage" else d.disc.sorted().joinToString(", ") { names[it - 1] })
                 else d.minTier[i].let { m -> if (m == 0) "Any" else if (m == 1) names[0] else "${names[m - 1]} or better" }
             Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.width(124.dp)) {
                     T(LEVEL_SHORT[i], 14.sp, weight = FontWeight.Medium, maxLines = 1)
-                    T(sub, 11.sp, if (sub == "Any" || sub == "any stage") C.dim else C.white, maxLines = 1)
+                    T(sub, 11.sp, if (sub == "Any" || sub == "Any stage") C.dim else C.white, maxLines = 1)
                 }
                 Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
                     val anyOn = if (i == 5) d.disc.isEmpty() else d.minTier[i] == 0
@@ -422,9 +442,9 @@ fun FilterSheet(st: AppState, start: Filt, saved: List<Filt>, onDismiss: () -> U
             CROSSES.forEach { c -> ToggleChip(c, d.cross == c, { d = d.copy(cross = c) }, count = if (c == "Any") null else nCross[c]) }
         }
         Label("Conviction (Buys only)")
-        val nCv = remember(d, pf, st.research) { listOf("High", "Medium", "Low").associateWith { c -> pf.picks.count { d.copy(cv = c).match(it) { p -> st.researched(p) } } } }
+        val nCv = remember(d, pf, st.research) { CONVICTIONS.drop(1).associateWith { c -> pf.picks.count { d.copy(cv = c).match(it) { p -> st.researched(p) } } } }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            listOf("Any", "High", "Medium", "Low").forEach { c -> ToggleChip(c, d.cv == c, { d = d.copy(cv = c) }, count = nCv[c]) }
+            CONVICTIONS.forEach { c -> ToggleChip(c, d.cv == c, { d = d.copy(cv = c) }, count = nCv[c]) }
         }
         Label("Market cap")
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -448,7 +468,7 @@ fun FilterSheet(st: AppState, start: Filt, saved: List<Filt>, onDismiss: () -> U
         }
         Row(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Box(Modifier.clip(rr(16.dp)).border(1.dp, C.teal, rr(16.dp))
-                .clickable { onSave(d.copy(name = "Saved ${saved.size + 1}")) }.padding(horizontal = 18.dp, vertical = 13.dp)) {
+                .clickable { onSave(d.copy(name = "Saved ${saved.size + 1}", q = "")) }.padding(horizontal = 18.dp, vertical = 13.dp)) {
                 T("Save", 15.sp, C.blue, FontWeight.SemiBold)
             }
             PrimaryButton("Show ${fmt(n.toDouble(), 0)} stock${if (n == 1) "" else "s"}", Modifier.weight(1f)) { onApply(d) }

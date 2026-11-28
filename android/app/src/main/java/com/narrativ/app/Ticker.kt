@@ -94,7 +94,7 @@ private fun TickCell(t: Tick) {
             PaperLabel(t.name, C.dim, 9.sp)
             val pc = t.pct
             if (pc != null) T(arrowPct(pc), 10.sp, if (pc >= 0) TierC.darkGreen else TierC.lightRed, maxLines = 1)
-            else if (t.k == "gold22") T("today", 10.sp, C.dim, maxLines = 1)
+            else if (t.k == "gold22") T("Today", 10.sp, C.dim, maxLines = 1)
         }
         androidx.compose.material3.Text((if (t.k == "gold22") "₹" else "") + fmt(t.p, 0), fontSize = 16.sp, lineHeight = 19.sp,
             color = C.white, fontFamily = PaperFonts.headline, fontWeight = FontWeight.Bold, maxLines = 1)
