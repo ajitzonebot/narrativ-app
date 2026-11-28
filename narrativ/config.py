@@ -31,6 +31,7 @@ RESEARCH_TOP_N = 20                    # top N eligible for Claude research
 # Score weights (outlook + sentiment redistributed when a stock has no research yet)
 WEIGHTS = {"outlook": 0.25, "inflection": 0.20, "undiscovered": 0.15, "valuation": 0.15,
            "momentum": 0.15, "sentiment": 0.10}
+SCAN_GAP_PER_DAY = 15                  # researched stocks with drivers but no outlook scan queued per day (consistency K3)
 RESEARCH_PER_DAY = 60                  # cap on the queue: full reviews first, then rechecks with a reason, then enrich (60 lasts a
                                        # weekend at ~25 items a day: 22-23 Nov 2026 the 45-item Friday queue ran out and 6 runs idled)
 ENRICH_PER_DAY = 20                    # forward-driver hunts for stocks one driver away from a Buy / Hold call; reader-found dated

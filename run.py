@@ -857,6 +857,13 @@ def main(limit: int | None) -> None:
     near.sort(key=lambda s: not (fwd.get(s) or {}).get("dated"))  # stable: the free readers found a dated row -> first, then priority
     for s in near:
         enrich(s, f"one forward driver away from a Buy/Hold call (priority {ev[s]['pr']})")
+    # researched but no outlook scan (consistency check K3, owner 28 Nov 2026: "every information ties back to the stock"):
+    # drivers were added without the scan, so the Outlook level cannot be rated; Claude writes the scan, highest priority first
+    no_scan = sorted([s for s, th in theses.items() if th.get("drivers") and not (th.get("scan_raw") or th.get("scan")) and s in ev],
+                     key=lambda s: -ev[s]["pr"])
+    for s in no_scan[:config.SCAN_GAP_PER_DAY]:
+        q(s, "outlook scan missing: the research has drivers but no scan (guidance, order book, must-go-right items, kill switches, "
+             "bull / base / bear): write the scan from the latest call and results", "enrich", {"complete": ["outlook scan"]})
     for s, gp in odp["gaps"][:config.GAP_ENRICH_PER_DAY]:  # scan items with no quote / source / due date: only Claude can fill them
         q(s, OD.gap_reason(gp), "enrich", {"scan_gaps": gp[:8]})
     for s in top:
@@ -1183,6 +1190,13 @@ def main(limit: int | None) -> None:
             print(f"[holidays] failed: {e}")
     H.mark("charts")
     alerts.send([p for p in picks if not p.get("out")][:60], newly_due_all, changes, new_events)
+    try:  # every screen tells the same story (owner, 28 Nov 2026): compare them for every stock, alert on hard mismatches
+        from narrativ import consistency
+        rep = consistency.run()
+        print(f"[consistency] {consistency.publish(rep)} hard mismatch(es); "
+              + ", ".join(f"{k} {v['n']}" for k, v in rep["checks"].items() if v["n"]))
+    except Exception as e:  # noqa: BLE001
+        print(f"[consistency] skipped: {e}")
     if not limit:  # D1 tables + R2 files (git JSON above stays the fallback during the switch-over)
         try:
             isin_of = {s: s0i.loc[s, "isin"] for s in syms if "isin" in s0i.columns and isinstance(s0i.loc[s, "isin"], str)}

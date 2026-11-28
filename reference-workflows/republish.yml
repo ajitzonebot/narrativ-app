@@ -16,7 +16,7 @@ on:
 
 permissions:
   contents: read
-  actions: read   # read this repo's daily-funnel runs
+  actions: write  # read this repo's daily-funnel runs, and start a rebuild after new research (below)
 
 concurrency:
   group: republish
@@ -121,6 +121,25 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           bash scripts/publish.sh -m "data: research published $(TZ=Asia/Kolkata date '+%F %H:%M') IST" -- docs/data data/research_log.json data/republish_base.txt data/factor_history
+      # one code path for every stock (owner, 28 Nov 2026: "every information ties back to the stock"): when Claude's research
+      # changed, the full daily pipeline rebuilds every stock from it (decision, Outlook, gates, conviction, ledger, queue,
+      # consistency check) instead of this job patching a few fields; a run already waiting covers it
+      - name: Rebuild the stocks with the new research
+        if: steps.n.outputs.new == 'true' && steps.d.outputs.busy != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE: ${{ steps.n.outputs.base }}
+          HEAD: ${{ steps.n.outputs.head }}
+        run: |
+          if [ -n "$BASE" ] && git cat-file -e "$BASE^{commit}" 2>/dev/null && git diff --quiet "$BASE" "$HEAD" -- docs/data/theses.json; then
+            echo "no research change (only the run log): no rebuild"; exit 0; fi
+          w=0
+          for st in queued pending waiting requested; do
+            c=$(gh api -X GET "repos/$GITHUB_REPOSITORY/actions/workflows/daily.yml/runs" -f status=$st --jq .total_count 2>/dev/null || echo 0)
+            w=$((w + ${c:-0}))
+          done
+          if [ "$w" != "0" ]; then echo "a daily run is already waiting: it takes the new research"; exit 0; fi
+          gh workflow run daily.yml --ref main -R "$GITHUB_REPOSITORY" && echo "rebuild started"
       - name: Save the log in the private repo
         if: failure()
         shell: bash
