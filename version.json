@@ -1,11 +1,45 @@
 {
- "versionCode": 103,
- "versionName": "2.33.0",
+ "versionCode": 104,
+ "versionName": "2.33.1",
  "date": "2026-11-28",
- "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.33.0-b103/narrativ-v2.33.0-b103.apk",
+ "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.33.1-b104/narrativ-v2.33.1-b104.apk",
  "sizeMb": 12.4,
- "sha256": "569aa35cd64357fe8951bcdfc91b3f1d1719b2f2ec24fc1aa86e33787dc83a61",
+ "sha256": "595d90249091903f48dd8163b5c945875badcc8390144e5d109db666b5596b02",
  "changelog": [
+  {
+   "version": "2.33.1",
+   "date": "2026-11-28",
+   "changes": [
+    {
+     "type": "new",
+     "text": "Knockout Funnel: under \"yet to be studied\", how many stocks Narrativ.ai studied this week and how many are now Buy candidates"
+    },
+    {
+     "type": "new",
+     "text": "Knockout Funnel \u203a Narrativ.ai primary research (i): study progress, with this week's first studies, how many had no story yet, Buy candidates and verified Buys"
+    },
+    {
+     "type": "improved",
+     "text": "Not rated stocks that had a quick check say which check they failed: nothing changing, the company cannot capture it, or the story is already in the price"
+    },
+    {
+     "type": "fixed",
+     "text": "Home \u203a Today's funnel: the last bar shows \"15 verified Buys\" in full; its label was cut to the number"
+    },
+    {
+     "type": "fixed",
+     "text": "Today's Top 10 lists only verified Buys again: Buys still waiting for complete research took places and left the card short"
+    },
+    {
+     "type": "fixed",
+     "text": "An NCLT-sanctioned scheme of arrangement is no longer flagged as insolvency bad news (ESAFSFB)"
+    },
+    {
+     "type": "improved",
+     "text": "Swiping between tabs, the research queue's Waiting and Completed, and IPO pages now pulls the next page in right beside the current one, with no blank gap"
+    }
+   ]
+  },
   {
    "version": "2.33.0",
    "date": "2026-11-28",
