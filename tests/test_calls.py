@@ -161,3 +161,45 @@ def test_one_time_repair_reopens_hold_exits_and_drops_the_reentry(tmp_path, monk
     assert len(v) == 1 and v[0]["price"] == 100.0 and not v[0].get("ended") and v[0]["now"] == 6.0
     assert any(c["kind"] == "candidate" and c["end_decision"].startswith("Exit level") for c in calls)  # exit-level ends stay
     assert json.loads((tmp_path / "calls.json").read_text())["tracking_rule"] == CALLS.TRACKING_RULE
+
+
+# ---------------------------------------------------------------- candidate calls end when the stock stops being a candidate
+def test_candidate_call_ends_when_verified_or_no_longer_a_candidate(tmp_path, monkeypatch):
+    cand = lambda: call(kind="candidate")  # noqa: E731
+    closes, run = [100.0, 104.0, 106.0], lambda dec: run_update(tmp_path, monkeypatch, closes, [cand()], {"A.NS": dec}, {}, "2026-11-04")
+    calls = run({"d": "Hold", "candidate": "Buy"})  # still waiting for the review: the call carries on
+    assert [(c["kind"], c.get("end_decision")) for c in calls] == [("candidate", None)]
+    calls = run({"d": "Buy", "verified": "pass"})  # review passed: the candidate call ends, a verified call opens
+    assert [(c["kind"], c.get("ended"), c.get("end_decision")) for c in calls] == [
+        ("candidate", "2026-11-04", "Became verified"), ("verified", None, None)]
+    assert run({"d": "Hold", "verified": "fail"})[0]["end_decision"] == "Review did not pass"
+    assert run({"d": "Hold"})[0]["end_decision"] == "No longer a candidate"  # rules stopped saying Buy
+    assert run({"d": "Sell"})[0]["end_decision"] == "Sell"
+
+
+def test_candidate_call_beside_an_open_verified_call_ends(tmp_path, monkeypatch):
+    """Candidate calls reopened by the 28 Nov move ran beside the verified call of the same stock (counted in both records)."""
+    calls = run_update(tmp_path, monkeypatch, [100.0, 104.0], [call(), call(kind="candidate", date="2026-11-03", run="2026-11-03")],
+                       {"A.NS": {"d": "Hold", "candidate": "Buy"}}, {}, "2026-11-04")
+    assert [(c["kind"], c.get("end_decision")) for c in calls] == [("verified", None), ("candidate", "Became verified")]
+
+
+def test_one_time_repair_keeps_a_later_exit_and_ends_the_reopened_call_with_it():
+    old = call(ended="2026-11-04", end_decision="Hold", to_end=4.0)
+    stopped = call(date="2026-11-05", run="2026-11-05", price=104.0, stop=99.0, ended="2026-11-09", end_decision="Exit level ₹99.00 broken")
+    after = call(date="2026-11-20", run="2026-11-20", price=110.0)
+    cand = call(kind="candidate", date="2026-11-01", run="2026-11-01", ended="2026-11-02", end_decision="Buy")
+    calls = [old, stopped, after, cand]
+    assert CALLS.reopen_under_rule(calls) == 1
+    assert [(c["date"], c.get("ended"), c.get("end_decision")) for c in calls if c["kind"] == "verified"] == [
+        ("2026-11-02", "2026-11-09", "Exit level ₹99.00 broken"), ("2026-11-05", "2026-11-09", "Exit level ₹99.00 broken"),
+        ("2026-11-20", None, None)]  # the real exit stays; a call after it is no duplicate
+    assert "to_end" not in old and cand["ended"] == "2026-11-02"  # a candidate's end is real under the rule: kept
+
+
+def test_candidate_ends_lost_in_the_28_nov_move_are_restored_once():
+    lost = call(symbol="ATL.NS", kind="candidate", date="2026-11-16", run="2026-11-17")
+    other = call(symbol="ATL.NS", kind="candidate", date="2026-11-28", run="2026-11-28")
+    calls = [lost, other]
+    assert CALLS.restore_candidate_ends(calls) == 1 and CALLS.restore_candidate_ends(calls) == 0
+    assert (lost["ended"], lost["end_decision"]) == ("2026-11-18", "No longer a candidate") and not other.get("ended")

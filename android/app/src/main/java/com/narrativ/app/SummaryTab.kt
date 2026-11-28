@@ -209,7 +209,8 @@ fun ResearchLists(scan: Scan, nested: Boolean = false) {
             }
             mark?.let { m ->
                 Column(Modifier.padding(top = 8.dp).fillMaxWidth().clip(rr(S.inner)).background(C.card2).padding(10.dp)) {
-                    T(m.name, 13.sp, weight = FontWeight.SemiBold)  // no rubric codes in the app (owner, 28 Nov 2026); if (m.note.isNotBlank()) T(m.note, 12.sp, C.grey)
+                    // no rubric codes in the app (owner, 28 Nov 2026)
+                    T(m.name, 13.sp, weight = FontWeight.SemiBold); if (m.note.isNotBlank()) T(m.note, 12.sp, C.grey)
                     if (m.quote.isNotBlank()) Quote(ctx, m.quote, m.source)
                 }
             }
@@ -1002,7 +1003,7 @@ fun DecisionDetailsSheet(st: AppState, sym: String, p: P?, det: Detail?, onDismi
             }
         }
         val vl = det?.verdictLog.orEmpty()
-        val stmt = det?.statement?.ifBlank { null } ?: p?.out?.takeIf { it.l in 1..7 }?.let { "Removed at L${it.l} ${LEVEL_TITLES[it.l - 1]}: ${it.w}." }
+        val stmt = det?.statement?.ifBlank { null } ?: p?.out?.takeIf { it.l in 1..7 }?.let { "Removed at ${LEVEL_TITLES[it.l - 1]}: ${it.w}." }
         if (vl.isNotEmpty() || stmt != null || r?.thesis != null) SheetSection("Rating history", if (vl.size > 1) "${vl.size - 1} changes" else null) {
             val dates = vl.mapNotNull { e -> skDate(e.d)?.let { it to e.v } }
             if (dates.isNotEmpty()) {

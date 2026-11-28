@@ -28,7 +28,7 @@ def _fin(sym: str) -> dict:
         return {}
 
 
-def light_pack(sym: str, item: dict, theses: dict) -> dict:
+def light_pack(sym: str, item: dict, theses: dict, research: dict | None = None) -> dict:
     """What a review needs that is on disk now: the dossier, Claude's own checks, the R8 gaps and the decision so far."""
     from .packs import machine_checks
     d = _fin(sym)
@@ -43,7 +43,8 @@ def light_pack(sym: str, item: dict, theses: dict) -> dict:
             "claude_checks": need + [f"consistency flag [{i}]: {t} (explain it in audit.flag_notes with flag '{i}', note, quote, source)"
                                      for i, t in ids],
             "consistency_flag_ids": [{"flag": i, "text": t} for i, t in ids],
-            "complete_record": FN.research_missing(theses.get(sym)) or ["complete: keep it current"],
+            "complete_record": FN.research_missing({**((research or {}).get(sym) or {}), "scan_raw": (theses.get(sym) or {}).get("scan")
+                                                    or ((research or {}).get(sym) or {}).get("scan_raw")}) or ["complete: keep it current"],
             "decision_reasons": (d.get("decision") or {}).get("why"), "requested": bool(item.get("requested"))}
 
 
@@ -127,7 +128,7 @@ def main() -> dict:
         pk = PACKS / f"{s}.json"
         if not pk.exists():
             it = next(x for x in q["items"] if x["symbol"] == s)
-            pk.write_text(json.dumps(light_pack(s, it, theses), ensure_ascii=False, indent=0, default=str))
+            pk.write_text(json.dumps(light_pack(s, it, theses, research), ensure_ascii=False, indent=0, default=str))
     changed = json.dumps(q, sort_keys=True) != before
     if changed:
         qp.write_text(json.dumps(q, indent=1, ensure_ascii=False))

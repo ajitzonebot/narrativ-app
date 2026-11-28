@@ -1,7 +1,7 @@
 [
  {
   "version": "2.32.8",
-  "date": "2026-11-27",
+  "date": "2026-11-28",
   "changes": [
    {
     "type": "improved",
@@ -10,6 +10,22 @@
    {
     "type": "new",
     "text": "Research queue › Completed: an arrow on each row shows what happened (the dated drivers on record with their due dates and sources, the review, red flags, story and what is still pending); only the stock name opens the stock"
+   },
+   {
+    "type": "improved",
+    "text": "Reasons are in plain words: no internal rule or flag codes (for example \"rating downgrade\" instead of a flag code)"
+   },
+   {
+    "type": "removed",
+    "text": "The AlphaStreet \"Latest call\" card is gone: its AI summary numbers were not reliable"
+   },
+   {
+    "type": "fixed",
+    "text": "Track record: a Buy stays tracked until it turns Sell or breaks its exit level, instead of closing when it dips to Hold"
+   },
+   {
+    "type": "fixed",
+    "text": "Scan rubric items show their note again"
    }
   ]
  },

@@ -19,11 +19,13 @@ _FROZEN = ("ended", "end_decision", "to_end", "to_end_vs_nifty") + tuple(f"{h}{x
 
 
 def reopen_under_rule(calls: list[dict]) -> int:
-    """One-time move to TRACKING_RULE: a call that ended only because the decision left Buy (Hold, Not rated, a candidate
-    that became verified) is open again from its own entry; a later call of the same stock and kind is a duplicate of it and
-    is dropped. Exit-level, Sell and left-the-universe ends stay. Returns how many calls reopened."""
+    """One-time move to TRACKING_RULE: a verified call that ended only because the decision left Buy (Hold, Not rated) is
+    open again from its own entry; a later call of the same stock and kind is a duplicate of it and is dropped, unless that
+    later call ended on a real exit (exit level, Sell, left the universe): it stays, and the reopened call ends with it (same
+    date and reason). Real-exit ends stay; candidate calls keep their ends (a candidate still ends when it stops being one).
+    Returns how many calls reopened."""
     keep_end = lambda c: str(c.get("end_decision") or "").startswith(("Exit level", "Left the universe")) or c.get("end_decision") in SELL  # noqa: E731
-    reopened = [c for c in calls if c.get("ended") and not keep_end(c)]
+    reopened = [c for c in calls if c.get("ended") and c["kind"] == "verified" and not keep_end(c)]
     for c in reopened:
         for k in _FROZEN:  # returns were frozen at the old end: measured again from the entry
             c.pop(k, None)
@@ -31,11 +33,54 @@ def reopen_under_rule(calls: list[dict]) -> int:
     for c in sorted(calls, key=lambda c: (c["date"], c.get("run") or "")):
         k = (c["symbol"], c["kind"])
         if k in first and not first[k].get("ended"):
-            c["_dup"] = True  # overlaps an earlier call that is open again
+            if c.get("ended"):  # a real exit of the same holding: kept, and the earlier call open again ends with it
+                first[k]["ended"], first[k]["end_decision"] = c["ended"], c["end_decision"]
+                first[k] = c
+            else:
+                c["_dup"] = True  # overlaps an earlier call that is open again
         else:
             first[k] = c
     calls[:] = [c for c in calls if not c.pop("_dup", False)]
     return len(reopened)
+
+
+# The 28 Nov 2026 run of the first reopen_under_rule (docs/data/calls.json at d447bf4e1 -> 3da233321) also reopened 42
+# candidate calls whose ends were real under the rule (the candidate became verified, or stopped being a candidate). Their
+# ends as recorded before that run: symbol, entry date, run, ended, then "Buy" (became verified) or "Hold" (no longer one).
+_CANDIDATE_ENDS = """
+ATL 2026-11-16 2026-11-17 2026-11-18 Hold|CHENNPETRO 2026-11-16 2026-11-17 2026-11-18 Hold|SONAMLTD 2026-11-16 2026-11-17 2026-11-18 Hold
+HUDCO 2026-11-19 2026-11-19 2026-11-20 Buy|ARROWGREEN 2026-11-20 2026-11-20 2026-11-23 Buy|CANTABIL 2026-11-20 2026-11-20 2026-11-23 Hold
+CAPLIPOINT 2026-11-20 2026-11-20 2026-11-23 Buy|FMGOETZE 2026-11-20 2026-11-20 2026-11-23 Hold|GHCLTEXTIL 2026-11-20 2026-11-20 2026-11-23 Buy
+GPTHEALTH 2026-11-20 2026-11-20 2026-11-23 Buy|INDRAMEDCO 2026-11-20 2026-11-20 2026-11-23 Hold|MAYURUNIQ 2026-11-20 2026-11-20 2026-11-23 Hold
+MPSLTD 2026-11-20 2026-11-20 2026-11-23 Buy|SATIN 2026-11-20 2026-11-20 2026-11-23 Buy|SEAMECLTD 2026-11-20 2026-11-20 2026-11-23 Hold
+TALBROAUTO 2026-11-20 2026-11-20 2026-11-23 Buy|THEJO 2026-11-20 2026-11-20 2026-11-23 Buy|PASUPTAC 2026-11-23 2026-11-23 2026-11-26 Hold
+WINDLAS 2026-11-23 2026-11-23 2026-11-25 Buy|CASTROLIND 2026-11-23 2026-11-23 2026-11-25 Hold|ERIS 2026-11-23 2026-11-23 2026-11-25 Hold
+FCL 2026-11-23 2026-11-23 2026-11-25 Hold|TNPETRO 2026-11-23 2026-11-23 2026-11-25 Hold|NORTHARC 2026-11-25 2026-11-23 2026-11-25 Hold
+SARDAEN 2026-11-25 2026-11-23 2026-11-25 Buy|EQUIPPP 2026-11-25 2026-11-25 2026-11-26 Hold|MANAKSTEEL 2026-11-25 2026-11-25 2026-11-26 Hold
+MOREPENLAB 2026-11-25 2026-11-25 2026-11-26 Hold|RAMRAT 2026-11-25 2026-11-25 2026-11-26 Hold|RPGLIFE 2026-11-25 2026-11-25 2026-11-26 Hold
+AFIL 2026-11-26 2026-11-25 2026-11-26 Hold|DHANBANK 2026-11-26 2026-11-25 2026-11-26 Buy|PRECWIRE 2026-11-26 2026-11-25 2026-11-26 Hold
+PRICOLLTD 2026-11-26 2026-11-25 2026-11-26 Hold|SANGHVIMOV 2026-11-26 2026-11-25 2026-11-26 Buy|SHREERAMA 2026-11-26 2026-11-25 2026-11-26 Hold
+SURAKSHA 2026-11-26 2026-11-25 2026-11-26 Buy|EMAMILTD 2026-11-27 2026-11-26 2026-11-27 Hold|EMKAY 2026-11-27 2026-11-26 2026-11-27 Hold
+INSECTICID 2026-11-27 2026-11-26 2026-11-27 Buy|KPIGREEN 2026-11-27 2026-11-26 2026-11-27 Hold|LUPIN 2026-11-27 2026-11-26 2026-11-27 Buy
+"""
+CAND_VERIFIED, CAND_DROPPED, CAND_FAILED = "Became verified", "No longer a candidate", "Review did not pass"
+
+
+def restore_candidate_ends(calls: list[dict]) -> int:
+    """Gives the 42 candidate calls in _CANDIDATE_ENDS their recorded end back, only while that exact call (symbol, entry
+    date, run) is still open; a no-op once done. Returns how many were restored."""
+    ends = {}
+    for row in _CANDIDATE_ENDS.replace("\n", "|").split("|"):
+        if row.strip():
+            s, d, run, ended, was = row.split()
+            ends[(f"{s}.NS", d, run)] = (ended, CAND_VERIFIED if was == "Buy" else CAND_DROPPED)
+    n = 0
+    for c in calls:
+        e = ends.get((c["symbol"], c["date"], c.get("run")))
+        if e and c["kind"] == "candidate" and not c.get("ended"):
+            c["ended"], c["end_decision"] = e
+            n += 1
+    return n
 
 
 def _ret(close: pd.Series, d0: str, n: int | None, base: float | None = None):
@@ -201,6 +246,8 @@ def update(dec: dict, px: dict, bench: pd.Series, theses: dict, today, stops: di
     calls = st["calls"]
     if st.get("tracking_rule") != TRACKING_RULE:
         print(f"[calls] tracking rule '{TRACKING_RULE}': {reopen_under_rule(calls)} call(s) open again from their entry")
+    if n := restore_candidate_ends(calls):
+        print(f"[calls] {n} candidate call(s) reopened by the 28 Nov move given their recorded end back")
     for c in calls:  # a company that moved symbol (BSE -> NSE) keeps its calls, as research and memory do (audit 26 Nov 2026)
         if aliases and c["symbol"] in aliases:
             c["symbol"] = aliases[c["symbol"]]
@@ -251,8 +298,16 @@ def update(dec: dict, px: dict, bench: pd.Series, theses: dict, today, stops: di
         kind = "verified" if d.get("d") in BUY else "candidate" if d.get("candidate") in BUY else None
         for k in ("verified", "candidate"):
             c = open_.get((s, k))
-            if c and d.get("d") in SELL:  # TRACKING_RULE: only a Sell (or the exit level, above) closes a call
-                c["ended"], c["end_decision"] = str(today), d.get("d")
+            if not c:
+                continue
+            end = d.get("d") if d.get("d") in SELL else None  # TRACKING_RULE: a verified call ends only on a Sell (or exit level)
+            if not end and k == "candidate":  # a candidate call ends when the stock stops being a candidate
+                if d.get("d") in BUY or (s, "verified") in open_:  # verified now: one call per stock, the verified one
+                    end = CAND_VERIFIED
+                elif d.get("candidate") not in BUY:
+                    end = CAND_FAILED if d.get("verified") in ("caution", "fail") else CAND_DROPPED
+            if end:
+                c["ended"], c["end_decision"] = str(today), end
                 open_.pop((s, k), None)
         if kind == "candidate" and (s, "verified") in open_:  # a verified Buy back to review: its call carries on, no candidate call
             kind = None

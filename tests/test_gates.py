@@ -162,6 +162,17 @@ def test_r8_incomplete_research_stays_a_buy_without_the_badge():
     assert any("needs 3" in m for m in republish.gate(CAND, two, "2026-11-01", TODAY, mx(80), TRIG, False, [])["incomplete"])
     done = republish.gate(CAND, PASS, "2026-11-01", TODAY, mx(80), TRIG, False, [])
     assert FN.research_missing(PASS) == [] and "incomplete" not in done
+    th = {k: v for k, v in PASS.items() if k != "story"}  # republished twice: one research-pending line, not one per pass
+    nd = republish.gate(CAND, th, "2026-11-01", TODAY, mx(80), TRIG, False, [])
+    nd = republish.gate(nd, th, "2026-11-01", TODAY, mx(80), TRIG, False, []) or nd
+    assert sum(w.startswith(FN.R8_WHY) for w in nd["why"]) == 1
+
+
+def test_plain_names_flag_codes_only_after_flag():
+    """A confirmed red flag's note keeps rating grades (code review, 28 Nov 2026: "to A2 from A1" became flag names)."""
+    assert FN.plain("Unreviewed red flag: A2") == "Unreviewed red flag: loan default"
+    note = "Red flag confirmed after reading the filing: rating downgrade · ICRA cut the rating to A2 from A1"
+    assert FN.plain(note) == note
 
 
 def test_queue_drops_items_whose_research_is_already_done():

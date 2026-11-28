@@ -133,11 +133,15 @@ def publish(r: dict, path: Path = OUT / "consistency.json") -> int:
     import os
 
     import requests
-    path.write_text(json.dumps(r, indent=1, ensure_ascii=False))
     hard = {k: v for k, v in r["checks"].items() if k in HARD and v["n"]}
     n = sum(v["n"] for v in hard.values())
+    # builds run after every research change: comment only when the hard mismatches differ from the last report
+    sig = lambda x: json.dumps({k: [v["n"], v["examples"]] for k, v in (x.get("checks") or {}).items() if k in HARD and v["n"]},  # noqa: E731
+                               sort_keys=True, default=str)
+    same = sig(_load(path, {})) == sig(json.loads(json.dumps(r, default=str)))
+    path.write_text(json.dumps(r, indent=1, ensure_ascii=False))
     repo, tok = os.environ.get("NARRATIV_REPO") or os.environ.get("GITHUB_REPOSITORY"), os.environ.get("GITHUB_TOKEN")
-    if not (repo and tok):
+    if not (repo and tok) or (n and same):
         return n
     h = {"Authorization": f"Bearer {tok}", "Accept": "application/vnd.github+json"}
     api = f"https://api.github.com/repos/{repo}/issues"

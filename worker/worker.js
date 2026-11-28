@@ -146,9 +146,11 @@ async function watchdog(env, nowMs) {
   const issues = r.ok ? await r.json() : [];
   const open = new Set(issues.map((x) => x.title));
   const badTitles = new Set(bad.map((b) => `watchdog: ${b.wf}`));
+  const day = new Date(nowMs).getUTCDay();  // a job not checked today (watchDays) keeps its issue open
+  const checked = new Set(SCHEDULE.filter((j) => j.maxH && (!j.watchDays || j.watchDays.includes(day))).map((j) => j.wf));
   for (const x of issues) {  // the job ran again since: close its issue (owner, 28 Nov 2026)
     const wf = String(x.title || "").replace(/^watchdog: /, "");
-    if (!badTitles.has(x.title) && wf in rows) {
+    if (!badTitles.has(x.title) && wf in rows && checked.has(wf)) {
       await gh(env, `/issues/${x.number}/comments`, { method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ body: `${wf} has run again within its window: closed by the Worker's watchdog.${SIG}` }) });
       await gh(env, `/issues/${x.number}`, { method: "PATCH", headers: { "content-type": "application/json" },

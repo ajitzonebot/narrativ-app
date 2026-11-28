@@ -1346,7 +1346,7 @@ FLAG_NAMES = {"A1": "negative equity", "A2": "loan default", "A3": "audit qualif
 _RULES = re.compile(r"\s*\((?:see )?RULES\.md[^)]*\)|\s*RULES\.md(?:\s+[RCT]\d+(?:\s*(?:,|and|/)\s*[RCT]\d+)*)?")
 _RCODE = re.compile(r"(^|: |; )R[1-8] (?=[a-z])")
 _TCODE = re.compile(r"\bT\d{1,2} (?=[A-Z])")
-_FLAG = re.compile(r"\b([AG][1-7])\b")
+_FLAG = re.compile(r"(?<=flag: )([AG][1-7])\b")
 
 
 def plain(text):
@@ -1732,6 +1732,7 @@ def decision(L: dict, out_l, th: dict | None, scan: dict | None, setup: dict | N
 AUDIT_DAYS = 30
 # the app shows "Narrativ.ai" for the reviewer (owner, 25 Nov 2026); decisions stored before then say "Claude": match both
 VERIFIED_BY = ("Verified by Claude", "Verified by Narrativ.ai")
+R8_WHY = "Narrativ.ai's review passed; research pending"  # republish re-applies the gate: one line, not one per pass
 
 
 def audit_flag_items(Mx: dict, lender: bool) -> list[tuple[str, str]]:
@@ -2057,8 +2058,8 @@ def apply_buy_rules(d0: dict, Mx: dict, lender: bool, L: dict, th: dict | None, 
         # ("let them still be Buy, let's just not show the verified badge"); the review queue takes it first with its gaps
         elif gaps := research_missing(th):
             d0 = {**d0, "incomplete": gaps,
-                  "why": [w for w in d0.get("why", []) if not w.startswith(VERIFIED_BY)]
-                  + ["Narrativ.ai's review passed; research pending, so no verified badge yet (RULES.md R8)"],
+                  "why": [w for w in d0.get("why", []) if not w.startswith((*VERIFIED_BY, R8_WHY))]
+                  + [R8_WHY + ", so no verified badge yet (RULES.md R8)"],
                   "missing": d0["missing"] + [f"Research pending: {m}" for m in gaps]}  # owner, 27 Nov 2026: "pending", not "incomplete"
     return plain_decision(d0)
 

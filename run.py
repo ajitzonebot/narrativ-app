@@ -543,13 +543,16 @@ def main(limit: int | None) -> None:
     for s in reviewed:  # stocks with a review: did the review see the latest call? (NSE transcripts + AlphaStreet; ex is not loaded yet)
         call_pre[s] = latest(s, {})
     print(f"[calls] reviewed stocks: {len(call_pre)}, latest call found {sum(1 for c in call_pre.values() if c and c['state'] == 'found')}")
-    def unread_bad_news(s):  # red filings of the last BAD_NEWS_DAYS days filed after the stock's last research (owner, 28 Nov 2026)
+    def unread_bad_news(s):  # red filings of the last BAD_NEWS_DAYS days not yet read by Claude (owner, 28 Nov 2026)
+        # read = `news_read` (the recheck's date: it read the red filings up to that day), or a full review / flag review
+        # dated after the filing (same day: the review may predate it). Other edits (a re-sourced quote) do not count.
         th = theses.get(s) or {}
-        r = max([str(x)[:10] for x in (th.get("updated"), (th.get("audit") or {}).get("date"), (th.get("scan") or {}).get("date"),
-                                       (th.get("scan_raw") or {}).get("date")) if x] or ["2000-01-01"])
+        nr = str(th.get("news_read") or "")[:10]
+        rv = max([str(x)[:10] for x in [(th.get("audit") or {}).get("date")] + [(v or {}).get("date") for v in (th.get("flag_reviews") or {}).values()] if x]
+                 or [""])
         cut = str(today - timedelta(days=FN.BAD_NEWS_DAYS))
-        return [e for e in (mem.get(s) or {}).get("events") or [] if e.get("sev") == "red" and (e.get("date") or "") >= cut
-                and (e.get("date") or "") > r]
+        return [e for e in (mem.get(s) or {}).get("events") or [] if e.get("sev") == "red" and (d := str(e.get("date") or "")) >= cut
+                and d > nr and d >= rv]
     dec = {s: FN.decision(ev[s]["L"], ev[s]["out"], theses.get(s), (theses.get(s) or {}).get("scan"), ev[s]["setup"], price_of(s), annc.get(s), today=today,
                           filed=(mx.get(s) or {}).get("filed"), scored=ev[s]["vd"] != "Not enough data",
                           call_since=(call_pre.get(s) or {}).get("since"), bad_news=unread_bad_news(s))
@@ -799,8 +802,8 @@ def main(limit: int | None) -> None:
         return (e.get("date") or "") > r or (e.get("red_seen") or "") >= r
     for sev, why in (("red", "bad news filed since the last research: check kill switches and the thesis"),):
         for s, th in theses.items():
-            evs = [e for e in (mem.get(s) or {}).get("events", []) if e["sev"] == sev and new_since(e, th)]
-            if evs:
+            evs = [e for e in (mem.get(s) or {}).get("events", []) if e["sev"] == sev and new_since(e, th)] or unread_bad_news(s)
+            if evs:  # unread_bad_news: a Buy held by bad news stays queued until a recheck records news_read
                 q(s, why, "recheck", {"events": evs[:5]})
     try:  # ledger stage 4: a material target behind, missed, lowered or not restated since the last research -> recheck
         from narrativ import monitor as _MO
@@ -1141,7 +1144,7 @@ def main(limit: int | None) -> None:
         det = {"metrics": Mx, "analyst": e["an"], "broker_targets": named_of.get(s), "levels": e["L"], "verdict": e["vd"], "decision": dec[s], "audit_flags": aflags.get(s) or None,
                "conviction": conv.get(s), "exit_hit": exit_hit(s), "u1": (lambda u: {"ok": u[0], "v": u[1]} if u[0] is not None else None)(u1_of.get(s) or (None, None)), "commodity": CM.for_industry(cm, basic_of.get(s)) if CM else None,
                "ratings": rat.get(s), "insolvency": ins.get(s), "news": news_of.get(s),
-               "statement": FN.statement(e["vd"], e["L"]) if not e["out"] else f"Removed at L{e['out'][0]} {FN.LEVEL_NAMES[FN.LEVELS[e['out'][0] - 1]]}: {e['out'][1]}.",
+               "statement": FN.statement(e["vd"], e["L"]) if not e["out"] else f"Removed at {FN.LEVEL_NAMES[FN.LEVELS[e['out'][0] - 1]]}: {e['out'][1]}.",
                "standouts": standouts(e["L"]), "setup": e["setup"], "hist": [{k: (round(x, 2) if isinstance(x, float) else x) for k, x in h.items()} for h in e["hist"]],
                "scan": scan_state(s, theses.get(s) or {}, today, queued, (mem.get(s) or {}).get("checkpoints", [])),
                "verdict_log": (mem.get(s) or {}).get("verdicts") or [], "research_log": rlog.get(s) or None,

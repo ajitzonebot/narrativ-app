@@ -659,7 +659,7 @@ def verify_all(theses: dict) -> tuple[dict, dict]:
     for sym, th in theses.items():
         rej = []
         v = {k: th.get(k) for k in ("updated", "quarter", "source_type", "outlook_score", "sentiment_score",
-                                    "sentiment", "tone", "no_concall", "sources", "checkpoints", "resolved")}
+                                    "sentiment", "tone", "no_concall", "sources", "checkpoints", "resolved", "news_read")}
         all_quotes = ""
         # promises and their updates
         promises = []
