@@ -429,7 +429,7 @@ fun PaperFrontBox(pf: PicksFile, n200: Double?, onFunnel: () -> Unit = {}, onMoo
                 val g1 = rememberGrow(0); val g2 = rememberGrow(250); val g3 = rememberGrow(500)
                 fn.companies?.let { FunnelBar("${fmt(it.toDouble(), 0)} companies", 1f, C.white, g1) }
                 fn.researched?.let { FunnelBar("$it stories studied", 0.62f, C.grey, g2) }
-                FunnelBar("${verifiedBuys(pf)} verified Buy", 0.32f, TierC.darkGreen, g3)
+                verifiedBuys(pf).let { nv -> FunnelBar("$nv verified Buy${if (nv == 1) "" else "s"}", 0.32f, TierC.darkGreen, g3) }
             }
             pf.regime.breadthPct?.let { b ->
                 PaperLabel("Above 200-day avg", size = 10.sp, modifier = Modifier.padding(top = 4.dp))

@@ -551,8 +551,9 @@ def main(limit: int | None) -> None:
         rv = max([str(x)[:10] for x in [(th.get("audit") or {}).get("date")] + [(v or {}).get("date") for v in (th.get("flag_reviews") or {}).values()] if x]
                  or [""])
         cut = str(today - timedelta(days=FN.BAD_NEWS_DAYS))
+        seen = {r.get("url") for r in th.get("news_reviews") or []}  # a filing reviewed one by one (real or false alarm) is read
         return [e for e in (mem.get(s) or {}).get("events") or [] if e.get("sev") == "red" and (d := str(e.get("date") or "")) >= cut
-                and d > nr and d >= rv]
+                and d > nr and d >= rv and e.get("url") not in seen]
     dec = {s: FN.decision(ev[s]["L"], ev[s]["out"], theses.get(s), (theses.get(s) or {}).get("scan"), ev[s]["setup"], price_of(s), annc.get(s), today=today,
                           filed=(mx.get(s) or {}).get("filed"), scored=ev[s]["vd"] != "Not enough data",
                           call_since=(call_pre.get(s) or {}).get("since"), bad_news=unread_bad_news(s))
@@ -929,7 +930,11 @@ def main(limit: int | None) -> None:
             from narrativ import packs
             for x in queue:  # every pack says whether the latest call is in it (idea 1)
                 call_of(x["symbol"])
-            packs.build(queue + backlog, today, ann_st, ex, dec, ev, mx, annc, theses, mem, MX.val, aflags, calls=calls)
+            from narrativ import blocked as BL
+            pb = packs.build(queue + backlog, today, ann_st, ex, dec, ev, mx, annc, theses, mem, MX.val, aflags, calls=calls,
+                             sites={x["symbol"]: (fund.get(x["symbol"]) or {}).get("website") for x in queue + backlog},
+                             blocked=BL.live(raw_theses, today))
+            H.source("company website documents", tried=pb.get("website_tried"), found=pb.get("website_found"))
             packs.doc_index(syms, ann_st, ex, today, rank_of, queue + backlog)  # what the free readers read next (narrativ/reader.py)
             pk = [json.loads(f.read_text()) for f in (OUT / "packs").glob("*.json")]
             dd = [d for x in pk for d in x.get("documents", [])]
@@ -1062,6 +1067,12 @@ def main(limit: int | None) -> None:
     except Exception as e:  # noqa: BLE001
         print(f"[factors] history not written: {e}")
     (OUT / "queue.json").write_text(json.dumps({"date": str(today), "items": queue}, indent=1, ensure_ascii=False))
+    try:  # false alarms by rule for the weekly rule review (narrativ/falsealarms.py)
+        from narrativ import falsealarms as FA
+        (OUT / "false_alarms.json").write_text(json.dumps(FA.build(theses, {s: (r or {}).get("events") or [] for s, r in mem.items()}, str(today)),
+                                                          indent=1, ensure_ascii=False))
+    except Exception as e:  # noqa: BLE001
+        print(f"[falsealarms] failed: {e}")
     (OUT / "backlog.json").write_text(json.dumps({"date": str(today), "items": backlog}, indent=1, ensure_ascii=False))
     (OUT / "funnel.json").write_text(json.dumps({"date": str(today), "funnel": funnel,
         "removed_by": {FN.LEVEL_NAMES[FN.LEVELS[i]]: sum(1 for s in syms if ev[s]["out"] and ev[s]["out"][0] == i + 1) for i in range(7)},

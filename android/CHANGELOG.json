@@ -14,6 +14,22 @@
    {
     "type": "improved",
     "text": "Not rated stocks that had a quick check say which check they failed: nothing changing, the company cannot capture it, or the story is already in the price"
+   },
+   {
+    "type": "fixed",
+    "text": "Home › Today's funnel: the last bar shows \"15 verified Buys\" in full; its label was cut to the number"
+   },
+   {
+    "type": "fixed",
+    "text": "Today's Top 10 lists only verified Buys again: Buys still waiting for complete research took places and left the card short"
+   },
+   {
+    "type": "fixed",
+    "text": "An NCLT-sanctioned scheme of arrangement is no longer flagged as insolvency bad news (ESAFSFB)"
+   },
+   {
+    "type": "improved",
+    "text": "Swiping between tabs, the research queue's Waiting and Completed, and IPO pages now pulls the next page in right beside the current one, with no blank gap"
    }
   ]
  },

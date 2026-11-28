@@ -234,8 +234,11 @@ def main(before: str | None) -> None:
     # "stories studied" follows Claude's runs too, same count as the daily run (owner, 26 Nov 2026: it stayed at 162 all day
     # while 199 stocks had been studied)
     studied = sum(1 for x in th if x in rows)
-    if studied != (picks.get("funnel") or {}).get("researched"):
+    from narrativ import portfolio as PF
+    t10 = PF.top10(picks["picks"])  # also when no verdict changed: a Top 10 rule fix reaches the app at the next poll (#250)
+    if studied != (picks.get("funnel") or {}).get("researched") or t10 != picks.get("top10"):
         picks.setdefault("funnel", {})["researched"] = studied
+        picks["top10"] = t10
         if not touched:
             (OUT / "picks.json").write_text(json.dumps(picks, separators=(",", ":"), ensure_ascii=False))
     if touched:
@@ -243,7 +246,6 @@ def main(before: str | None) -> None:
         for p in picks["picks"]:
             dc[p.get("dc")] = dc.get(p.get("dc"), 0) + 1
         picks.setdefault("funnel", {})["decisions"] = dc
-        from narrativ import portfolio as PF
         picks["top10"] = PF.top10(picks["picks"])  # a newly passed stock joins the Top 10 at the next poll
         picks["research_updated"] = datetime.now(timezone.utc).isoformat()
         (OUT / "picks.json").write_text(json.dumps(picks, separators=(",", ":"), ensure_ascii=False))

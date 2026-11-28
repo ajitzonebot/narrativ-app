@@ -20,3 +20,9 @@ def test_caps_per_industry_and_sector():
 def test_multibagger_needs_trigger():
     assert multibagger(5000, 1, 25, False, 18, True, 1)
     assert not multibagger(5000, 1, 25, False, 18, False, 1)
+
+
+def test_top10_skips_incomplete_research():
+    rows = [{"s": "I", "dc": "Buy", "vf": "pass", "ic": 1, "rk": 1, "i": "x", "mc": 50000},
+            {"s": "V", "dc": "Buy", "vf": "pass", "rk": 2, "i": "x", "mc": 50000}]
+    assert top10(rows) == ["V"]

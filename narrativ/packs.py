@@ -173,6 +173,57 @@ def letter_links(url: str, ns, txt: str | None) -> list[str]:
     return out[:5]
 
 
+# ---------- Company website: the investor page when the exchange has no readable call (owner, 28 Nov 2026) ----------
+# Packs of 28 Nov: 26 of 60 had no exchange transcript in 400 days and 8 cover letters pointed to a web page, not a PDF;
+# none of those documents reached a pack. One level deep: the page, then up to 3 investor-looking pages on the same site.
+IR_PER_DAY = 30  # website lookups per daily run (blocked stocks always get one)
+_HREF = re.compile(r"<a\b[^>]*?href\s*=\s*[\"']([^\"'#]+)[\"'][^>]*>(.*?)</a>", re.I | re.S)
+IR_PAGE = re.compile(r"investor|financial|shareholder|disclosure|earnings|result|concall|con-call|analyst|presentation", re.I)
+DOC_LINK = re.compile(r"transcript|concall|con-call|conference.call|earnings.call|analyst.?(meet|call)|presentation", re.I)
+_YEAR = re.compile(r"(?<!\d)(20[12]\d)(?!\d)|fy ?(\d{2})(?!\d)", re.I)
+
+
+def _page_links(url: str) -> list[tuple[str, str]]:
+    from urllib.parse import urljoin
+    rq = __import__("requests")
+    try:
+        r = rq.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=20)
+        if not r.ok or "html" not in r.headers.get("content-type", "html"):
+            return []
+        return [(urljoin(r.url, h.strip()), re.sub(r"<[^>]+>|\s+", " ", t).strip()) for h, t in _HREF.findall(r.text)]
+    except Exception as e:  # noqa: BLE001
+        print(f"[packs] website {url[:60]}: {str(e)[:80]}")
+        return []
+
+
+def _year_of(s: str) -> int:
+    ys = [int(a) if a else 2000 + int(b) for a, b in _YEAR.findall(s)]
+    return max(ys) if ys else 0
+
+
+def website_docs(pages: list[str], cap: int = 2) -> list[dict]:
+    """Transcript / presentation PDFs linked from a company's pages (newest year in the link first, transcripts first)."""
+    from urllib.parse import urlparse
+    seen, pdfs, todo = set(), {}, [p for p in dict.fromkeys(pages) if p]
+    for depth in (0, 1):
+        nxt = []
+        for p in todo:
+            if p in seen:
+                continue
+            seen.add(p)
+            host = urlparse(p).netloc
+            for h, t in _page_links(p):
+                low = h.lower().split("?")[0]
+                if low.endswith(".pdf") and DOC_LINK.search(f"{h} {t}"):
+                    pdfs.setdefault(h, {"url": h, "page": p, "title": (t or h.rsplit("/", 1)[-1])[:140],
+                                        "kind": "transcript" if re.search(r"transcript|concall|con-call|call", f"{h} {t}", re.I) else "presentation"})
+                elif depth == 0 and urlparse(h).netloc == host and IR_PAGE.search(f"{h} {t}") and not low.endswith((".pdf", ".jpg", ".png", ".zip")):
+                    nxt.append(h)
+        todo = nxt[:3]
+    ranked = sorted(pdfs.values(), key=lambda d: (d["kind"] != "transcript", -_year_of(f"{d['url']} {d['title']}")))
+    return ranked[:cap]
+
+
 def doc_text(url: str, ns, kind: str | None = None) -> tuple[str | None, int | None, str]:
     """Text of a filed transcript / presentation. When the filing is only a cover letter, follow its link (up to 3) to the
     real document; returns (text, pages, url the text came from)."""
@@ -395,7 +446,8 @@ def machine_checks(Mx: dict) -> tuple[list[dict], list[str]]:
 
 
 def build(queue: list[dict], today: date, ann_st: dict, ex: dict, dec: dict, ev: dict, mx: dict, annc: dict, theses: dict,
-          mem: dict, val, aflags: dict | None = None, max_minutes: float = 12, calls: dict | None = None) -> dict:
+          mem: dict, val, aflags: dict | None = None, max_minutes: float = 12, calls: dict | None = None,
+          sites: dict | None = None, blocked: set | None = None) -> dict:
     """calls: {symbol: narrativ.latest_call.latest_call(...)}: the latest earnings call and where it is available."""
     from .filings import NSESession
     OUT.mkdir(parents=True, exist_ok=True)
@@ -404,6 +456,7 @@ def build(queue: list[dict], today: date, ann_st: dict, ex: dict, dec: dict, ev:
         if f.stem not in want:
             f.unlink()
     ns, t0, n_docs, n_ok = None, time.time(), 0, 0
+    ir = {"tried": 0, "found": 0}
     for q in queue:
         s = q["symbol"]
         L = (ev.get(s) or {}).get("L") or {}
@@ -468,6 +521,37 @@ def build(queue: list[dict], today: date, ann_st: dict, ex: dict, dec: dict, ev:
                 docs.append(d)
                 if _FETCHES[0] != f0:
                     time.sleep(0.4)
+        # no readable call transcript from the exchange: look on the company's own investor pages (letter links, then its website)
+        web = [u for t in thin for u in t.get("links") or [] if not u.lower().split("?")[0].endswith(".pdf")] + [(sites or {}).get(s)]
+        if (checked and any(web) and not any(d.get("kind") == "transcript" and d.get("has_text") for d in docs)
+                and (ir["tried"] < IR_PER_DAY or s in (blocked or ())) and time.time() - t0 < max_minutes * 60):
+            ir["tried"] += 1
+            have = {d.get("url") for d in docs}
+            for w in website_docs([u for u in web if u]):
+                if w["url"] in have:
+                    continue
+                ns = ns or NSESession()
+                txt, pages, _src = doc_text(w["url"], ns, w["kind"])
+                n_docs += 1
+                if not txt or len(txt.strip()) <= 200 or thin_text(txt):
+                    continue
+                n_ok += 1
+                ex_ = excerpts(txt)
+                if not review:
+                    cut, n = [], 0
+                    for x in ex_:
+                        if n + len(x) > SHORT_CHARS:
+                            break
+                        cut.append(x); n += len(x)
+                    ex_ = cut
+                d = {"kind": w["kind"], "date": None, "title": w["title"], "url": w["url"], "has_text": True, "pages": pages,
+                     "quality": quality(txt, pages), "excerpts": ex_, "website_page": w["page"],
+                     "source_note": "found on the company's investor page (not filed on the exchange): quote with this url; check the "
+                                    "quarter in the document itself"}
+                if d["kind"] == "transcript" and review and not any("full_text" in x for x in docs):
+                    d["full_text"] = full_transcript(txt)
+                docs.append(d)
+                ir["found"] += 1
         call = (calls or {}).get(s)
         if call:
             call = _latest_call_docs(call, docs, review, time.time() - t0 < max_minutes * 60)
@@ -525,8 +609,9 @@ def build(queue: list[dict], today: date, ann_st: dict, ex: dict, dec: dict, ev:
             from .funnel import research_missing
             pack["complete_record"] = research_missing(theses.get(s)) or ["complete: keep it current"]
         write_if_changed(OUT / f"{s}.json", json.dumps(pack, ensure_ascii=False, indent=0, default=str))
-    print(f"[packs] {len(queue)} packs, {n_docs} documents ({n_ok} with text), {time.time() - t0:.0f}s")
-    return {"packs": len(queue), "docs": n_docs, "with_text": n_ok}
+    print(f"[packs] {len(queue)} packs, {n_docs} documents ({n_ok} with text), company websites tried {ir['tried']}, "
+          f"documents found there {ir['found']}, {time.time() - t0:.0f}s")
+    return {"packs": len(queue), "docs": n_docs, "with_text": n_ok, "website_tried": ir["tried"], "website_found": ir["found"]}
 
 
 # ---------- Reading pipeline (narrativ/reader.py): stage 1 Flash-Lite, stage 2 Flash, stage 3 Claude ----------

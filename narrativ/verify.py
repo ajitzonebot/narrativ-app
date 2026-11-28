@@ -190,7 +190,8 @@ def _fetch_text(url: str) -> str | None:
         from .alphastreet import text as as_text
         return as_text(url)
     CACHE.mkdir(parents=True, exist_ok=True)
-    key = CACHE / (hashlib.sha1(url.encode()).hexdigest() + ".txt")
+    # zip filings were cached as tag-stripped bytes before 28 Nov 2026: a new key reads them again
+    key = CACHE / (hashlib.sha1(url.encode()).hexdigest() + (".z.txt" if url.lower().endswith(".zip") else ".txt"))
     if key.exists():
         return key.read_text()
     if url in DEAD:
@@ -204,24 +205,48 @@ def _fetch_text(url: str) -> str | None:
         print(f"[verify] fetch failed {url}: {e}")
         DEAD.add(url)
         return None
-    if r.content[:4] == b"%PDF" or url.lower().endswith(".pdf"):
-        from pypdf import PdfReader
-        parts = []
-        try:  # damaged PDFs: keep the pages that read; a file with none is treated as unreachable
-            for p in PdfReader(io.BytesIO(r.content), strict=False).pages:
-                try:
-                    parts.append(p.extract_text() or "")
-                except Exception:  # noqa: BLE001
-                    continue
-        except Exception as e:  # noqa: BLE001
-            print(f"[verify] unreadable PDF {url}: {e}")
-        if not any(x.strip() for x in parts):
-            return None
-        text = "\n".join(parts)
-    else:
-        text = re.sub(r"<[^>]+>", " ", r.text)
+    text = _doc_text(r.content, url, r.text if r.content[:4] != b"%PDF" and r.content[:2] != b"PK" else "")
+    if text is None:
+        return None
     key.write_text(text)
     return text
+
+
+def _pdf_text(b: bytes, url: str) -> str | None:
+    from pypdf import PdfReader
+    parts = []
+    try:  # damaged PDFs: keep the pages that read; a file with none is treated as unreachable
+        for p in PdfReader(io.BytesIO(b), strict=False).pages:
+            try:
+                parts.append(p.extract_text() or "")
+            except Exception:  # noqa: BLE001
+                continue
+    except Exception as e:  # noqa: BLE001
+        print(f"[verify] unreadable PDF {url}: {e}")
+    return "\n".join(parts) if any(x.strip() for x in parts) else None
+
+
+def _doc_text(b: bytes, url: str, html: str = "") -> str | None:
+    """PDF, a zip of filed documents (NSE attaches resignation letters and SEBI's KMP XBRL as <SYM>_..._Doc.zip: the PDFs,
+    XML, HTML and text inside, owner run of 28 Nov 2026), or HTML."""
+    if b[:4] == b"%PDF" or url.lower().endswith(".pdf"):
+        return _pdf_text(b, url)
+    if b[:2] == b"PK":
+        import zipfile
+        parts = []
+        try:
+            z = zipfile.ZipFile(io.BytesIO(b))
+            for n in z.namelist()[:20]:
+                ext = n.lower().rsplit(".", 1)[-1]
+                raw = z.read(n)
+                if ext == "pdf" or raw[:4] == b"%PDF":
+                    parts.append(_pdf_text(raw, f"{url}#{n}") or "")
+                elif ext in ("xml", "xbrl", "htm", "html", "txt"):
+                    parts.append(re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", raw.decode("utf-8", "ignore"))))
+        except Exception as e:  # noqa: BLE001
+            print(f"[verify] unreadable zip {url}: {e}")
+        return "\n".join(parts) if any(x.strip() for x in parts) else None
+    return re.sub(r"<[^>]+>", " ", html) or None
 
 
 _DOS: dict = {}
@@ -742,6 +767,22 @@ def verify_all(theses: dict) -> tuple[dict, dict]:
                 continue
             fr[fid] = {k: it.get(k) for k in ("verdict", "note", "quote", "source", "date")}
         v["flag_reviews"] = fr
+        # bad-news reviews (owner, 28 Nov 2026: false positives feed the weekly rule review, narrativ/falsealarms.py): each red or
+        # watch filing read in a recheck is real or a false alarm, with the quote from the filing that shows which
+        nrv = []
+        for it in th.get("news_reviews") or []:
+            it = it or {}
+            if it.get("verdict") not in ("real", "false_alarm"):
+                w = "verdict must be real or false_alarm"
+            elif not str(it.get("url") or "").startswith("http") or not str(it.get("why") or "").strip():
+                w = "url (the filing) and why are needed"
+            else:
+                w = check(it, ("why",))
+            if w:
+                rej.append({"id": f"news {it.get('url')}", "field": "news_reviews", "reason": w})
+                continue
+            nrv.append({k: it.get(k) for k in ("date", "filed", "url", "verdict", "why", "quote", "source") if it.get(k)})
+        v["news_reviews"] = nrv
         # story check and integrity items: same rule (verbatim quote; numbers in the text must sit in the quote)
         sto = th.get("story")
         if sto:

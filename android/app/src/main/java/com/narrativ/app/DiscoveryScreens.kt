@@ -343,23 +343,42 @@ private fun ipoActionColor(a: String): Color = when (a) {
 @Composable
 fun IpoDetailScreen(st: AppState, name: String) {
     val x = st.ipo
+    // feedback #210 (owner, 27 Nov 2026): swipe left / right moves to the next / previous IPO, in the Home list's order; the
+    // next IPO's page is drawn beside this one while swiping (SwipePages, owner 28 Nov 2026: no gap between pages)
+    val all = (x?.actionable.orEmpty().map { it.name } + x?.laterToday.orEmpty().map { it.name } + x?.upcoming.orEmpty().map { it.name }).distinct()
+    val at = all.indexOf(name)
+    val cs = rememberCardSwipe(name)
+    val toIpo: (Int) -> Unit = { to -> if (at >= 0 && to != at && to in all.indices && st.stack.lastOrNull() == Screen.Ipo(name)) st.stack[st.stack.lastIndex] = Screen.Ipo(all[to]) }
+    val swipe = Modifier.swipeGesture(cs, canPrev = at > 0, canNext = at >= 0 && at < all.lastIndex, onPrev = { toIpo(at - 1) }, onNext = { toIpo(at + 1) })
+    val prevIpo: (@Composable () -> Unit)? = all.getOrNull(at - 1)?.takeIf { at > 0 }?.let { n -> @Composable { Peek(st) { IpoDetailBody(st, n) } } }
+    val nextIpo: (@Composable () -> Unit)? = all.getOrNull(at + 1)?.takeIf { at >= 0 }?.let { n -> @Composable { Peek(st) { IpoDetailBody(st, n) } } }
+    Box(Modifier.fillMaxSize()) {
+        SwipePages(cs, Modifier.fillMaxSize().then(swipe), prev = prevIpo, next = nextIpo) { IpoDetailBody(st, name) }
+        // feedback #223 (owner, 27 Nov 2026): ‹ › at the edges say the IPO pages swipe; a tap moves too (they stay put while the pages move)
+        @Composable
+        fun BoxScope.Edge(sym: String, al: Alignment, dir: Int) =
+            Box(Modifier.align(al).padding(horizontal = 2.dp).size(26.dp, 52.dp).clip(rr(6.dp)).background(C.card.copy(alpha = 0.85f))
+                .clickable { cs.go(dir, { toIpo(at - 1) }, { toIpo(at + 1) }) }, contentAlignment = Alignment.Center) {
+                Text(sym, fontSize = 24.sp, color = C.dim, fontWeight = FontWeight.Bold)
+            }
+        if (at > 0) Edge("‹", Alignment.CenterStart, 1)
+        if (at >= 0 && at < all.lastIndex) Edge("›", Alignment.CenterEnd, -1)
+    }
+}
+
+@Composable
+private fun IpoDetailBody(st: AppState, name: String) {
+    val x = st.ipo
     val u = x?.upcoming?.firstOrNull { it.name == name }
     val i = x?.actionable?.firstOrNull { it.name == name }
         ?: x?.laterToday?.firstOrNull { it.name == name }?.let { IpoOpen(name = it.name, board = it.board, lastDate = it.lastDate ?: "", upcoming = true) }
         ?: u?.let { IpoOpen(name = it.name, board = it.board, priceLow = it.priceLow, priceHigh = it.priceHigh, openDate = it.openDate ?: "", lastDate = it.lastDate ?: "",
             upcoming = true, sources = listOfNotNull(it.source)) }
     val uri = LocalUriHandler.current
-    // feedback #210 (owner, 27 Nov 2026): swipe left / right moves to the next / previous IPO, in the Home list's order
     val all = (x?.actionable.orEmpty().map { it.name } + x?.laterToday.orEmpty().map { it.name } + x?.upcoming.orEmpty().map { it.name }).distinct()
     val at = all.indexOf(name)
-    // owner, 28 Nov 2026: the page follows the finger like a card, slides out and the next IPO slides in (Swipe.kt; the new page is a new composition)
-    val cs = rememberCardSwipe(name, handoff = "ipo")
-    val toIpo: (Int) -> Unit = { to -> if (at >= 0 && to != at && to in all.indices && st.stack.lastOrNull() == Screen.Ipo(name)) st.stack[st.stack.lastIndex] = Screen.Ipo(all[to]) }
-    val toPrev = { toIpo(at - 1) }
-    val toNext = { toIpo(at + 1) }
-    val swipe = Modifier.swipeGesture(cs, canPrev = at > 0, canNext = at >= 0 && at < all.lastIndex, onPrev = toPrev, onNext = toNext, handoff = "ipo")
     Box(Modifier.fillMaxSize()) {
-    LazyColumn(Modifier.fillMaxSize().pageBackground().then(swipe).swipeLayer(cs), contentPadding = PaddingValues(bottom = 110.dp)) {
+    LazyColumn(Modifier.fillMaxSize().pageBackground(), contentPadding = PaddingValues(bottom = 110.dp)) {
         item { TopBar(st, name, context = "IPO $name", subtitle = listOfNotNull(i?.board?.ifBlank { null }, i?.symbol,
             if (all.size > 1 && at >= 0) "${at + 1} of ${all.size} · swipe for the next" else null).joinToString(" · ")) }
         if (i == null) { item { Spacer(Modifier.height(8.dp)); Empty("Not in today's IPO list") }; return@LazyColumn }
@@ -458,15 +477,6 @@ fun IpoDetailScreen(st: AppState, name: String) {
             }
         }
     }
-    // feedback #223 (owner, 27 Nov 2026): ‹ › at the edges say the IPO pages swipe; a tap moves too
-    @Composable
-    fun BoxScope.Edge(sym: String, al: Alignment, to: Int) =
-        Box(Modifier.align(al).padding(horizontal = 2.dp).size(26.dp, 52.dp).clip(rr(6.dp)).background(C.card.copy(alpha = 0.85f))
-            .clickable { cs.go(if (to > at) -1 else 1, toPrev, toNext, "ipo") }, contentAlignment = Alignment.Center) {
-            Text(sym, fontSize = 24.sp, color = C.dim, fontWeight = FontWeight.Bold)
-        }
-    if (at > 0) Edge("‹", Alignment.CenterStart, at - 1)
-    if (at >= 0 && at < all.lastIndex) Edge("›", Alignment.CenterEnd, at + 1)
     }
 }
 

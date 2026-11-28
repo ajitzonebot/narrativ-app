@@ -6,7 +6,9 @@ MAX_IND, MAX_SEC, MAX_SMALL, SMALL_CR = 2, 3, 6, 5000
 
 def top10(rows: list[dict]) -> list[str]:
     """rows: picks.json rows (s, dc, vf, rk, i, sec, mc). -> symbols in order."""
-    cand = sorted([r for r in rows if r.get("dc") in BUY and r.get("vf") == "pass"], key=lambda r: r.get("rk") or 10 ** 9)
+    # verified Buys only: a passed review with incomplete research (RULES.md R8, `ic`) is not verified (feedback #250, 28 Nov
+    # 2026: four such Buys took Top 10 places, the app hid them, and Home showed 6 of the 15 verified Buys)
+    cand = sorted([r for r in rows if r.get("dc") in BUY and r.get("vf") == "pass" and not r.get("ic")], key=lambda r: r.get("rk") or 10 ** 9)
     out, ind, sec, small = [], {}, {}, 0
     for r in cand:
         # no industry: its sector stands in, then the stock itself (unclassified stocks shared one "?" bucket and capped

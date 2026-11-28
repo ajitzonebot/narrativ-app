@@ -1,5 +1,7 @@
 package com.narrativ.app
 
+import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -218,12 +220,18 @@ fun DateStrip(marks: List<StripMark>, today: LocalDate, modifier: Modifier = Mod
 /** Funnel step: an ink bar holding its label (2,359 companies → 162 read → 15 Buy). */
 @Composable
 fun FunnelBar(label: String, fraction: Float, color: Color, grow: Float = 1f) {
-    Box(Modifier.fillMaxWidth(fraction * grow).height(20.dp).background(color).padding(horizontal = 6.dp), contentAlignment = Alignment.CenterStart) {
-        // feedback #119: left-aligned, centred top to bottom (no font padding, line box trimmed)
-        androidx.compose.material3.Text(label, fontSize = 11.sp, color = C.bg, fontFamily = PaperFonts.serif, maxLines = 1,
-            style = TextStyle(platformStyle = androidx.compose.ui.text.PlatformTextStyle(includeFontPadding = false),
-                lineHeight = 11.sp, lineHeightStyle = androidx.compose.ui.text.style.LineHeightStyle(
-                    androidx.compose.ui.text.style.LineHeightStyle.Alignment.Center, androidx.compose.ui.text.style.LineHeightStyle.Trim.Both)))
+    // feedback #119: left-aligned, centred top to bottom (no font padding, line box trimmed). Feedback #250 (28 Nov 2026): a short
+    // bar clipped its label ("15 verified Buy" showed "15"); the label now runs past the bar, ink outside it, paper inside it
+    val style = TextStyle(platformStyle = androidx.compose.ui.text.PlatformTextStyle(includeFontPadding = false),
+        lineHeight = 11.sp, lineHeightStyle = androidx.compose.ui.text.style.LineHeightStyle(
+            androidx.compose.ui.text.style.LineHeightStyle.Alignment.Center, androidx.compose.ui.text.style.LineHeightStyle.Trim.Both))
+    Box(Modifier.fillMaxWidth().height(20.dp), contentAlignment = Alignment.CenterStart) {
+        androidx.compose.material3.Text(label, Modifier.padding(horizontal = 6.dp), fontSize = 11.sp, color = C.white, fontFamily = PaperFonts.serif,
+            maxLines = 1, softWrap = false, style = style)
+        Box(Modifier.fillMaxWidth(fraction * grow).height(20.dp).background(color).clipToBounds(), contentAlignment = Alignment.CenterStart) {
+            androidx.compose.material3.Text(label, Modifier.padding(horizontal = 6.dp).wrapContentWidth(Alignment.Start, unbounded = true),
+                fontSize = 11.sp, color = C.bg, fontFamily = PaperFonts.serif, maxLines = 1, softWrap = false, style = style)
+        }
     }
 }
 

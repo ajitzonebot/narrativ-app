@@ -397,15 +397,7 @@ fun App(startRoute: String? = null, ci: Boolean = false) {
             }
             if (st.error == null) HomeSkeleton()  // placeholders in the shape of Home instead of a spinner (#19)
         } else {
-            AnimatedContent(st.current, Modifier.fillMaxSize().swipeLayer(tabSwipe), transitionSpec = {
-                if (targetState is Screen.Stock && nav[1] > 0)
-                    (slideInVertically(tween(280, easing = FastOutSlowInEasing)) { it / 6 } + fadeIn(tween(240, easing = FastOutSlowInEasing))) togetherWith
-                        fadeOut(tween(280), targetAlpha = 0.85f)
-                else if (initialState is Screen.Stock && nav[1] < 0)
-                    (EnterTransition.None togetherWith (slideOutVertically(tween(250, easing = FastOutSlowInEasing)) { it / 6 } +
-                        fadeOut(tween(220, easing = FastOutSlowInEasing)))).apply { targetContentZIndex = -1f }
-                else EnterTransition.None togetherWith ExitTransition.None
-            }, label = "screen") { s ->
+            val page: @Composable (Screen) -> Unit = { s ->
             Box(Modifier.fillMaxSize().background(C.bg)) {
             when (s) {
                 Screen.Home -> HomeScreen(st)
@@ -432,6 +424,23 @@ fun App(startRoute: String? = null, ci: Boolean = false) {
                 Screen.Search -> SearchScreen(st)
             }
             }
+            }
+            // the neighbouring tab while a swipe is under way (SwipePages): drawn only, so it must not take over the feedback
+            // context of the screen that is showing
+            val peek: @Composable (Screen) -> Unit = { s -> Peek(st) { page(s) } }
+            val tabsOn = st.stack.size == 1
+            val prevTab: (@Composable () -> Unit)? = roots.getOrNull(tabAt - 1)?.takeIf { tabsOn }?.let { r -> @Composable { peek(r) } }
+            val nextTab: (@Composable () -> Unit)? = roots.getOrNull(tabAt + 1)?.takeIf { tabsOn }?.let { r -> @Composable { peek(r) } }
+            SwipePages(tabSwipe, Modifier.fillMaxSize(), prev = prevTab, next = nextTab) {
+            AnimatedContent(st.current, Modifier.fillMaxSize(), transitionSpec = {
+                if (targetState is Screen.Stock && nav[1] > 0)
+                    (slideInVertically(tween(280, easing = FastOutSlowInEasing)) { it / 6 } + fadeIn(tween(240, easing = FastOutSlowInEasing))) togetherWith
+                        fadeOut(tween(280), targetAlpha = 0.85f)
+                else if (initialState is Screen.Stock && nav[1] < 0)
+                    (EnterTransition.None togetherWith (slideOutVertically(tween(250, easing = FastOutSlowInEasing)) { it / 6 } +
+                        fadeOut(tween(220, easing = FastOutSlowInEasing)))).apply { targetContentZIndex = -1f }
+                else EnterTransition.None togetherWith ExitTransition.None
+            }, label = "screen") { s -> page(s) }
             }
         }
         if (st.picks != null) {

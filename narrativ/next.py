@@ -50,7 +50,8 @@ def docs_ready(pack: dict | None) -> bool | None:
     return (pack.get("readable_docs") or 0) > 0
 
 
-def ladder(queue: dict, backlog: dict, theses: dict, claims: dict, pack_of, task: str, today: str, now: datetime) -> tuple[list, Counter]:
+def ladder(queue: dict, backlog: dict, theses: dict, claims: dict, pack_of, task: str, today: str, now: datetime,
+           blocked: set | None = None) -> tuple[list, Counter]:
     """Items this run may take, best first, and why the others were skipped."""
     skipped: Counter = Counter()
     qd = str(queue.get("date") or "")
@@ -78,6 +79,9 @@ def ladder(queue: dict, backlog: dict, theses: dict, claims: dict, pack_of, task
             continue
         if g == "first_study" and s in theses:
             skipped["studied since the daily run"] += 1
+            continue
+        if s in (blocked or ()):  # narrativ/blocked.py: blocked twice in 3 days; a GitHub issue "blocked: SYMBOL" is open
+            skipped["blocked by earlier runs (see the GitHub issue)"] += 1
             continue
         if s in taken:
             skipped["taken by a run in the last %d minutes" % config.CLAIM_MINUTES] += 1
@@ -112,7 +116,8 @@ def main(argv=None) -> dict:
 
     def pack_of(s):
         return _load(OUT / "packs" / f"{s}.json", None)
-    items, skipped = ladder(queue, backlog, theses, claims, pack_of, a.task, today, now)
+    from .blocked import live
+    items, skipped = ladder(queue, backlog, theses, claims, pack_of, a.task, today, now, live(theses, now.date()))
     first = [x for x in backlog.get("items") or [] if x.get("pos") == "first_study"]
     stats = {"queue_date": queue.get("date"), "waiting": len(items), "skipped": dict(skipped),
              "first_studies_waiting": sum(1 for x in items if x.get("pos") == "first_study"), "first_studies_listed": len(first)}

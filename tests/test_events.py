@@ -186,3 +186,12 @@ def test_roid_form_gives_the_role():
                  "Reason: Better prospects")
     s = f"{A.ROID_CAT} {t}"
     assert A.X["CFO"].search(s) and not A.X["CEO"].search(s)
+
+
+def test_nclt_scheme_sanction_is_not_insolvency():  # feedback #251
+    from narrativ.events import classify
+    t = ("ESAF Small Finance Bank Limited has informed the Exchange about Receipt of Communication from ESAF Financial Holdings "
+         "Private Limited (EFHPL), the Promoter Company of the Bank, on NCLT Sanction of the Revised Scheme of Arrangement")
+    assert classify(t)[1] != "red"
+    assert classify("NCLT order on petition filed by operational creditor") == ("Insolvency", "red")
+    assert classify("Corporate Insolvency Resolution Process: NCLT approves resolution plan with merger") == ("Insolvency", "red")

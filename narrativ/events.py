@@ -21,7 +21,10 @@ _RATING = r"credit rating|\brating(s)?\b.{0,60}\b(crisil|icra|care|careedge|indi
 RULES = [  # (type, severity, regex on headline + category[, context regex that must also match]), first match wins
     ("ESG rating", "info", r"\besg\b|sustainability rating|environmental, social"),
     ("Default / delayed payment", "red", _NOT_DEFAULT + r"|delay(ed)? in (payment|servicing)|non-?payment of (interest|principal)"),
-    ("Insolvency", "red", r"insolvency|\bnclt\b|\bibc\b|\bcirp\b|resolution professional|winding up"),
+    # NCLT alone is not insolvency: it also sanctions schemes of arrangement / mergers (feedback #251, 28 Nov 2026: ESAFSFB's
+    # promoter's NCLT-sanctioned scheme of arrangement was typed red); those fall to the scheme rule below
+    ("Insolvency", "red", r"insolvency|\bibc\b|\bcirp\b|resolution professional|winding up|"
+                          r"^(?!.*(scheme of|amalgamat|demerg|\bmerger\b)).*\bnclt\b"),
     ("Auditor resigned", "red", r"(statutory )?auditors?.{0,40}resign|resign.{0,40}auditor"),
     ("Auditor change", "info", r"change (in|of) (the )?(statutory )?auditors?|(appointment|re-?appointment) of (the )?(new )?statutory auditors?"),
     ("Auditor appointment (routine)", "info", r"(appointment|re-?appointment) of (the )?(secretarial|internal|cost) auditors?"),

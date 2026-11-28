@@ -612,49 +612,60 @@ fun ResearchQueueScreen(st: AppState) {
     val cs = rememberCardSwipe()
     val toDone = { tab = "completed" }
     val toWaiting = { tab = "waiting" }
-    val swipe = Modifier.swipeGesture(cs, canPrev = tab == "completed", canNext = tab == "waiting", onPrev = toWaiting, onNext = toDone)
-    AccScreen(st, "Research queue", q?.let { "${it.items.size} waiting · queue of ${shortDate(it.date)}" }, "Queue",
-        actions = { InfoButton { info = true } }, modifier = swipe) {
-        item {
-            Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("waiting" to "Waiting ${q?.items?.size ?: 0}", "completed" to "Completed $nDone").forEach { (k, lab) ->
-                    Box(Modifier.weight(1f).clip(rr(10.dp)).background(if (tab == k) C.teal else C.card)
-                        .clickable { if (tab != k) cs.go(if (k == "completed") -1 else 1, toWaiting, toDone) }.padding(vertical = 9.dp),
-                        contentAlignment = Alignment.Center) { T(lab, 13.sp, if (tab == k) C.onAccent else C.dim, if (tab == k) FontWeight.SemiBold else FontWeight.Normal) }
+    val swipe = Modifier.swipeGesture(cs, canPrev = tab == "completed", canNext = tab == "waiting", onPrev = toWaiting, onNext = toDone,
+        enabled = search.isBlank())
+    // owner, 28 Nov 2026: the tabs and search stay put; the two lists move side by side like the stock screen's pages (SwipePages)
+    Column(Modifier.fillMaxSize().pageBackground()) {
+        TopBar(st, "Research queue", "Queue", q?.let { "${it.items.size} waiting · queue of ${shortDate(it.date)}" }, actions = { InfoButton { info = true } })
+        Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("waiting" to "Waiting ${q?.items?.size ?: 0}", "completed" to "Completed $nDone").forEach { (k, lab) ->
+                Box(Modifier.weight(1f).clip(rr(10.dp)).background(if (tab == k) C.teal else C.card)
+                    .clickable { if (tab != k) cs.go(if (k == "completed") -1 else 1, toWaiting, toDone) }.padding(vertical = 9.dp),
+                    contentAlignment = Alignment.Center) { T(lab, 13.sp, if (tab == k) C.onAccent else C.dim, if (tab == k) FontWeight.SemiBold else FontWeight.Normal) }
+            }
+        }
+        Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth().clip(rr(14.dp)).background(C.hi.copy(alpha = 0.07f))
+            .padding(horizontal = 12.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Rounded.Search, null, tint = C.dim, modifier = Modifier.size(20.dp)); Spacer(Modifier.width(8.dp))
+            BasicTextField(search, { search = it }, singleLine = true, textStyle = TextStyle(color = C.white, fontSize = 15.sp), cursorBrush = SolidColor(C.blue),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { focus.clearFocus() }),
+                modifier = Modifier.weight(1f),
+                decorationBox = { inner -> if (search.isEmpty()) T("Search queue and done…", 15.sp, C.dim); inner() })
+            if (search.isNotEmpty()) Icon(Icons.Rounded.Close, "Clear", tint = C.dim, modifier = Modifier.clip(CircleShape).clickable { search = "" }.size(20.dp))
+        }
+        val pageOf: @Composable (String) -> Unit = { t ->
+            LazyColumn(Modifier.fillMaxSize().pageBackground(), contentPadding = PaddingValues(bottom = 110.dp)) {
+                when {
+                    search.isNotBlank() -> queueSearch(st, q, done, search)
+                    t == "completed" -> completedList(st, done, filter) { filter = it }
+                    else -> waitingList(st, q, qFilter) { qFilter = it }
                 }
             }
         }
-        item {
-            Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth().clip(rr(14.dp)).background(C.hi.copy(alpha = 0.07f))
-                .padding(horizontal = 12.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Rounded.Search, null, tint = C.dim, modifier = Modifier.size(20.dp)); Spacer(Modifier.width(8.dp))
-                BasicTextField(search, { search = it }, singleLine = true, textStyle = TextStyle(color = C.white, fontSize = 15.sp), cursorBrush = SolidColor(C.blue),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { focus.clearFocus() }),
-                    modifier = Modifier.weight(1f),
-                    decorationBox = { inner -> if (search.isEmpty()) T("Search queue and done…", 15.sp, C.dim); inner() })
-                if (search.isNotEmpty()) Icon(Icons.Rounded.Close, "Clear", tint = C.dim, modifier = Modifier.clip(CircleShape).clickable { search = "" }.size(20.dp))
-            }
-        }
-        val list = SwipeItems(this, cs)
-        if (search.isNotBlank()) { list.queueSearch(st, q, done, search); return@AccScreen }
-        if (tab == "completed") { list.completedList(st, done, filter) { filter = it }; return@AccScreen }
-        if (q == null || q.items.isEmpty()) { list.item { Empty("The queue appears after the next daily run.") }; return@AccScreen }
-        // owner, 27 Nov 2026: no "All N done by" heading or task chart; one filter button; rows by expected time, first to last
-        val etas = queueEtas(q.items.map { it.task })
-        val rows = q.items.indices.map { q.items[it] to etas.getOrNull(it)?.first }
-            .filter { (it, _) -> qFilter == "All" || (it.task ?: "scan") == qFilter }
-            .sortedBy { (_, e) -> e }
-        list.item {
-            val mix = q.items.groupingBy { it.task ?: "scan" }.eachCount()
-            FilterMenu(listOf(Triple("All", "All", q.items.size)) + mix.entries.sortedByDescending { it.value }.map { Triple(it.key, queueTaskName(it.key), it.value) },
-                qFilter, { k -> queueTaskColor(k) }) { qFilter = it }
-        }
-        list.item {
-            Card(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth(), pad = 0.dp) {
-                rows.forEachIndexed { n, (it, e) ->
-                    QueueRow(st, it, e)
-                    if (n < rows.lastIndex) HLineDivider(Modifier.padding(horizontal = 14.dp))
-                }
+        SwipePages(cs, Modifier.fillMaxSize().then(swipe),
+            prev = if (tab == "completed" && search.isBlank()) ({ pageOf("waiting") }) else null,
+            next = if (tab == "waiting" && search.isBlank()) ({ pageOf("completed") }) else null) { pageOf(tab) }
+    }
+}
+
+/** Research queue › Waiting: a filter by task, then the rows by expected time, first to last. */
+private fun LazyListScope.waitingList(st: AppState, q: QueueFile?, qFilter: String, onQFilter: (String) -> Unit) {
+    if (q == null || q.items.isEmpty()) { item { Empty("The queue appears after the next daily run.") }; return }
+    // owner, 27 Nov 2026: no "All N done by" heading or task chart; one filter button; rows by expected time, first to last
+    val etas = queueEtas(q.items.map { it.task })
+    val rows = q.items.indices.map { q.items[it] to etas.getOrNull(it)?.first }
+        .filter { (it, _) -> qFilter == "All" || (it.task ?: "scan") == qFilter }
+        .sortedBy { (_, e) -> e }
+    item {
+        val mix = q.items.groupingBy { it.task ?: "scan" }.eachCount()
+        FilterMenu(listOf(Triple("All", "All", q.items.size)) + mix.entries.sortedByDescending { it.value }.map { Triple(it.key, queueTaskName(it.key), it.value) },
+            qFilter, { k -> queueTaskColor(k) }) { onQFilter(it) }
+    }
+    item {
+        Card(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth(), pad = 0.dp) {
+            rows.forEachIndexed { n, (it, e) ->
+                QueueRow(st, it, e)
+                if (n < rows.lastIndex) HLineDivider(Modifier.padding(horizontal = 14.dp))
             }
         }
     }

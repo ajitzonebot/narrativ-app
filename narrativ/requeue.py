@@ -225,6 +225,16 @@ def main() -> dict:
             it = next(x for x in q["items"] if x["symbol"] == s)
             pk.write_text(json.dumps(light_pack(s, it, theses, research), ensure_ascii=False, indent=0, default=str))
     changed = json.dumps(q, sort_keys=True) != before
+    try:  # stocks research runs could not finish: stop serving, one GitHub issue each (narrativ/blocked.py)
+        from datetime import datetime, timedelta, timezone
+        from . import blocked as BL
+        b0 = BL.STATE.read_text() if BL.STATE.exists() else ""
+        st = BL.sync_issues(theses, datetime.now(timezone(timedelta(hours=5, minutes=30))).date())
+        changed = changed or BL.STATE.read_text() != b0
+        if st.get("stuck"):
+            print(f"[requeue] blocked: {', '.join(st['stuck'])}")
+    except Exception as e:  # noqa: BLE001
+        print(f"[requeue] blocked sync failed: {e}")
     if changed:
         qp.write_text(json.dumps(q, indent=1, ensure_ascii=False))
     print(f"[requeue] {n} done item(s) dropped, {len(added)} added ({', '.join(added) or 'none'}), "
