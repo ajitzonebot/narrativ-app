@@ -61,4 +61,16 @@ class FunnelTest {
         val f = presetFilt("vb", pf)
         assertEquals(5, pf.picks.count { f.match(it) })
     }
+
+    @Test fun studyLinesReadInPlainWords() {
+        val st = StudyStats(pool = 808, studied = 312, week = StudyYield(studied = 42, noStory = 30, candidates = 3, verified = 1),
+            start = StudyYield(studied = 1, noStory = 1, date = "2026-11-29"))
+        assertEquals("42 studied this week, 3 now Buy candidates", studyWeekLine(st))
+        assertEquals(listOf("Studied: 312 of 808 stocks that pass every level and can be scored",
+            "This week: 42 first studies, 30 with no story yet, 3 Buy candidates, 1 verified Buy",
+            "Since 2026-11-29: 1 first study, 1 with no story yet, 0 Buy candidates, 0 verified Buys"), studyLines(st))
+        assertEquals(null, studyWeekLine(StudyStats(pool = 808)))
+        assertEquals("5 studied this week, 1 now a Buy candidate", studyWeekLine(StudyStats(pool = 9, week = StudyYield(studied = 5, candidates = 1))))
+        assertEquals(emptyList<String>(), studyLines(null))
+    }
 }

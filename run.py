@@ -715,10 +715,10 @@ def main(limit: int | None) -> None:
         print(f"[ledger] failed: {e}")
 
     # ---------- Claude queue (PLAN.md section 4) ----------
-    queue, seen = [], set()
+    queue, seen, spill = [], set(), []  # spill: items past the cap, kept for the live feed (backlog.json, narrativ/next.py)
 
     def q(sym, why, task, extra=None, pos=None):
-        if sym in seen or len(queue) >= config.RESEARCH_PER_DAY or sym not in s0i.index and sym not in mem:
+        if sym in seen or len(spill) >= config.SPILL_MAX or sym not in s0i.index and sym not in mem:
             return
         seen.add(sym)
         item = {"symbol": sym, "name": (mem.get(sym) or {}).get("name") or sym, "reason": why, "task": task, **(extra or {})}
@@ -730,7 +730,7 @@ def main(limit: int | None) -> None:
         if sym in ev:
             item["priority"] = ev[sym]["pr"]
             item["verdict"] = ev[sym]["vd"]
-        queue.append(item)
+        (queue if len(queue) < config.RESEARCH_PER_DAY else spill).append(item)
 
     # every Buy / Strong Buy must pass Claude's independent audit before the app shows it as buyable (top priority after requests),
     # in readiness order: the stocks most likely to be good buys now are reviewed first (and lead the Top 10)
@@ -864,9 +864,13 @@ def main(limit: int | None) -> None:
         th = theses.get(s) or raw_theses.get(s) or {}
         r = researched_on(th)
         return r > "2000" and (today - date.fromisoformat(r)).days < config.RECENT_RESEARCH_DAYS
+    def no_story_hold(s):  # the quick check found no story: no new hunt until something new is filed or 90 days pass (phase 2)
+        t = (raw_theses.get(s) or {}).get("triage") or {}
+        d = iso_date(t.get("date"))
+        return t.get("outcome") == "no_story" and bool(d) and (today - d).days < config.THESIS_STALE_DAYS and not new_docs(s)
     n_enrich = [0]
     def enrich(s, why, pos=None):
-        if n_enrich[0] < config.ENRICH_PER_DAY and not fresh(s) and s not in seen:
+        if n_enrich[0] < config.ENRICH_PER_DAY and not fresh(s) and s not in seen and not no_story_hold(s):
             n_enrich[0] += 1
             q(s, why, "enrich", pos=pos)
     near = [s for s in top if not has_driver(s) and all(0 < ev[s]["L"][k]["t"] <= 3 for k in ("surv", "qual", "val"))]
@@ -900,6 +904,17 @@ def main(limit: int | None) -> None:
             x["scan_gaps"] = gap_of[x["symbol"]][:8]
     from narrativ import requeue as RQ
     RQ.label_positions(queue)  # why_pos: each item's group and place, in plain words (owner, 28 Nov 2026)
+    # live feed (owner, 28 Nov 2026: "if we are done with top priority items, then we can feed the unread stories"): stocks that
+    # pass every check, have enough data to score and were never studied; free readers' dated finds first, then priority
+    first = [s for s in sorted(infunnel, key=lambda s: (not (fwd.get(s) or {}).get("dated"), -ev[s]["pr"]))
+             if s not in raw_theses and s not in seen and ev[s]["vd"] != "Not enough data"][:config.FIRST_STUDY_PACKS]
+    backlog = [{**x, "why_pos": "Missed today's queue cap; served when the queue's earlier work is done"} for x in spill] + [
+        {"symbol": s, "name": (mem.get(s) or {}).get("name") or s, "task": "enrich", "pos": "first_study", "priority": ev[s]["pr"],
+         "verdict": ev[s]["vd"], "reason": f"first study: never studied, passes every check (priority {ev[s]['pr']}): quick check first "
+                                            "(is something changing, can the company capture it, is it already in the price; RESEARCH.md "
+                                            "Quick check); only if it passes, write the outlook scan and any dated driver",
+         "why_pos": f"Never studied: {i + 1} of {len(first)} unread stories, served when the queue's top work is done"}
+        for i, s in enumerate(first)]
     queued = {x["symbol"] for x in queue if x["task"] in ("scan", "triage", "enrich", "review_flag", "audit", "review")} | set(req_syms)
     qpos = {x["symbol"]: i + 1 for i, x in reversed(list(enumerate(queue)))}
     for s in syms:  # Not rated: name the gap (filed data, research not done yet, or researched without a driver)
@@ -914,8 +929,8 @@ def main(limit: int | None) -> None:
             from narrativ import packs
             for x in queue:  # every pack says whether the latest call is in it (idea 1)
                 call_of(x["symbol"])
-            packs.build(queue, today, ann_st, ex, dec, ev, mx, annc, theses, mem, MX.val, aflags, calls=calls)
-            packs.doc_index(syms, ann_st, ex, today, rank_of, queue)  # what the free readers read next (narrativ/reader.py)
+            packs.build(queue + backlog, today, ann_st, ex, dec, ev, mx, annc, theses, mem, MX.val, aflags, calls=calls)
+            packs.doc_index(syms, ann_st, ex, today, rank_of, queue + backlog)  # what the free readers read next (narrativ/reader.py)
             pk = [json.loads(f.read_text()) for f in (OUT / "packs").glob("*.json")]
             dd = [d for x in pk for d in x.get("documents", [])]
             lc = [x.get("latest_call") or {} for x in pk if x.get("task") in ("review", "audit")]
@@ -956,6 +971,13 @@ def main(limit: int | None) -> None:
     funnel = {"listed": stats["raw"], "companies": len(syms), "levels": passed, "researched": sum(1 for s in theses if s in ev),
               "decisions": pd.Series([dec[s]["d"] for s in syms]).value_counts().to_dict(),
               "queue": len(queue), "verdicts": pd.Series([ev[s]["vd"] for s in syms]).value_counts().to_dict()}
+    try:  # coverage and yield of first studies (narrativ/studylog.py, live feed phase 2)
+        from narrativ import studylog as SL
+        log = SL.update(raw_theses, today) if not limit else {s: "" for s in raw_theses}  # a test run writes no log
+        funnel["study"] = SL.stats(log, raw_theses, today,
+                                   [s for s in infunnel if ev[s]["vd"] != "Not enough data"], dec)
+    except Exception as e:  # noqa: BLE001
+        print(f"[studylog] failed: {e}")
     # Conviction (narrativ/conviction.py, RULES.md "Conviction"): how much verified evidence stands behind each verified
     # Buy. Computed after the decision and the gates; it never changes a decision.
     conv, conv_ok = {}, False
@@ -1040,6 +1062,7 @@ def main(limit: int | None) -> None:
     except Exception as e:  # noqa: BLE001
         print(f"[factors] history not written: {e}")
     (OUT / "queue.json").write_text(json.dumps({"date": str(today), "items": queue}, indent=1, ensure_ascii=False))
+    (OUT / "backlog.json").write_text(json.dumps({"date": str(today), "items": backlog}, indent=1, ensure_ascii=False))
     (OUT / "funnel.json").write_text(json.dumps({"date": str(today), "funnel": funnel,
         "removed_by": {FN.LEVEL_NAMES[FN.LEVELS[i]]: sum(1 for s in syms if ev[s]["out"] and ev[s]["out"][0] == i + 1) for i in range(7)},
         "industry": {k: v for k, v in istats.items() if v}}, separators=(",", ":"), ensure_ascii=False))

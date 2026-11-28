@@ -72,10 +72,34 @@ import androidx.compose.ui.unit.sp
  *  combine ([rule]) and the gates themselves in plain words, read from the pipeline's checks (narrativ/funnel.py, universe.py,
  *  RULES.md Buy gates and complete research). [info]: the band shows the (i) that opens them. */
 data class KoStage(val name: String, val value: Int, val level: Int, val rule: String, val gates: List<String> = emptyList(),
-                   val gapPost: String? = null, val gapN: Int = 0, val gapWait: Boolean = false, val info: Boolean = true)
+                   val gapPost: String? = null, val gapN: Int = 0, val gapWait: Boolean = false, val info: Boolean = true,
+                   val note: String? = null, val study: List<String> = emptyList())
 
 private data class KoDef(val name: String, val value: Int?, val level: Int, val rule: String, val gates: List<String>, val post: String?,
-                         val wait: Boolean = false)
+                         val wait: Boolean = false, val note: String? = null, val study: List<String> = emptyList())
+
+private fun plural(x: Int, one: String, many: String) = "${fmt(x.toDouble(), 0)} ${if (x == 1) one else many}"
+
+/** The line under "yet to be studied": this week's first studies and how many are Buy candidates now (null when none). */
+fun studyWeekLine(s: StudyStats?): String? {
+    val w = s?.week ?: return null
+    if (w.studied <= 0) return null
+    return "${fmt(w.studied.toDouble(), 0)} studied this week" +
+        (if (w.candidates > 0) ", ${if (w.candidates == 1) "1 now a Buy candidate" else "${fmt(w.candidates.toDouble(), 0)} now Buy candidates"}" else "")
+}
+
+private fun yieldLine(y: StudyYield) = "${plural(y.studied, "first study", "first studies")}, ${fmt(y.noStory.toDouble(), 0)} with no story yet, " +
+    "${plural(y.candidates, "Buy candidate", "Buy candidates")}, ${plural(y.verified, "verified Buy", "verified Buys")}"
+
+/** Study progress for the research stage's sheet: coverage of the scorable stocks, this week's yield and since the log began. */
+fun studyLines(s: StudyStats?): List<String> {
+    if (s == null || s.pool <= 0) return emptyList()
+    return listOfNotNull(
+        "Studied: ${fmt(s.studied.toDouble(), 0)} of ${fmt(s.pool.toDouble(), 0)} stocks that pass every level and can be scored",
+        s.week.takeIf { it.studied > 0 }?.let { "This week: ${yieldLine(it)}" },
+        s.start.takeIf { it.studied > 0 && it.date != null }?.let { "Since ${it.date}: ${yieldLine(it)}" },
+    )
+}
 
 /** The stages of [pf] that have data, top to bottom; a sentence only where the stage above exists and the gap is above 0. */
 fun koStages(pf: PicksFile): List<KoStage> {
@@ -126,7 +150,7 @@ fun koStages(pf: PicksFile): List<KoStage> {
         ), " removed for promoter stake cuts or low conviction"),
         KoDef("Narrativ.ai primary research", fn.researched, 0,
             "Companies Narrativ.ai has studied from their own filings and results. The rest wait in the research queue; there is no pass mark at this step.",
-            emptyList(), " yet to be studied", wait = true),
+            emptyList(), " yet to be studied", wait = true, note = studyWeekLine(fn.study), study = studyLines(fn.study)),
         KoDef("Qualified Buy", buys, 0, "A researched company earns a Buy only when all of these hold:", listOf(
             "Stability and quality in the top three of their five grades",
             "Something to move the price: a driver Narrativ.ai verified, a live trigger, or price strength in the top third of the market",
@@ -152,7 +176,8 @@ fun koStages(pf: PicksFile): List<KoStage> {
         val v = d.value ?: return@mapIndexedNotNull null
         val above = defs.getOrNull(i - 1)?.value
         val gap = if (above != null && d.post != null) above - v else 0
-        KoStage(d.name, v, d.level, d.rule, d.gates, d.post.takeIf { gap > 0 }, gap.coerceAtLeast(0), d.wait, info = i > 0)
+        KoStage(d.name, v, d.level, d.rule, d.gates, d.post.takeIf { gap > 0 }, gap.coerceAtLeast(0), d.wait, info = i > 0,
+            note = d.note.takeIf { gap > 0 }, study = d.study)
     }
 }
 
@@ -377,13 +402,18 @@ private fun KoStageBand(stages: List<KoStage>, i: Int, t: () -> Float, onInfo: (
 @Composable
 private fun KoGapBand(s: KoStage, i: Int, t: () -> Float) {
     val start = (KO_START + i * KO_STEP).toFloat()
-    Box(Modifier.fillMaxWidth().koBand(KO_SHEET).padding(vertical = 6.dp), contentAlignment = Alignment.Center) {
-        // the final sentence, invisible, holds the band's size so the line breaks do not move while the number ticks up
-        Text(fmt(s.gapN.toDouble(), 0) + s.gapPost.orEmpty(), color = Color.Transparent, fontSize = 12.sp, lineHeight = 15.sp,
-            fontFamily = PaperFonts.label, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
-        val k = easeOut(clamp01((t() - start) / KO_COUNT))
-        Text(fmt(s.gapN * k.toDouble(), 0) + s.gapPost.orEmpty(), color = if (s.gapWait) KO_WAIT else KO_RED, fontSize = 12.sp, lineHeight = 15.sp,
-            fontFamily = PaperFonts.label, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+    Column(Modifier.fillMaxWidth().koBand(KO_SHEET).padding(vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(contentAlignment = Alignment.Center) {
+            // the final sentence, invisible, holds the band's size so the line breaks do not move while the number ticks up
+            Text(fmt(s.gapN.toDouble(), 0) + s.gapPost.orEmpty(), color = Color.Transparent, fontSize = 12.sp, lineHeight = 15.sp,
+                fontFamily = PaperFonts.label, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+            val k = easeOut(clamp01((t() - start) / KO_COUNT))
+            Text(fmt(s.gapN * k.toDouble(), 0) + s.gapPost.orEmpty(), color = if (s.gapWait) KO_WAIT else KO_RED, fontSize = 12.sp, lineHeight = 15.sp,
+                fontFamily = PaperFonts.label, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+        }
+        s.note?.let { // this week's first studies (narrativ/studylog.py)
+            Text(it, color = KO_WAIT, fontSize = 11.sp, lineHeight = 14.sp, fontFamily = PaperFonts.label, textAlign = TextAlign.Center)
+        }
     }
 }
 
@@ -419,6 +449,10 @@ private fun KoStageSheet(pf: PicksFile, s: KoStage, onDismiss: () -> Unit) {
         if (s.gapPost != null) {
             val line = fmt(s.gapN.toDouble(), 0) + s.gapPost + (if (s.gapWait) "" else " today")
             T(line.replaceFirstChar { it.uppercase() }, 13.sp, if (s.gapWait) C.amber else C.red, FontWeight.SemiBold, modifier = Modifier.padding(top = 2.dp))
+        }
+        if (s.study.isNotEmpty()) {
+            T("Study progress", 12.sp, C.dim, modifier = Modifier.padding(top = 12.dp, bottom = 4.dp))
+            s.study.forEach { T(it, 13.sp, lineHeight = 18.sp, modifier = Modifier.padding(vertical = 2.dp)) }
         }
         if (reasons.isNotEmpty()) {
             T("Most common reasons today", 12.sp, C.dim, modifier = Modifier.padding(top = 12.dp, bottom = 4.dp))

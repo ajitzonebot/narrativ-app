@@ -414,7 +414,8 @@ def build(queue: list[dict], today: date, ann_st: dict, ex: dict, dec: dict, ev:
                  and k not in ((theses.get(s) or {}).get("flag_reviews") or {})]
         docs, thin = [], []
         review = q.get("task") in ("audit", "review") or bool(q.get("requested"))
-        if time.time() - t0 < max_minutes * 60:
+        checked = time.time() - t0 < max_minutes * 60  # documents looked for (else the time budget ran out first)
+        if checked:
             rd = _results_doc(s, ann_st, today) if review else None
             if rd:
                 ns = ns or NSESession()
@@ -488,6 +489,9 @@ def build(queue: list[dict], today: date, ann_st: dict, ex: dict, dec: dict, ev:
             pack["latest_call"] = {k: v for k, v in call.items() if k != "brief"}
             if call.get("brief") and review:
                 pass  # AlphaStreet briefs removed (owner, 28 Nov 2026)
+        pack["docs_checked"] = checked  # live feed (narrativ/next.py): readable call / presentation text, or not looked for yet
+        pack["readable_docs"] = sum(1 for d in docs if d.get("kind") in ("transcript", "presentation") and d.get("has_text")
+                                    and (d.get("quality") or {}).get("grade") != "poor")
         if thin:
             pack["thin_documents"] = thin
         if q.get("overdue"):  # kill switches / must-go-right items / promises past due: resolve each with filed evidence (or say none is filed)

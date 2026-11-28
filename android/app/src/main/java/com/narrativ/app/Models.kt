@@ -142,7 +142,13 @@ import kotlinx.serialization.json.JsonPrimitive
                               val movers: List<String> = emptyList(), val method: String? = null)
 @Serializable data class FunnelV2(val listed: Int? = null, val companies: Int? = null, val levels: List<Int> = emptyList(),
                                   val researched: Int? = null, val queue: Int? = null, val verdicts: Map<String, Int> = emptyMap(),
-                                  val decisions: Map<String, Int> = emptyMap())
+                                  val decisions: Map<String, Int> = emptyMap(), val study: StudyStats? = null)
+/** First studies and what they found (narrativ/studylog.py): first studied in the window -> no story at the quick check ->
+ *  Buy candidates now -> verified Buys now. [date]: the window's start (only on `start`). */
+@Serializable data class StudyYield(val studied: Int = 0, @SerialName("no_story") val noStory: Int = 0, val candidates: Int = 0,
+                                    val verified: Int = 0, val date: String? = null)
+/** pool: stocks that pass every level and can be scored; studied: how many of them have research. */
+@Serializable data class StudyStats(val pool: Int = 0, val studied: Int = 0, val week: StudyYield = StudyYield(), val start: StudyYield = StudyYield())
 /** missing: why the stock is not (yet) a verified Buy, most specific reason first ("Not rated" reasons). */
 @Serializable data class Decision(val d: String = "Not rated", val why: List<String> = emptyList(), val missing: List<String> = emptyList(),
                                   val verified: String? = null, val candidate: String? = null,

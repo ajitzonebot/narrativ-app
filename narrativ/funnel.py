@@ -1303,6 +1303,12 @@ def compact(L):
             for k in LEVELS}
 
 
+# First-study quick check (owner, 28 Nov 2026, live feed phase 2): the gate a stock failed, in plain words
+TRIAGE_GATES = {"driver": "nothing is changing: no driver in the latest call, results or filings",
+                "capture": "a driver exists but the company is not set up to capture it",
+                "priced": "the story is already in the price"}
+
+
 def not_rated_reason(L: dict, vd: str | None, th: dict | None, qpos: int | None = None, qlen: int | None = None,
                      rank: int | None = None, n: int | None = None, requested: bool = False) -> str:
     """Why a stock is Not rated, told apart (the decision label stays "Not rated"): too little filed data to score it,
@@ -1319,6 +1325,10 @@ def not_rated_reason(L: dict, vd: str | None, th: dict | None, qpos: int | None 
                         gaps.append(f)
         return (f"Not enough filed data: {', '.join(SHORT[k] + (' (price history)' if k == 'mom' else '') for k in grey)} cannot be scored"
                 + (f" (missing {', '.join(gaps[:6])})" if gaps else ""))
+    tr = (th or {}).get("triage") or {}
+    if tr.get("outcome") == "no_story" and not (th.get("drivers") or th.get("scan_raw")):
+        return (f"Quick check ({str(tr.get('date') or '')[:10]}): no story yet, {TRIAGE_GATES.get(tr.get('fails_on'), 'the quick check failed')}"
+                + (f"; back in today's queue at position {qpos} of {qlen}" if qpos else ""))
     if th:
         d = max((str(x)[:10] for x in (th.get("updated"), (th.get("scan") or {}).get("date"), (th.get("scan_raw") or {}).get("date")) if x),
                 default=None)

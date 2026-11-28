@@ -38,6 +38,10 @@ ENRICH_PER_DAY = 20                    # forward-driver hunts for stocks one dri
                                        # rows first (Claude only confirms them). 8 until 23 Nov 2026: 52 top-scoring stocks sat Not rated
 RECENT_RESEARCH_DAYS = 30              # an enrich is skipped if Claude researched the stock this recently
 OVERDUE_COOLDOWN_DAYS = 3              # an overdue recheck / scan-gap enrich is skipped if researched this recently (unless a new document arrived)
+FIRST_STUDY_PACKS = 40                 # live feed (narrativ/next.py, owner 28 Nov 2026): never-studied stocks that pass every check get a
+                                       # pack each day and are served when the queue's top work is done (full packs for the best 40)
+SPILL_MAX = 60                         # items that missed the 60 cap: kept in backlog.json for the live feed, in queue order
+CLAIM_MINUTES = 90                     # a stock taken by one research run is not served to another for this long
 GAP_ENRICH_PER_DAY = 5                 # enrich tasks that fill kill switches / must-go-right items missing a quote, source or due date
 
 # Bands (MAX_STOP_PCT and TARGET_R are unused since 20 Nov 2026: the one exit level is funnel.setup's stop)

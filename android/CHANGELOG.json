@@ -1,5 +1,23 @@
 [
  {
+  "version": "2.33.1",
+  "date": "2026-11-28",
+  "changes": [
+   {
+    "type": "new",
+    "text": "Knockout Funnel: under \"yet to be studied\", how many stocks Narrativ.ai studied this week and how many are now Buy candidates"
+   },
+   {
+    "type": "new",
+    "text": "Knockout Funnel › Narrativ.ai primary research (i): study progress, with this week's first studies, how many had no story yet, Buy candidates and verified Buys"
+   },
+   {
+    "type": "improved",
+    "text": "Not rated stocks that had a quick check say which check they failed: nothing changing, the company cannot capture it, or the story is already in the price"
+   }
+  ]
+ },
+ {
   "version": "2.33.0",
   "date": "2026-11-28",
   "changes": [

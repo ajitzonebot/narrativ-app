@@ -882,14 +882,23 @@ def verify_all(theses: dict) -> tuple[dict, dict]:
         if th.get("scan"):
             v["scan_raw"], rj = verify_scan(th["scan"], all_quotes)
             rej += rj
-        tr = th.get("triage")
+        tr = th.get("triage")  # first-study quick check (live feed phase 2, owner 28 Nov 2026; RESEARCH.md "Quick check")
         if tr:
-            t2 = {k: tr.get(k) for k in ("date", "outcome", "type", "story", "fails_on", "quote", "source")}
-            why = check(tr, ("story",)) if tr.get("quote") else (None if not nums(tr.get("story", "")) else "story numbers without a quote")
+            why = None
+            if tr.get("outcome") not in ("story", "no_story"):
+                why = "outcome must be story or no_story"
+            elif tr.get("outcome") == "no_story" and tr.get("fails_on") not in ("driver", "capture", "priced"):
+                why = "fails_on must be driver, capture or priced"
+            elif not str(tr.get("date") or "")[:10] or not str(tr.get("story") or "").strip():
+                why = "date and story (one sentence) are needed"
+            elif not [u for u in tr.get("read") or [] if str(u).startswith("http")]:
+                why = "read must list the documents read (urls)"
+            elif tr.get("quote") or nums(tr.get("story", "")):
+                why = check(tr, ("story",))  # a quote, or a number in the sentence, must be verbatim in its source
             if why:
-                rej.append({"id": "triage", "field": "story", "reason": why})
-                t2["story"] = None
-            v["triage"] = t2
+                rej.append({"id": "triage", "field": "triage", "reason": why})
+            else:
+                v["triage"] = {k: tr.get(k) for k in ("date", "outcome", "type", "story", "fails_on", "read", "quote", "source") if tr.get(k)}
         v["sentiment_score"] = None  # not shown until a sourced news-sentiment method exists
         out[sym] = v
         report[sym] = {"rejected": rej, "promises_verified": len(promises)}
