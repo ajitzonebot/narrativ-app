@@ -1,11 +1,29 @@
 {
- "versionCode": 104,
- "versionName": "2.33.1",
+ "versionCode": 105,
+ "versionName": "2.33.2",
  "date": "2026-11-28",
- "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.33.1-b104/narrativ-v2.33.1-b104.apk",
+ "apkUrl": "https://github.com/ajitzonebot/narrativ-app/releases/download/v2.33.2-b105/narrativ-v2.33.2-b105.apk",
  "sizeMb": 12.4,
- "sha256": "595d90249091903f48dd8163b5c945875badcc8390144e5d109db666b5596b02",
+ "sha256": "5117af6389d90ebad34e761e73622e9f1801cf7e0d7166fb95e5835d91514f1c",
  "changelog": [
+  {
+   "version": "2.33.2",
+   "date": "2026-11-28",
+   "changes": [
+    {
+     "type": "new",
+     "text": "Market \u203a industry Why: is the lead legitimate? Four checks (a real event behind it, most of its stocks rising, it shows in results versus the whole market, the cause came before the rally) and a verdict: Earnings-led, Partly explained, or Flow or narrative"
+    },
+    {
+     "type": "improved",
+     "text": "Industry reasons say their type (policy, interest rates, demand, prices, supply, orders, global, fund flows), how the event helps the industry, whether it came before the rally, and whether it is lasting or one-time"
+    },
+    {
+     "type": "fixed",
+     "text": "Industry reasons no longer count the price move itself, broker tips, or penalty and tax orders as reasons"
+    }
+   ]
+  },
   {
    "version": "2.33.1",
    "date": "2026-11-28",
