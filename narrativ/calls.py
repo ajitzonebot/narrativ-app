@@ -10,6 +10,32 @@ import pandas as pd
 OUT = Path("docs/data/calls.json")
 HORIZONS = {"1m": 21, "3m": 63, "6m": 126, "12m": 252, "36m": 756}
 BUY = ("Buy", "Strong Buy")
+SELL = ("Sell", "Strong Sell")
+# Owner, 28 Nov 2026: "once Buy, check every day if it's a Buy; if it turns Sell, close the card" (and the exit level still
+# closes it). Until then a call ended whenever the decision left Buy, so a Buy that dipped to Hold for one run (MOLDTECH and
+# 20 others on 27 Nov, a rule change reverted the same evening) was closed and re-entered at a new price.
+TRACKING_RULE = "close on Sell or exit level (2026-11-28)"
+_FROZEN = ("ended", "end_decision", "to_end", "to_end_vs_nifty") + tuple(f"{h}{x}" for h in HORIZONS for x in ("", "_vs_nifty"))
+
+
+def reopen_under_rule(calls: list[dict]) -> int:
+    """One-time move to TRACKING_RULE: a call that ended only because the decision left Buy (Hold, Not rated, a candidate
+    that became verified) is open again from its own entry; a later call of the same stock and kind is a duplicate of it and
+    is dropped. Exit-level, Sell and left-the-universe ends stay. Returns how many calls reopened."""
+    keep_end = lambda c: str(c.get("end_decision") or "").startswith(("Exit level", "Left the universe")) or c.get("end_decision") in SELL  # noqa: E731
+    reopened = [c for c in calls if c.get("ended") and not keep_end(c)]
+    for c in reopened:
+        for k in _FROZEN:  # returns were frozen at the old end: measured again from the entry
+            c.pop(k, None)
+    first = {}
+    for c in sorted(calls, key=lambda c: (c["date"], c.get("run") or "")):
+        k = (c["symbol"], c["kind"])
+        if k in first and not first[k].get("ended"):
+            c["_dup"] = True  # overlaps an earlier call that is open again
+        else:
+            first[k] = c
+    calls[:] = [c for c in calls if not c.pop("_dup", False)]
+    return len(reopened)
 
 
 def _ret(close: pd.Series, d0: str, n: int | None, base: float | None = None):
@@ -173,6 +199,8 @@ def update(dec: dict, px: dict, bench: pd.Series, theses: dict, today, stops: di
            conviction: dict | None = None, aliases: dict | None = None, universe: set | None = None) -> dict:
     st = json.loads(OUT.read_text()) if OUT.exists() else {"calls": []}
     calls = st["calls"]
+    if st.get("tracking_rule") != TRACKING_RULE:
+        print(f"[calls] tracking rule '{TRACKING_RULE}': {reopen_under_rule(calls)} call(s) open again from their entry")
     for c in calls:  # a company that moved symbol (BSE -> NSE) keeps its calls, as research and memory do (audit 26 Nov 2026)
         if aliases and c["symbol"] in aliases:
             c["symbol"] = aliases[c["symbol"]]
@@ -223,8 +251,11 @@ def update(dec: dict, px: dict, bench: pd.Series, theses: dict, today, stops: di
         kind = "verified" if d.get("d") in BUY else "candidate" if d.get("candidate") in BUY else None
         for k in ("verified", "candidate"):
             c = open_.get((s, k))
-            if c and kind != k:  # call ended: decision moved away
+            if c and d.get("d") in SELL:  # TRACKING_RULE: only a Sell (or the exit level, above) closes a call
                 c["ended"], c["end_decision"] = str(today), d.get("d")
+                open_.pop((s, k), None)
+        if kind == "candidate" and (s, "verified") in open_:  # a verified Buy back to review: its call carries on, no candidate call
+            kind = None
         if kind and (s, kind) not in open_ and s in px and len(px[s]):
             cl0 = px[s]["Close"].dropna()
             stop = stops.get(s)
@@ -308,7 +339,8 @@ def update(dec: dict, px: dict, bench: pd.Series, theses: dict, today, stops: di
         summary["portfolio"] = portfolio(calls, px, bench)
     except Exception as e:  # noqa: BLE001  the scorecard must not stop the daily run
         print(f"[calls] portfolio metrics failed: {type(e).__name__}: {e}")
-    out = {"date": str(today), "note": "Returns from our exchange-file closes; vs Nifty = minus the Nifty's return over the same days.",
+    out = {"date": str(today), "tracking_rule": TRACKING_RULE,
+           "note": "Returns from our exchange-file closes; vs Nifty = minus the Nifty's return over the same days.",
            "open": sum(1 for c in calls if not c.get("ended")), "summary": summary, "calls": calls}
     OUT.write_text(json.dumps(out, ensure_ascii=False, separators=(",", ":")))
     print(f"[calls] {out['open']} open calls ({sum(1 for c in calls if c['kind'] == 'verified' and not c.get('ended'))} verified), "

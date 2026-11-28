@@ -24,6 +24,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -959,26 +960,83 @@ fun doneRunTime(r: DoneRun): String {
     return t?.let { "${skDay(it.toLocalDate().toString())} ${it.toLocalTime().toString().take(5)}" } ?: r.start.take(16)
 }
 
-/** One completed item: result colour, symbol (or industry reasons), task, result word; [time] on the right in search results. */
+/** One completed item: result colour, symbol (or industry reasons), task, result word; [time] on the right in search results.
+ *  Owner, 28 Nov 2026: only the stock name opens the stock; the arrow on the right expands the row to show what happened
+ *  (the dated drivers on record, the review, flags, story and what is still pending). */
 @Composable
 private fun DoneRow(st: AppState, it: DoneItem, time: String? = null) {
     val o = doneOutcome(it)
     val sym = it.s
-    Row(Modifier.fillMaxWidth().then(if (sym != null) Modifier.clickable { st.go(Screen.Stock(sym)) } else Modifier)
-        .defaultMinSize(minHeight = 48.dp).padding(horizontal = 14.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.padding(end = 12.dp).size(3.dp, 28.dp).clip(rr(2.dp)).background(o.color))
-        Column(Modifier.weight(1f)) {
-            T(sym?.substringBeforeLast(".") ?: "Industry notes", 15.sp, weight = FontWeight.SemiBold, maxLines = 1)
-            Text(buildAnnotatedString {
-                withStyle(SpanStyle(color = if (o.open) C.amber else TierC.lightGreen, fontWeight = FontWeight.Bold)) { append(if (o.open) "⚠ " else "✓ ") }
-                append(o.what)
-                if (o.result.isNotEmpty()) {
-                    append(" · ")
-                    withStyle(SpanStyle(color = o.color, fontWeight = FontWeight.SemiBold)) { append(o.result) }
+    val det = it.detail
+    var open by remember(sym, time, it.r) { mutableStateOf(false) }
+    Column(Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth().defaultMinSize(minHeight = 48.dp).padding(start = 14.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.padding(end = 12.dp).size(3.dp, 28.dp).clip(rr(2.dp)).background(o.color))
+            Column(Modifier.weight(1f)) {
+                T(sym?.substringBeforeLast(".") ?: "Industry notes", 15.sp, weight = FontWeight.SemiBold, maxLines = 1,
+                    modifier = if (sym != null) Modifier.clickable { st.go(Screen.Stock(sym)) } else Modifier)
+                Text(buildAnnotatedString {
+                    withStyle(SpanStyle(color = if (o.open) C.amber else TierC.lightGreen, fontWeight = FontWeight.Bold)) { append(if (o.open) "⚠ " else "✓ ") }
+                    append(o.what)
+                    if (o.result.isNotEmpty()) {
+                        append(" · ")
+                        withStyle(SpanStyle(color = o.color, fontWeight = FontWeight.SemiBold)) { append(o.result) }
+                    }
+                }, fontSize = 12.sp, color = C.dim, lineHeight = 16.sp, maxLines = 2)
+            }
+            time?.let { t -> T(t, 11.sp, C.dim, maxLines = 1, modifier = Modifier.padding(start = 8.dp)) }
+            if (det != null) {
+                Box(Modifier.size(40.dp).clip(rr(20.dp)).clickable { open = !open }, contentAlignment = Alignment.Center) {
+                    androidx.compose.material3.Icon(if (open) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                        if (open) "Hide details" else "Show details", tint = C.dim, modifier = Modifier.size(22.dp))
                 }
-            }, fontSize = 12.sp, color = C.dim, lineHeight = 16.sp, maxLines = 2)
+            } else Spacer(Modifier.width(40.dp))
         }
-        time?.let { t -> T(t, 11.sp, C.dim, maxLines = 1, modifier = Modifier.padding(start = 8.dp)) }
+        if (open && det != null) DoneDetailCard(det)
+    }
+}
+
+/** The expanded row: what the research holds for the stock now, each line in words with its date. */
+@Composable
+private fun DoneDetailCard(d: DoneDetail) {
+    val uri = androidx.compose.ui.platform.LocalUriHandler.current
+    Column(Modifier.fillMaxWidth().padding(start = 29.dp, end = 14.dp, bottom = 10.dp).clip(rr(6.dp)).background(C.card)
+        .padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (d.drivers.isNotEmpty()) {
+            T("DATED DRIVERS ON RECORD", 10.sp, C.dim, FontWeight.Bold)
+            d.drivers.forEach { x ->
+                Column {
+                    T(x.t, 13.sp, lineHeight = 17.sp)
+                    T(listOfNotNull(x.k?.replaceFirstChar { c -> c.uppercase() }, x.due?.let { "due ${skDay(it)}" },
+                        x.on?.let { "said ${skDay(it)}" }).joinToString(" · "), 11.sp, C.dim, maxLines = 1)
+                    x.src?.let { s -> T("Source ›", 11.sp, C.blue, maxLines = 1, modifier = Modifier.clickable { runCatching { uri.openUri(s) } }) }
+                }
+            }
+        }
+        d.review?.let { r ->
+            T("FULL REVIEW", 10.sp, C.dim, FontWeight.Bold, modifier = Modifier.padding(top = 2.dp))
+            T(listOfNotNull(r.v?.replaceFirstChar { c -> c.uppercase() }, r.date?.let { skDay(it) },
+                "${r.ok} of ${r.checks} checks match the filing").joinToString(" · "), 13.sp)
+            r.summary?.let { s -> T(s, 12.sp, C.dim, lineHeight = 16.sp) }
+        }
+        if (d.flags.isNotEmpty()) {
+            T("RED FLAGS", 10.sp, C.dim, FontWeight.Bold, modifier = Modifier.padding(top = 2.dp))
+            d.flags.forEach { (k, f) ->
+                T("${FLAG_NAMES[k] ?: k}: ${if (f.v == "dismissed") "false alarm" else f.v ?: "–"}" + (f.note?.takeIf { n -> n.isNotBlank() }?.let { n -> " · $n" } ?: ""),
+                    12.sp, lineHeight = 16.sp)
+            }
+        }
+        d.story?.let { s ->
+            T("STORY", 10.sp, C.dim, FontWeight.Bold, modifier = Modifier.padding(top = 2.dp))
+            T("${s.status?.replaceFirstChar { c -> c.uppercase() }}" + (s.t?.takeIf { t -> t.isNotBlank() }?.let { t -> ": $t" } ?: ""), 12.sp, lineHeight = 16.sp,
+                color = if (s.status == "intact") C.white else C.amber)
+        }
+        if (!d.scan) T("Outlook scan not written yet", 12.sp, C.amber)
+        if (d.pending.isNotEmpty()) {
+            T("RESEARCH PENDING", 10.sp, C.amber, FontWeight.Bold, modifier = Modifier.padding(top = 2.dp))
+            d.pending.forEach { p -> T("· ${p.replaceFirstChar { c -> c.uppercase() }}", 12.sp, C.dim, lineHeight = 16.sp) }
+        }
     }
 }
 

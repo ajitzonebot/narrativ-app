@@ -330,7 +330,16 @@ import kotlinx.serialization.json.JsonPrimitive
                                        val curve: List<List<kotlinx.serialization.json.JsonPrimitive>> = emptyList())
 @Serializable data class DoneItem(val s: String? = null, val r: String? = null, val industries: String? = null,
                                   /** Verified dated drivers on record for the stock now (feedback #219); null in older files. */
-                                  val dated: Int? = null)
+                                  val dated: Int? = null,
+                                  /** What the research holds now (runlog.detail), for the expandable row (owner, 28 Nov 2026). */
+                                  val detail: DoneDetail? = null)
+@Serializable data class DoneDriver(val t: String = "", val k: String? = null, val due: String? = null, val on: String? = null, val src: String? = null)
+@Serializable data class DoneReview(val v: String? = null, val date: String? = null, val checks: Int = 0, val ok: Int = 0, val summary: String? = null)
+@Serializable data class DoneFlag(val v: String? = null, val note: String? = null)
+@Serializable data class DoneStory(val status: String? = null, val t: String? = null)
+@Serializable data class DoneDetail(val drivers: List<DoneDriver> = emptyList(), val review: DoneReview? = null,
+                                    val flags: Map<String, DoneFlag> = emptyMap(), val story: DoneStory? = null,
+                                    val scan: Boolean = false, val pending: List<String> = emptyList())
 @Serializable data class DoneRun(val task: String? = null, val start: String = "", val items: List<DoneItem> = emptyList())
 @Serializable data class DoneFile(val since: String? = null, val days: Int = 7, val runs: List<DoneRun> = emptyList())
 @Serializable data class ReplayStat(val n: Int = 0, val months: Int? = null, @SerialName("win_pct") val winPct: Int? = null,

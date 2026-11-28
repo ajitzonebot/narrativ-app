@@ -43,7 +43,7 @@ def test_strength_is_a_positive_direction_with_one_driver():
     L = _L(0.9)
     L["out"]["triggers"] = [{"id": "T11", "n": "Results beat"}]
     d = FN.decision(L, None, {}, None, None, 100, None, today=TODAY)  # a code trigger is the driver, as before
-    assert not any("Price strength" in w for w in d["why"]) and any(w == "Signal: T11 Results beat" for w in d["why"])
+    assert not any("Price strength" in w for w in d["why"]) and any(w == "Signal: Results beat" for w in d["why"])
 
 
 def test_strength_is_not_a_dated_trigger():

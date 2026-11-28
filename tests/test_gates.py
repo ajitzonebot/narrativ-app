@@ -153,11 +153,11 @@ def test_r8_incomplete_research_stays_a_buy_without_the_badge():
     for drop, why in (("scan_raw", "no outlook scan"), ("drivers", "no dated driver"), ("story", "no story check"), ("synthesis", "no synthesis")):
         th = {k: v for k, v in PASS.items() if k != drop}
         nd = republish.gate(CAND, th, "2026-11-01", TODAY, mx(80), TRIG, False, [])
-        assert nd["d"] == "Buy" and nd["verified"] == "pass" and any(why in m for m in nd["incomplete"]), drop
+        assert nd["d"] == "Buy" and nd["verified"] == "pass" and any(why in m.lower() for m in nd["incomplete"]), drop
         assert not any(w.startswith(FN.VERIFIED_BY) for w in nd["why"])
     weak = PASS | {"story": {"status": "weakening", "text": "competition"}}
     nd = republish.gate(CAND, weak, "2026-11-01", TODAY, mx(80), TRIG, False, [])
-    assert nd["d"] == "Buy" and any("story weakening" in m for m in nd["incomplete"])
+    assert nd["d"] == "Buy" and any("story weakening" in m.lower() for m in nd["incomplete"])
     two = PASS | {"audit": PASS["audit"] | {"checks": PASS["audit"]["checks"][:2]}}
     assert any("needs 3" in m for m in republish.gate(CAND, two, "2026-11-01", TODAY, mx(80), TRIG, False, [])["incomplete"])
     done = republish.gate(CAND, PASS, "2026-11-01", TODAY, mx(80), TRIG, False, [])

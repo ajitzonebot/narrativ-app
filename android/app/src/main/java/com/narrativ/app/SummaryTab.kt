@@ -209,7 +209,7 @@ fun ResearchLists(scan: Scan, nested: Boolean = false) {
             }
             mark?.let { m ->
                 Column(Modifier.padding(top = 8.dp).fillMaxWidth().clip(rr(S.inner)).background(C.card2).padding(10.dp)) {
-                    T("${m.id} ${m.name}", 13.sp, weight = FontWeight.SemiBold); if (m.note.isNotBlank()) T(m.note, 12.sp, C.grey)
+                    T(m.name, 13.sp, weight = FontWeight.SemiBold)  // no rubric codes in the app (owner, 28 Nov 2026); if (m.note.isNotBlank()) T(m.note, 12.sp, C.grey)
                     if (m.quote.isNotBlank()) Quote(ctx, m.quote, m.source)
                 }
             }
@@ -910,7 +910,7 @@ fun DecisionDetailsSheet(st: AppState, sym: String, p: P?, det: Detail?, onDismi
         // feedback #175 / review 26 Nov 2026: only management's own quoted statements under the guidance heading; our signals
         // and the setup are proofs (conviction); other rule notes go to "Other notes"; R1 / R2 lender notes are not shown
         val fwd = why.filter { it !in lvl && it !in valn && it !in rev && isMgmtLine(it) }
-        val other = why.filter { it !in lvl && it !in valn && it !in rev && it !in fwd && !it.startsWith("R1 and R2 not applied") &&
+        val other = why.filter { it !in lvl && it !in valn && it !in rev && it !in fwd && !it.startsWith("R1 and R2 not applied") && !it.startsWith("Cash and other-income checks not applied") &&
             !it.startsWith("Re-scored") &&
             (cv?.proofs.isNullOrEmpty() || (!it.startsWith("Signal") && !it.startsWith("No entry setup") && !it.startsWith("Entry setup"))) }
         @Composable
@@ -1198,7 +1198,7 @@ private fun PaperWhyBody(st: AppState, sym: String, p: P?, det: Detail?, dd: Dec
     val watch = det?.standouts?.watch.orEmpty()
     val levelNames = LEVEL_SHORT.toSet()
     val other = why.filter { it.substringBefore(":") !in levelNames && !isMgmtLine(it) && !it.startsWith("Verified") &&
-        !it.startsWith("R1 and R2 not applied") && !it.startsWith("Re-scored") && !it.contains("valuation", ignoreCase = true) &&
+        !it.startsWith("R1 and R2 not applied") && !it.startsWith("Cash and other-income checks not applied") && !it.startsWith("Re-scored") && !it.contains("valuation", ignoreCase = true) &&
         !it.contains("base case") && (cv?.proofs.isNullOrEmpty() || (!it.startsWith("Signal") && !it.startsWith("No entry setup") && !it.startsWith("Entry setup"))) }
     if (watch.isNotEmpty() || other.isNotEmpty()) {
         WhyHead("What to watch")

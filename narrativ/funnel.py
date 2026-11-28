@@ -1337,6 +1337,42 @@ def clean(o):
 # ------------------------------------------------------------------ Decision view (rule-built, every reason shown)
 SHORT = {"surv": "Stability", "qual": "Quality", "val": "Valuation", "mgmt": "Management", "mom": "Momentum", "disc": "Discovery", "out": "Outlook"}
 DECISIONS = ["Strong Buy", "Buy", "Hold", "Sell", "Strong Sell", "Not rated"]
+# Plain words for the app (owner, 28 Nov 2026: "don't state A5 / R8 on the app anywhere, state the actual thing: how will a
+# user know our internal rules"): every reason a person reads goes through plain() before it is published
+FLAG_NAMES = {"A1": "negative equity", "A2": "loan default", "A3": "audit qualification", "A4": "insolvency",
+              "A5": "rating downgrade", "A6": "trading suspension", "G1": "regulator or exchange order", "G2": "search or fraud probe",
+              "G3": "auditor resignation", "G4": "CEO and CFO exits", "G5": "promoter stake cut", "G6": "loans to the promoter group",
+              "G7": "fund use deviation"}
+_RULES = re.compile(r"\s*\((?:see )?RULES\.md[^)]*\)|\s*RULES\.md(?:\s+[RCT]\d+(?:\s*(?:,|and|/)\s*[RCT]\d+)*)?")
+_RCODE = re.compile(r"(^|: |; )R[1-8] (?=[a-z])")
+_TCODE = re.compile(r"\bT\d{1,2} (?=[A-Z])")
+_FLAG = re.compile(r"\b([AG][1-7])\b")
+
+
+def plain(text):
+    """A published reason in plain words: no rule ids (R1-R8, T2-T15, L1-L7), no flag codes (A5 -> rating downgrade),
+    no "RULES.md" references. Rating grades such as "Crisil A2" are left alone (flag codes are only read in flag lines)."""
+    if not isinstance(text, str):
+        return text
+    t = _RULES.sub("", text)
+    t = t.replace("R1 and R2 not applied", "Cash and other-income checks not applied")
+    t = _RCODE.sub(lambda m: m.group(1), t)
+    t = _TCODE.sub("", t)
+    t = re.sub(r"Removed at L\d ", "Removed at ", t)
+    if "flag" in t.lower():
+        t = _FLAG.sub(lambda m: FLAG_NAMES.get(m.group(1), m.group(1)), t)
+    t = re.sub(r"\s+([,.:;])", r"\1", t).replace("()", "").strip()
+    return t[:1].upper() + t[1:] if t else t
+
+
+def plain_decision(d: dict | None) -> dict | None:
+    """plain() on every line of a decision a person reads (why, missing, incomplete)."""
+    if not isinstance(d, dict):
+        return d
+    return d | {k: [plain(x) for x in d[k]] for k in ("why", "missing", "incomplete") if isinstance(d.get(k), list)}
+
+
+BAD_NEWS_DAYS = 30  # a red filing this recent and newer than the last research holds a Buy until it is read
 SERIOUS_FLAGS = ("A2", "A4", "G2")   # unreviewed default / insolvency / fraud-search flags block any buy
 OTHER_FLAGS = ("A5", "G1", "G3", "G4")
 
@@ -1537,7 +1573,7 @@ def code_triggers(L: dict) -> list[dict]:
 
 def decision(L: dict, out_l, th: dict | None, scan: dict | None, setup: dict | None, price, ann: dict | None,
              research_flags: dict | None = None, today=None, filed: str | None = None, scored: bool = True,
-             call_since: str | None = None) -> dict:
+             call_since: str | None = None, bad_news: list | None = None) -> dict:
     """scored=False: too little filed data to score the stock ("Not enough data"); with no driver it stays Not rated."""
     today = today or _date.today()
     th = th or {}
@@ -1578,13 +1614,14 @@ def decision(L: dict, out_l, th: dict | None, scan: dict | None, setup: dict | N
     info = {"credibility_w": cp, "ob_ratio": obr, "integrity": integ or None, "stage": stage, "call_since": call_since}
 
     def res(d, why, missing=()):
-        return {"d": d, "why": why, "missing": list(missing), **{k: v for k, v in info.items() if v is not None}}
+        return plain_decision({"d": d, "why": why, "missing": list(missing), **{k: v for k, v in info.items() if v is not None}})
 
     # 2 Strong Sell
     ss = []
     if out_l and out_l[0] == 1:
         ss.append(f"Removed at Stability: {out_l[1]}")
-    ss += [f"Red flag confirmed after reading the filing ({k})" for k in confirmed]
+    ss += [f"Red flag confirmed after reading the filing: {FLAG_NAMES.get(k, k)}"
+           + (f" · {str((reviewed.get(k) or {}).get('note') or '').rstrip('.')}" if (reviewed.get(k) or {}).get("note") else "") for k in confirmed]
     ss += [f"Integrity confirmed: {x['text']}" for x in i_conf]
     ss += [f"Kill switch hit ({k.split('-', 2)[-1] if '-' in k else k})" for k in kill_hit]
     if ss:
@@ -1643,9 +1680,15 @@ def decision(L: dict, out_l, th: dict | None, scan: dict | None, setup: dict | N
     # 4 Hold: integrity open or unreviewed serious flag
     blockers = [f"Integrity check open ({x['type']}): {x['text']}" for x in i_open]
     blockers += [f"Unreviewed red flag: {k}" for k in SERIOUS_FLAGS if k in watch]
-    if blockers:
-        return res("Hold", ["Integrity open: no buy until research confirms or clears it"] + blockers + pos,
-                   ["Research to verify each open integrity item against later filings"])
+    # owner, 28 Nov 2026: a red filing of the last BAD_NEWS_DAYS days not yet read by Claude holds any Buy (the call stays
+    # open); Claude's recheck confirms it (a Sell: red flag, kill switch, story broken, guidance cut) or clears it
+    news = [f"Unreviewed bad news filed {e.get('date')}: {e.get('type')}: {str(e.get('text') or '')[:90]}" for e in bad_news or []]
+    if blockers or news:
+        head = "Integrity open: no buy until research confirms or clears it" if blockers else \
+            "Bad news filed since the last research: no buy until Narrativ.ai confirms or clears it"
+        return res("Hold", [head] + blockers + news + pos,
+                   ["Research to verify each open integrity item against later filings"] if blockers else
+                   ["Narrativ.ai to read the filing: confirm it (Sell) or clear it (rules decide again)"])
     soft = [f"Unreviewed flag: {k}" for k in OTHER_FLAGS if k in watch]
     trend_ok = stage not in ("Downtrend", None)
     ver = verification(th.get("audit"), filed, today, call_since)
@@ -1826,7 +1869,7 @@ def mark_changed(verified: dict, changed: dict) -> None:
 
 
 # ---------- RULES.md R7 in code: what a passing review must have recorded (missing -> verification pending, not fail)
-BSE_NOT_EVALUATED = ["R5 institutions selling", "T14 promoter buying", "T15 mutual funds entering"]
+BSE_NOT_EVALUATED = ["institutions selling", "promoter buying", "mutual funds entering"]  # shown in the app: plain words
 _LEASE = re.compile(r"lease", re.I)
 _DEBT = re.compile(r"borrow|debt", re.I)
 
@@ -1958,6 +2001,7 @@ def ungate(d0: dict | None) -> dict:
     if not label:
         return d0
     gates = set(d0.pop("gates", None) or [])
+    gates |= {plain(g) for g in gates}  # the why lines carry the gates in plain words (gates keep their rule ids)
     why = [w for w in d0.get("why") or [] if w not in gates and not w.startswith("Scores say")]
     if d0.get("verified") == "pass":
         return {**d0, "d": label, "why": why}
@@ -2005,7 +2049,7 @@ def apply_buy_rules(d0: dict, Mx: dict, lender: bool, L: dict, th: dict | None, 
         miss = r7_missing((th or {}).get("audit"), Mx, lender, L)
         if miss:
             d0 = {**d0, "d": "Hold", "candidate": label, "verified": "pending",
-                  "why": [f"Rules say {label}: Narrativ.ai's review passed but does not yet cover RULES.md R7"]
+                  "why": [f"Rules say {label}: Narrativ.ai's review passed but some required checks are not recorded yet"]
                   + [w for w in d0.get("why", []) if not w.startswith(VERIFIED_BY)],
                   "missing": [m for m in d0.get("missing") or [] if not m.startswith("Verification pending")]
                   + [f"Verification pending: {m}" for m in miss]}
@@ -2016,7 +2060,7 @@ def apply_buy_rules(d0: dict, Mx: dict, lender: bool, L: dict, th: dict | None, 
                   "why": [w for w in d0.get("why", []) if not w.startswith(VERIFIED_BY)]
                   + ["Narrativ.ai's review passed; research pending, so no verified badge yet (RULES.md R8)"],
                   "missing": d0["missing"] + [f"Research pending: {m}" for m in gaps]}  # owner, 27 Nov 2026: "pending", not "incomplete"
-    return d0
+    return plain_decision(d0)
 
 
 # ------------------------------------------------------------------ price-moving signals (RULES.md T11-T15)

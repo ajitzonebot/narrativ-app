@@ -6,6 +6,10 @@
    {
     "type": "improved",
     "text": "A Buy whose research is still being completed says \"Research pending\""
+   },
+   {
+    "type": "new",
+    "text": "Research queue › Completed: an arrow on each row shows what happened (the dated drivers on record with their due dates and sources, the review, red flags, story and what is still pending); only the stock name opens the stock"
    }
   ]
  },

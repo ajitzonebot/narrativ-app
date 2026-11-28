@@ -97,6 +97,37 @@ def summary(runs: list[dict] | None = None) -> dict:
 DONE = Path("docs/data/research_done.json")
 
 
+def detail(th: dict | None) -> dict | None:
+    """What the research holds now, for the expandable Completed row (owner, 28 Nov 2026: "clicking ... shows what happened
+    in detail, e.g. dated record found: what that dated record is"): the dated drivers (text, kind, due, said on), the latest
+    full review (verdict, date, checks, summary), red-flag reviews, the story check and what R8 still needs."""
+    th = th or {}
+    if not th:
+        return None
+    from .funnel import research_missing
+    out = {}
+    dr = [{"t": str(d.get("text") or "")[:160], "k": d.get("kind"), "due": str(d.get("due") or "")[:10] or None,
+           "on": str(d.get("date") or "")[:10] or None, "src": d.get("source")}
+          for d in th.get("drivers") or [] if d.get("due_verified")]
+    if dr:
+        out["drivers"] = sorted(dr, key=lambda x: x["due"] or "9999")[:6]
+    au = th.get("audit") or {}
+    if au.get("verdict"):
+        out["review"] = {"v": au["verdict"], "date": str(au.get("date") or "")[:10] or None, "checks": len(au.get("checks") or []),
+                         "ok": sum(1 for c in au.get("checks") or [] if c.get("ok")), "summary": str(au.get("summary") or "")[:200] or None}
+    fl = {k: {"v": v.get("verdict"), "note": str(v.get("note") or "")[:160]} for k, v in (th.get("flag_reviews") or {}).items() if isinstance(v, dict)}
+    if fl:
+        out["flags"] = fl
+    st = th.get("story") or {}
+    if st.get("status"):
+        out["story"] = {"status": st["status"], "t": str(st.get("text") or "")[:160]}
+    if th.get("scan") or th.get("scan_raw"):
+        out["scan"] = True
+    if au.get("verdict") == "pass" and (gaps := research_missing({**th, "scan_raw": th.get("scan") or th.get("scan_raw")})):
+        out["pending"] = [g.replace("R8 ", "") for g in gaps]
+    return out or None
+
+
 def completed(days: int = 7, now: datetime | None = None, path: Path | None = None, out_path: Path | None = None,
               theses: dict | None = None) -> dict:
     """docs/data/research_done.json for the app's Research queue > Completed: every item a research run finished in the last
@@ -127,6 +158,8 @@ def completed(days: int = 7, now: datetime | None = None, path: Path | None = No
                         it = {"s": sym, "r": (v or "done").strip()}
                         if theses is not None:
                             it["dated"] = sum(1 for x in (theses.get(sym) or {}).get("drivers") or [] if x.get("due_verified"))
+                            if (dt := detail(theses.get(sym))):
+                                it["detail"] = dt
                         items.append(it)
         runs.append({"task": r.get("task"), "start": t, "approx": r.get("approx", False), "items": items})
     runs.sort(key=lambda x: x["start"], reverse=True)

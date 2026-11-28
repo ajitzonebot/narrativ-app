@@ -523,14 +523,14 @@ def main(limit: int | None) -> None:
         print(f"[issues] failed: {e}")
     H.mark("levels and data issues")  # sub-stages of the old "funnel, research view, app files" (owner, 26 Nov 2026: 25+ min runs)
     # ---------- Latest earnings call (narrativ/latest_call.py; owner, 24 Nov 2026) ----------
-    # a review must have seen the call for the latest results quarter: exchange / company transcript, else AlphaStreet's
-    from narrativ import alphastreet as AS, latest_call as LC
+    # a review must have seen the call for the latest results quarter: the exchange's or the company's transcript only
+    # (owner, 28 Nov 2026: AlphaStreet removed: its AI brief showed TALBROAUTO's revenue as "83.88 lakh", feedback #240)
+    from narrativ import latest_call as LC
     calls, call_pre = {}, {}
 
     def latest(s, filings):
         try:
-            return LC.latest_call(s, (mx.get(s) or {}).get("last_quarter"), (mx.get(s) or {}).get("filed"), ann_st, filings, today,
-                                  AS.calls(s, today))
+            return LC.latest_call(s, (mx.get(s) or {}).get("last_quarter"), (mx.get(s) or {}).get("filed"), ann_st, filings, today, None)
         except Exception as e:  # noqa: BLE001
             print(f"[calls] {s}: {type(e).__name__}: {e}")
             return None
@@ -540,13 +540,19 @@ def main(limit: int | None) -> None:
             calls[s] = latest(s, ex)
         return calls[s]
     reviewed = [s for s in syms if ((theses.get(s) or {}).get("audit") or {}).get("verdict")]
-    AS.prefetch(reviewed, today)  # AlphaStreet lists in parallel (~3.5 s each on their side); same day cache as AS.calls
     for s in reviewed:  # stocks with a review: did the review see the latest call? (NSE transcripts + AlphaStreet; ex is not loaded yet)
         call_pre[s] = latest(s, {})
     print(f"[calls] reviewed stocks: {len(call_pre)}, latest call found {sum(1 for c in call_pre.values() if c and c['state'] == 'found')}")
+    def unread_bad_news(s):  # red filings of the last BAD_NEWS_DAYS days filed after the stock's last research (owner, 28 Nov 2026)
+        th = theses.get(s) or {}
+        r = max([str(x)[:10] for x in (th.get("updated"), (th.get("audit") or {}).get("date"), (th.get("scan") or {}).get("date"),
+                                       (th.get("scan_raw") or {}).get("date")) if x] or ["2000-01-01"])
+        cut = str(today - timedelta(days=FN.BAD_NEWS_DAYS))
+        return [e for e in (mem.get(s) or {}).get("events") or [] if e.get("sev") == "red" and (e.get("date") or "") >= cut
+                and (e.get("date") or "") > r]
     dec = {s: FN.decision(ev[s]["L"], ev[s]["out"], theses.get(s), (theses.get(s) or {}).get("scan"), ev[s]["setup"], price_of(s), annc.get(s), today=today,
                           filed=(mx.get(s) or {}).get("filed"), scored=ev[s]["vd"] != "Not enough data",
-                          call_since=(call_pre.get(s) or {}).get("since"))
+                          call_since=(call_pre.get(s) or {}).get("since"), bad_news=unread_bad_news(s))
            for s in syms}
     # ---------- Open data issues and Buy gates (RULES.md; FN.apply_buy_rules, shared with republish.py) ----------
     gate_n = {}
@@ -745,7 +751,6 @@ def main(limit: int | None) -> None:
             print(f"[calls] intimation {url[-40:]}: {str(e)[:80]}")
             return None
     from narrativ.packs import _text as PK_text
-    AS.prefetch(to_audit, today)
     for s in to_audit:  # idea 2: results due soon, a scheduled call, or results out and the call not yet: review after it
         rd = (cal.get(s) or {}).get("date")
         sc = LC.scheduled_call(s, ann_st, today, intimation_text) if (calls.get(s) or call_of(s) or {}).get("state") != "found" else None
@@ -813,6 +818,12 @@ def main(limit: int | None) -> None:
         new = [x for x in new_docs(s) if u and "transcript" in str(x.get("text", "")).lower()]
         if new:
             q(s, "new transcript filed: re-check promises and kill switches", "recheck", {"filings": new[:3]})
+    for s, th in theses.items():  # AlphaStreet removed (owner, 28 Nov 2026): quotes citing its transcription move to the company's own
+        n_as = json.dumps(th).count("api.alphastreet.co.in")
+        if n_as:
+            q(s, f"{n_as} quote(s) cite AlphaStreet's transcription, which is no longer used: re-source each quote from the exchange or "
+                 "company transcript of the same call (same words), or drop it if the official transcript does not have it", "recheck",
+              {"alphastreet_quotes": n_as})
     for s, rep in (vreport or {}).items():  # quotes whose source link is dead: research swaps in a live copy of the same document
         dead = sorted({r["reason"].split(": ", 1)[1].split(" -> ")[0] for r in (rep or {}).get("rejected") or [] if str(r.get("reason", "")).startswith("source not reachable: ")})
         if dead and s in theses:
@@ -894,7 +905,6 @@ def main(limit: int | None) -> None:
     if not limit:
         try:
             from narrativ import packs
-            AS.prefetch([x["symbol"] for x in queue], today)
             for x in queue:  # every pack says whether the latest call is in it (idea 1)
                 call_of(x["symbol"])
             packs.build(queue, today, ann_st, ex, dec, ev, mx, annc, theses, mem, MX.val, aflags, calls=calls)
@@ -903,7 +913,6 @@ def main(limit: int | None) -> None:
             dd = [d for x in pk for d in x.get("documents", [])]
             lc = [x.get("latest_call") or {} for x in pk if x.get("task") in ("review", "audit")]
             H.source("latest call in review packs", reviews=len(lc), in_pack=sum(1 for c in lc if c.get("in_pack")),
-                     from_alphastreet=sum(1 for c in lc if c.get("fallback") == "alphastreet"),
                      found_not_readable=sum(1 for c in lc if c.get("state") == "found" and not c.get("in_pack")),
                      missing=sum(1 for c in lc if c.get("state") == "missing"), no_filed_quarter=sum(1 for x in pk if x.get("task") in ("review", "audit") and not x.get("latest_call")),
                      waiting=len(waits), stale_reviews=sum(1 for s in syms if any("latest earnings call was available" in str(m) for m in dec[s].get("missing") or [])))
@@ -1069,13 +1078,6 @@ def main(limit: int | None) -> None:
         print(f"[commodities] failed: {e}")
         CM, cm = None, None
     basic_of = s0i["basic_industry"].to_dict() if "basic_industry" in s0i.columns else {}
-    try:  # the app's 'Latest call' card (AlphaBrief of the latest call): queue, Buys and candidates daily, the rest in turn
-        cards = AS.refresh_cards([x["symbol"] for x in queue] + [s for s in syms if dec[s].get("d") in ("Buy", "Strong Buy") or dec[s].get("candidate")],
-                                 [s for s in sorted(syms, key=lambda s: rank_of.get(s, 10 ** 9)) if s.endswith(".NS")], today)
-        H.source("call cards (AlphaStreet)", stored=len(cards))
-    except Exception as e:  # noqa: BLE001
-        print(f"[alphastreet] cards failed: {e}")
-        cards = {}
     try:  # news headlines (publisher RSS, collected every 2 hours by news.yml) and the industry packs for Claude's reasons
         from narrativ import news as NW
         since30 = str(today - timedelta(days=30))
@@ -1138,7 +1140,7 @@ def main(limit: int | None) -> None:
         bd = (bulk.get(s) or [])[:5]
         det = {"metrics": Mx, "analyst": e["an"], "broker_targets": named_of.get(s), "levels": e["L"], "verdict": e["vd"], "decision": dec[s], "audit_flags": aflags.get(s) or None,
                "conviction": conv.get(s), "exit_hit": exit_hit(s), "u1": (lambda u: {"ok": u[0], "v": u[1]} if u[0] is not None else None)(u1_of.get(s) or (None, None)), "commodity": CM.for_industry(cm, basic_of.get(s)) if CM else None,
-               "ratings": rat.get(s), "insolvency": ins.get(s), "latest_call_card": cards.get(s), "news": news_of.get(s),
+               "ratings": rat.get(s), "insolvency": ins.get(s), "news": news_of.get(s),
                "statement": FN.statement(e["vd"], e["L"]) if not e["out"] else f"Removed at L{e['out'][0]} {FN.LEVEL_NAMES[FN.LEVELS[e['out'][0] - 1]]}: {e['out'][1]}.",
                "standouts": standouts(e["L"]), "setup": e["setup"], "hist": [{k: (round(x, 2) if isinstance(x, float) else x) for k, x in h.items()} for h in e["hist"]],
                "scan": scan_state(s, theses.get(s) or {}, today, queued, (mem.get(s) or {}).get("checkpoints", [])),

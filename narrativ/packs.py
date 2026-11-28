@@ -487,7 +487,7 @@ def build(queue: list[dict], today: date, ann_st: dict, ex: dict, dec: dict, ev:
         if call:
             pack["latest_call"] = {k: v for k, v in call.items() if k != "brief"}
             if call.get("brief") and review:
-                pack["alphabrief"] = call["brief"]
+                pass  # AlphaStreet briefs removed (owner, 28 Nov 2026)
         if thin:
             pack["thin_documents"] = thin
         if q.get("overdue"):  # kill switches / must-go-right items / promises past due: resolve each with filed evidence (or say none is filed)

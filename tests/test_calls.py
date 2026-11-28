@@ -85,7 +85,7 @@ def test_no_call_opens_with_exit_level_at_or_above_price_and_such_calls_are_drop
 
 def test_returns_freeze_at_the_end_of_a_call(tmp_path, monkeypatch):
     closes = [100.0] * 3 + [110.0] * 2 + [200.0] * 20  # the stock doubles after the call ended on its 5th close
-    calls = run_update(tmp_path, monkeypatch, closes, [call(ended="2026-11-06", end_decision="Hold")], {"A.NS": {"d": "Hold"}}, {}, "2026-12-04")
+    calls = run_update(tmp_path, monkeypatch, closes, [call(ended="2026-11-06", end_decision="Sell")], {"A.NS": {"d": "Sell"}}, {}, "2026-12-04")
     c = calls[0]
     assert c["to_end"] == 10.0 and c["1m"] == 10.0 and c["now"] == 10.0  # not +100%: the holder had exited
     assert c["1m_vs_nifty"] == 10.0 and c.get("3m") is None  # 3 months not reached yet
@@ -136,3 +136,28 @@ def test_reentry_after_backfilled_for_older_exit_calls(tmp_path, monkeypatch):
     other = call(ended="2026-11-03", end_decision="Hold")
     calls = run_update(tmp_path, monkeypatch, [100.0, 93.0, 94.0], [other], {"A.NS": {"d": "Hold"}}, {}, "2026-11-04")
     assert "reentry_after" not in calls[0]
+
+
+# ---------------------------------------------------------------- owner, 28 Nov 2026: close on Sell or the exit level only
+def test_hold_keeps_the_call_open_and_sell_closes_it(tmp_path, monkeypatch):
+    calls = run_update(tmp_path, monkeypatch, [100.0, 104.0, 106.0], [call()], {"A.NS": {"d": "Hold"}}, {}, "2026-11-04")
+    assert len(calls) == 1 and not calls[0].get("ended") and calls[0]["now"] == 6.0
+    calls = run_update(tmp_path, monkeypatch, [100.0, 104.0, 106.0], [call()], {"A.NS": {"d": "Sell"}}, {}, "2026-11-04")
+    assert calls[0]["ended"] == "2026-11-04" and calls[0]["end_decision"] == "Sell"
+
+
+def test_a_verified_buy_back_to_review_opens_no_candidate_call(tmp_path, monkeypatch):
+    calls = run_update(tmp_path, monkeypatch, [100.0, 104.0], [call()], {"A.NS": {"d": "Hold", "candidate": "Buy"}}, {}, "2026-11-03")
+    assert [(c["kind"], bool(c.get("ended"))) for c in calls] == [("verified", False)]
+
+
+def test_one_time_repair_reopens_hold_exits_and_drops_the_reentry(tmp_path, monkeypatch):
+    """MOLDTECH, 27 Nov 2026: closed on Hold by a one-run rule change and re-entered at a new price the same evening."""
+    old = call(price=100.0, ended="2026-11-04", end_decision="Hold", to_end=4.0)
+    again = call(date="2026-11-04", run="2026-11-04", price=104.0)
+    stop = call(symbol="A.NS", kind="candidate", ended="2026-11-03", end_decision="Exit level ₹95 broken", stop=95.0)
+    calls = run_update(tmp_path, monkeypatch, [100.0, 94.0, 104.0, 106.0], [old, again, stop], {"A.NS": {"d": "Buy"}}, {}, "2026-11-05")
+    v = [c for c in calls if c["kind"] == "verified"]
+    assert len(v) == 1 and v[0]["price"] == 100.0 and not v[0].get("ended") and v[0]["now"] == 6.0
+    assert any(c["kind"] == "candidate" and c["end_decision"].startswith("Exit level") for c in calls)  # exit-level ends stay
+    assert json.loads((tmp_path / "calls.json").read_text())["tracking_rule"] == CALLS.TRACKING_RULE

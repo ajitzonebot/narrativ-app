@@ -709,7 +709,7 @@ private fun OutlookBody(st: AppState, sym: String, det: Detail, lv: Level, open:
         lv.item("W")?.let { KeyCheck(lv.status("W"), "Industry", lv.wind ?: "–", "median growth") },
     )
     KeyChecksCard(orGeneric(rows, lv), lv.items.size, onAll)
-    det.callCard?.let { CallCardView(it) }
+    // the AlphaStreet "Latest call" card is gone (owner, 28 Nov 2026: its AI numbers were wrong, feedback #240)
     val w = lv.item("W")?.v
     val gNow = skFind(w, "growth (-?[\\d.]+)%"); val gAgo = skFind(w, "a year ago (-?[\\d.]+)%")
     val share = skFind(w, "(\\d+)% growing"); val nco = skFind(w, "(\\d+) companies")

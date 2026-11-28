@@ -396,8 +396,10 @@ def score(dec: dict, L: dict, setup: dict | None, th: dict, Mx: dict | None, tod
         level = "Medium"
     if not ok4 and not integrity_open:
         not_yet.append(f"Story {str(v4).replace('story ', '')}" if str(v4).startswith("story") else str(v4))
-    return {"score": total, "level": level, "size": SIZE[level], "proofs": proofs, "not_yet": not_yet,
-            "capped": caps or None, "score_rule": SCORE_RULE}
+    from .funnel import plain  # plain words for the app: no rule ids or flag codes (owner, 28 Nov 2026)
+    proofs = [p | {"t": plain(p.get("t")), "v": plain(p.get("v"))} for p in proofs]
+    return {"score": total, "level": level, "size": SIZE[level], "proofs": proofs, "not_yet": [plain(x) for x in not_yet],
+            "capped": [plain(x) for x in caps] or None, "score_rule": SCORE_RULE}
 
 
 def assess(dec: dict, L: dict, setup: dict | None, th: dict | None, Mx: dict | None, today: date, *,

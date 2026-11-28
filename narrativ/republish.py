@@ -198,7 +198,7 @@ def main(before: str | None) -> None:
         Mx, st = det.get("metrics") or {}, det.get("stock") or {}
         # the daily run's R1 / R2 exemption label (FN.lender_type: "bank", "nbfc", "hfc", "insurer", ... or "")
         lender = st["lender"] if "lender" in st else FN.lender_type(Mx.get("kind"), Mx.get("source"), rows[s].get("sec"), rows[s].get("i"), None)
-        nd = gate(det.get("decision") or {}, ver[s], Mx.get("filed"), today, Mx, det.get("levels"), lender, open_issues(s))
+        nd = FN.plain_decision(gate(det.get("decision") or {}, ver[s], Mx.get("filed"), today, Mx, det.get("levels"), lender, open_issues(s)))
         if not nd:
             continue
         was = det["decision"].get("d")

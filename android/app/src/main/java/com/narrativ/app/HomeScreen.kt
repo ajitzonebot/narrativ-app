@@ -354,7 +354,7 @@ fun HowWeKnowSheet(st: AppState, rp: ReplayFile, cf: CallsFile?, onDismiss: () -
         }
         val v = rp.variants
         val helps = listOfNotNull(
-            v["without R4 dated trigger"]?.let { Triple("Trigger or strength (R4)", cur.m6.winPct?.toDouble() to it.m6.winPct?.toDouble(), true) },
+            v["without R4 dated trigger"]?.let { Triple("Trigger or price strength", cur.m6.winPct?.toDouble() to it.m6.winPct?.toDouble(), true) },
             v["rank: no entry-setup tier"]?.let { Triple("Entry setup first", cur.m6.winPct?.toDouble() to it.m6.winPct?.toDouble(), true) },
             v["without margin of safety"]?.let { Triple("Margin of safety", cur.m6.avgVsNifty to it.m6.avgVsNifty, false) })
         if (helps.isNotEmpty()) {

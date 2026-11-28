@@ -264,7 +264,7 @@ def test_material_good_signals_add_and_bad_ones_cap_or_subtract():
     assert hi["level"] == "High"
     bad = [{"dir": "bad", "material": 1, "status": "behind", "text": "FY27 revenue"}]
     capped = run(L=L, sym="X.NS", led=_led((1, 1), signals=bad))
-    assert capped["level"] == "Medium" and "forward target behind" in capped["why"]
+    assert capped["level"] == "Medium" and "forward target behind" in capped["why"].lower()
     red = [{"dir": "bad", "material": 0, "status": "red filing", "detail": {"filing": "CFO resigned"}}]
     assert run(L=L, sym="X.NS", led=_led((1, 1), signals=red))["level"] == "Medium"
     small = [{"dir": "bad", "material": 0, "status": "lowered", "text": "capex"}] * 3

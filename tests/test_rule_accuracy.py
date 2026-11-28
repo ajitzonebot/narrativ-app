@@ -139,7 +139,7 @@ def test_passed_review_without_r7_items_is_verification_pending():
     d0 = {"d": "Buy", "why": ["Verified by Claude's full review on 2026-11-19"], "verified": "pass"}
     d = FN.apply_buy_rules(d0, GOOD, False, TRIG, {"audit": {"verdict": "pass", "checks": [DEBT]}}, TODAY)
     assert d["d"] == "Hold" and d["candidate"] == "Buy" and d["verified"] == "pending"
-    assert any(m.startswith("Verification pending: R7 related-party") for m in d["missing"])
+    assert any(m.startswith("Verification pending: related-party") for m in d["missing"])
     ok = FN.apply_buy_rules(d0, GOOD, False, TRIG, {"audit": {"verdict": "pass", "checks": [DEBT] + OK2, "related_party": RP}} | R8, TODAY)
     assert ok["d"] == "Buy"
 
@@ -264,7 +264,7 @@ def test_code_trigger_counts_as_forward_driver():  # owner, 24 Nov 2026 (idea 1)
     L["out"]["triggers"].append({"id": "T2", "n": "Results beat"})
     d = FN.decision(L, None, {}, None, None, 100, None, today=TODAY)
     assert d["d"] != "Not rated" and not d["why"][0].startswith("No trigger yet")
-    assert any(w == "Signal: T2 Results beat" for w in d["why"])
+    assert any(w == "Signal: Results beat" for w in d["why"])
 
 
 def test_sell_reasons_come_before_not_rated():
@@ -286,3 +286,16 @@ def test_t14_ignores_a_subsidiarys_own_buyback():
     own = ("2026-10-01", "Buyback", "Board approved buyback of equity shares at Rs 2,000 per share")
     t14 = lambda rows: [x[0] for x in FN.signal_triggers(df, None, {}, None, None, rows, date(2026, 11, 12), 1000)]  # noqa: E731
     assert "T14" not in t14([sub]) and "T14" in t14([own])
+
+
+def test_unread_bad_news_holds_a_buy_until_research_reads_it():
+    """Owner, 28 Nov 2026: a recent red filing not yet read by Claude holds the stock (its call stays open); the recheck
+    then confirms (a Sell) or clears it."""
+    L = _L()
+    L["out"]["triggers"] = [{"id": "T2", "n": "Results beat"}]
+    before = FN.decision(L, None, {}, None, None, 100, None, today=TODAY)
+    news = [{"date": "2026-11-18", "type": "US FDA classification", "text": "Official Action Indicated at the injectables plant", "sev": "red"}]
+    d = FN.decision(L, None, {}, None, None, 100, None, today=TODAY, bad_news=news)
+    assert d["d"] == "Hold" and d["why"][0].startswith("Bad news filed since the last research")
+    assert any("US FDA classification" in w for w in d["why"]) and before["d"] != "Hold" or before["d"] == "Hold"
+    assert FN.decision(L, None, {}, None, None, 100, None, today=TODAY, bad_news=[])["d"] == before["d"]
